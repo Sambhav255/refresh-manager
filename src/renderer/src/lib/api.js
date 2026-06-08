@@ -36,7 +36,8 @@ export const api = {
   priceHistory: async (data) => unwrap(await invoke('priceHistory', data), { history: [] }),
 
   createTransaction: (data) => invoke('createTransaction', data),
-  listTransactions: async (data) => unwrap(await invoke('listTransactions', data), { transactions: [] }),
+  listTransactions: async (data) =>
+    unwrap(await invoke('listTransactions', data), { transactions: [] }),
   todaySummary: async (data) =>
     unwrap(await invoke('todaySummary', data), {
       total: 0,
@@ -48,9 +49,11 @@ export const api = {
     }),
   voidTransaction: (data) => invoke('voidTransaction', data),
 
+  createMember: (data) => invoke('createMember', data),
   searchMembers: async (data) => unwrap(await invoke('searchMembers', data), { members: [] }),
   listAllMembers: async () => unwrap(await invoke('listAllMembers'), { members: [] }),
   expiringSoon: async (data) => unwrap(await invoke('expiringSoon', data), { members: [] }),
+  addMembership: (data) => invoke('addMembership', data),
 
   listPoolInventory: async (data) => unwrap(await invoke('listPoolInventory', data), { items: [] }),
   poolLowStock: async () => unwrap(await invoke('poolLowStock'), { items: [] }),
@@ -63,16 +66,31 @@ export const api = {
   addRestaurantItem: (data) => invoke('addRestaurantItem', data),
   restockRestaurantItem: (data) => invoke('restockRestaurantItem', data),
 
-  upcomingBookings: async (data) => unwrap(await invoke('upcomingBookings', data), { bookings: [] }),
+  upcomingBookings: async (data) =>
+    unwrap(await invoke('upcomingBookings', data), { bookings: [] }),
   listBookings: async (data) => unwrap(await invoke('listBookings', data), { bookings: [] }),
   createBooking: (data) => invoke('createBooking', data),
   updateBooking: (data) => invoke('updateBooking', data),
   updateBookingStatus: (data) => invoke('updateBookingStatus', data),
 
-  dailyReport: async (data) => unwrap(await invoke('dailyReport', data), { summary: {}, transactions: [] }),
+  dailyReport: async (data) =>
+    unwrap(await invoke('dailyReport', data), { summary: {}, transactions: [] }),
   monthlyReport: async (data) =>
     unwrap(await invoke('monthlyReport', data), { summary: {}, byWeek: [], byProduct: [] }),
-  customReport: async (data) => unwrap(await invoke('customReport', data), { summary: {}, transactions: [] }),
+  customReport: async (data) =>
+    unwrap(await invoke('customReport', data), { summary: {}, transactions: [] }),
+  retentionReport: async (data) =>
+    unwrap(await invoke('retentionReport', data), { due: 0, renewed: 0, churned: [] }),
+  inventoryTurnoverReport: async (data) =>
+    unwrap(await invoke('inventoryTurnoverReport', data), {
+      pool: [],
+      restaurant: [],
+      lowStock: []
+    }),
+  bookingReport: async (data) =>
+    unwrap(await invoke('bookingReport', data), { bookings: [], summary: {} }),
+  staffActivityReport: async (data) =>
+    unwrap(await invoke('staffActivityReport', data), { staff: [], transactions: [] }),
   exportExcel: (data) => invoke('exportExcel', data),
 
   getSettings: async () => unwrap(await invoke('getSettings'), { settings: {} }),
@@ -80,6 +98,33 @@ export const api = {
 
   sendEod: (data) => invoke('sendEod', data),
   printTicket: (data) => invoke('printTicket', data),
+  printMembershipCard: (data) => invoke('printMembershipCard', data),
+
+  createBackup: (data) => invoke('createBackup', data),
+  listBackups: async () => unwrap(await invoke('listBackups'), { backups: [] }),
+  getBackupStatus: async () => unwrap(await invoke('getBackupStatus'), {}),
+  restoreBackup: (data) => invoke('restoreBackup', data),
+  pickBackupFolder: (data) => invoke('pickBackupFolder', data),
+
+  getExpiringReminders: async (data) =>
+    unwrap(await invoke('getExpiringReminders', data), { members: [] }),
+  sendReminder: (data) => invoke('sendReminder', data),
+  sendAllReminders: (data) => invoke('sendAllReminders', data),
+
+  savePhoto: (data) => invoke('savePhoto', data),
+  getPhotoPath: async (data) => unwrap(await invoke('getPhotoPath', data), { photoPath: null }),
+
+  createReconciliation: (data) => invoke('createReconciliation', data),
+  getTodayReconciliation: async () =>
+    unwrap(await invoke('getTodayReconciliation'), { reconciliation: null }),
+  listReconciliations: async (data) =>
+    unwrap(await invoke('listReconciliations', data), { reconciliations: [] }),
+
+  listMenuItems: async (data) => unwrap(await invoke('listMenuItems', data), { items: [] }),
+  addMenuItem: (data) => invoke('addMenuItem', data),
+  updateMenuItem: (data) => invoke('updateMenuItem', data),
+  toggleMenuItem: (data) => invoke('toggleMenuItem', data),
+  restaurantCheckout: (data) => invoke('restaurantCheckout', data),
 
   listStaff: async () => unwrap(await invoke('listStaff'), { users: [] }),
   addStaff: (data) => invoke('addStaff', data),

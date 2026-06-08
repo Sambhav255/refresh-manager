@@ -67,6 +67,10 @@ const api = {
   monthlyReport: (data) => invoke('reports:monthly', data),
   customReport: (data) => invoke('reports:custom', data),
   exportExcel: (data) => invoke('reports:export-excel', data),
+  retentionReport: (data) => invoke('reports:retention', data),
+  inventoryTurnoverReport: (data) => invoke('reports:inventory-turnover', data),
+  bookingReport: (data) => invoke('reports:bookings', data),
+  staffActivityReport: (data) => invoke('reports:staff-activity', data),
 
   // Settings
   getSettings: () => invoke('settings:get-all'),
@@ -75,9 +79,35 @@ const api = {
   // WhatsApp & backup
   sendEod: (data) => invoke('whatsapp:send-eod', data),
   createBackup: (data) => invoke('backup:create', data),
+  listBackups: () => invoke('backup:list'),
+  getBackupStatus: () => invoke('backup:get-status'),
+  restoreBackup: (data) => invoke('backup:restore', data),
+  pickBackupFolder: () => invoke('backup:pick-folder'),
+
+  // Reminders
+  getExpiringReminders: (data) => invoke('reminders:get-expiring', data),
+  sendReminder: (data) => invoke('reminders:send-one', data),
+  sendAllReminders: (data) => invoke('reminders:send-all', data),
+
+  // Photos
+  savePhoto: (data) => invoke('photos:save', data),
+  getPhotoPath: (data) => invoke('photos:get-path', data),
+
+  // Reconciliation
+  createReconciliation: (data) => invoke('reconciliation:create', data),
+  getTodayReconciliation: () => invoke('reconciliation:get-today'),
+  listReconciliations: (data) => invoke('reconciliation:list', data),
+
+  // Restaurant menu / POS
+  listMenuItems: (data) => invoke('restaurant-menu:list', data),
+  addMenuItem: (data) => invoke('restaurant-menu:add', data),
+  updateMenuItem: (data) => invoke('restaurant-menu:update', data),
+  toggleMenuItem: (data) => invoke('restaurant-menu:toggle', data),
+  restaurantCheckout: (data) => invoke('restaurant:checkout', data),
 
   // Tickets
-  printTicket: (data) => invoke('tickets:print', data)
+  printTicket: (data) => invoke('tickets:print', data),
+  printMembershipCard: (data) => invoke('tickets:print-membership-card', data)
 }
 
 if (process.contextIsolated) {
