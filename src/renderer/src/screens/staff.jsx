@@ -75,6 +75,14 @@ export function StaffHome({ go }) {
       bg: '#E6F1FB',
       t: 'Bookings',
       s: `${bookingCount} upcoming in 14 days`
+    },
+    {
+      k: 'restaurant',
+      icon: 'utensils',
+      c: '#b45309',
+      bg: '#fef3c7',
+      t: 'Restaurant POS',
+      s: 'Menu orders & checkout'
     }
   ]
 
@@ -118,3 +126,4 @@ export { MemberSearch } from './staff-members'
 export { TodaysLog } from './staff-log'
 export { EndOfDay } from './staff-eod'
 export { StaffBookings } from './staff-bookings'
+export { StaffRestaurantPos } from './staff-restaurant-pos'
