@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Window, WaveMark, Icon, AppHeader, SectionHead } from './components/ui'
+import { ScreenErrorBoundary } from './components/ScreenErrorBoundary'
 import { api } from './lib/api'
 import {
   StaffHome,
@@ -7,7 +8,8 @@ import {
   MemberSearch,
   TodaysLog,
   EndOfDay,
-  StaffBookings
+  StaffBookings,
+  StaffRestaurantPos
 } from './screens/staff'
 import {
   OwnerDashboard,
@@ -379,19 +381,36 @@ function StaffApp({ session, onLogout }) {
   else if (tab === 'new') screen = <NewTransaction key="new" session={session} onDone={setTab} />
   else if (tab === 'members') screen = <MemberSearch key="members" />
   else if (tab === 'log') screen = <TodaysLog key="log" />
-  else if (tab === 'eod') screen = <EndOfDay key="eod" />
+  else if (tab === 'eod') screen = <EndOfDay key="eod" session={session} />
   else if (tab === 'inv') screen = <StaffInventory key="inv" back={() => setTab('home')} />
   else if (tab === 'bookings') screen = <StaffBookings key="bookings" back={() => setTab('home')} />
+  else if (tab === 'restaurant')
+    screen = <StaffRestaurantPos session={session} back={() => setTab('home')} />
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')
+        return
+      const map = { n: 'new', m: 'members', l: 'log', e: 'eod' }
+      const next = map[e.key.toLowerCase()]
+      if (next) setTab(next)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const navActive = (k) =>
-    k === tab || (tab === 'inv' && k === 'home') || (tab === 'bookings' && k === 'home')
+    k === tab ||
+    (tab === 'inv' && k === 'home') ||
+    (tab === 'bookings' && k === 'home') ||
+    (tab === 'restaurant' && k === 'home')
 
   return (
     <div className="app">
       <AppHeader role="staff" session={session} onLogout={onLogout} />
       <div className="body-wrap">
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          {screen}
+          <ScreenErrorBoundary key={tab}>{screen}</ScreenErrorBoundary>
         </div>
       </div>
       <div className="botnav">
@@ -451,7 +470,7 @@ function OwnerApp({ session, onLogout }) {
             </div>
           ))}
         </div>
-        {ownerScreen}
+        <ScreenErrorBoundary key={tab}>{ownerScreen}</ScreenErrorBoundary>
       </div>
     </div>
   )
@@ -460,6 +479,19 @@ function OwnerApp({ session, onLogout }) {
 export default function App() {
   const [view, setView] = useState('loading')
   const [session, setSession] = useState(null)
+  const timeoutRef = useRef(null)
+  const timeoutMinutesRef = useRef(30)
+
+  const resetIdleTimer = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    if (!session) return
+    const ms = (timeoutMinutesRef.current || 30) * 60 * 1000
+    timeoutRef.current = setTimeout(async () => {
+      await api.logout()
+      setSession(null)
+      setView('login')
+    }, ms)
+  }, [session])
 
   useEffect(() => {
     async function init() {
@@ -472,6 +504,8 @@ export default function App() {
       if (user) {
         setSession(user)
         setView(user.role)
+        const settings = await api.getSettings()
+        timeoutMinutesRef.current = Number(settings.settings?.session_timeout_minutes) || 30
       } else setView('login')
     }
     init()
@@ -502,15 +536,31 @@ export default function App() {
         : 'Press <kbd>Esc</kbd> to log out · everything is clickable'
   }, [view])
 
-  const handleLogin = (user) => {
+  const handleLogin = async (user) => {
     setSession(user)
     setView(user.role)
+    const settings = await api.getSettings()
+    timeoutMinutesRef.current = Number(settings.settings?.session_timeout_minutes) || 30
   }
   const handleLogout = async () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
     await api.logout()
     setSession(null)
     setView('login')
   }
+
+  useEffect(() => {
+    if (!session) return
+    resetIdleTimer()
+    const onActivity = () => resetIdleTimer()
+    window.addEventListener('mousemove', onActivity)
+    window.addEventListener('keydown', onActivity)
+    return () => {
+      window.removeEventListener('mousemove', onActivity)
+      window.removeEventListener('keydown', onActivity)
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [session, resetIdleTimer])
 
   if (view === 'loading')
     return (

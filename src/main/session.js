@@ -5,7 +5,7 @@ export function getSession() {
 }
 
 export function setSession(user) {
-  currentSession = user ? { userId: user.id, name: user.name, role: user.role } : null
+  currentSession = user ? { userId: user.userId ?? user.id, name: user.name, role: user.role } : null
 }
 
 export function clearSession() {

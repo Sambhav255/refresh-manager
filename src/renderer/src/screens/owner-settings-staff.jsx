@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
+import { validatePin } from '../lib/validate'
 import { Icon, SectionHead } from '../components/ui'
 
 export function ManageStaff({ back }) {
@@ -8,6 +9,7 @@ export function ManageStaff({ back }) {
   const [pin, setPin] = useState('')
   const [changeId, setChangeId] = useState(null)
   const [newPin, setNewPin] = useState('')
+  const [error, setError] = useState('')
 
   const load = () => api.listStaff().then((r) => setStaff(r.users || []))
   useEffect(() => {
@@ -15,7 +17,12 @@ export function ManageStaff({ back }) {
   }, [])
 
   const add = async () => {
-    await api.addStaff({ name, pin })
+    setError('')
+    const pinErr = validatePin(pin)
+    if (pinErr) { setError(pinErr); return }
+    if (!name.trim()) { setError('Name is required'); return }
+    const r = await api.addStaff({ name: name.trim(), pin })
+    if (r?.success === false) { setError(r.error || 'Failed to add staff'); return }
     setName('')
     setPin('')
     load()
@@ -27,7 +34,11 @@ export function ManageStaff({ back }) {
   }
 
   const changePin = async () => {
-    await api.changePin({ userId: changeId, newPin })
+    setError('')
+    const pinErr = validatePin(newPin)
+    if (pinErr) { setError(pinErr); return }
+    const r = await api.changePin({ userId: changeId, newPin })
+    if (r?.success === false) { setError(r.error || 'Failed to change PIN'); return }
     setChangeId(null)
     setNewPin('')
   }
@@ -39,6 +50,11 @@ export function ManageStaff({ back }) {
           <Icon name="chevron-left" size={15} /> Back
         </button>
       </SectionHead>
+      {error && (
+        <div className="alert red" style={{ marginBottom: 12 }}>
+          <div className="a-desc">{error}</div>
+        </div>
+      )}
       <div className="card" style={{ padding: 14, marginBottom: 14 }}>
         <div style={{ fontWeight: 500, marginBottom: 8 }}>Add staff</div>
         <div style={{ display: 'flex', gap: 8 }}>
