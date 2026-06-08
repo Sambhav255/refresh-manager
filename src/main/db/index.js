@@ -3,6 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { initSchema } from './schema.js'
 import { seedData } from './seed.js'
+import { runMigrations } from './migrations.js'
 
 let db = null
 
@@ -20,6 +21,7 @@ export function initDatabase() {
   db.pragma('foreign_keys = ON')
   initSchema(db)
   seedData(db)
+  runMigrations(db)
   return db
 }
 

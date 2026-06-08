@@ -79,7 +79,7 @@ function fetchActiveMembership(db, memberId) {
 
 function membershipEndDate(startDate, durationDays) {
   const days = durationDays || 1
-  return addDays(startDate, days - 1)
+  return addDays(startDate, days)
 }
 
 export function registerMemberHandlers() {
