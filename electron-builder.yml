@@ -1,7 +1,9 @@
-appId: com.electron.app
-productName: refresh-manager
+appId: com.refreshrecreation.manager
+productName: Refresh Manager
+copyright: Refresh Recreation Center Pvt. Ltd.
 directories:
   buildResources: build
+  output: dist-app
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -11,12 +13,20 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: refresh-manager
+  executableName: Refresh Manager
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-${version}-setup.${ext}
+  shortcutName: Refresh Manager
+  uninstallDisplayName: Refresh Manager
   createDesktopShortcut: always
+  createStartMenuShortcut: true
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
@@ -36,7 +46,4 @@ linux:
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
-npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
+npmRebuild: true

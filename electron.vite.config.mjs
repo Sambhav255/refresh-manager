@@ -21,6 +21,10 @@ export default defineConfig({
             resolve('src/renderer/ticket.html'),
             resolve('out/renderer/ticket.html')
           )
+          copyFileSync(
+            resolve('src/renderer/membership-card.html'),
+            resolve('out/renderer/membership-card.html')
+          )
         }
       }
     ]
