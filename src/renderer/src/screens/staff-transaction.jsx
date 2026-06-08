@@ -1,7 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
-import { fmt, categoryToUiType, uiTypeToDbType } from '../lib/format'
+import { fmt, categoryToUiType, uiTypeToDbType, todayLocal } from '../lib/format'
 import { Icon } from '../components/ui'
+
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 const UI_TYPES = ['Membership', 'Day Package', 'Day Pass']
 
@@ -29,6 +38,12 @@ export function NewTransaction({ session, onDone }) {
   const [products, setProducts] = useState([])
   const [grouped, setGrouped] = useState({})
   const [savedTxn, setSavedTxn] = useState(null)
+  const [photoPreview, setPhotoPreview] = useState(null)
+  const [photoBase64, setPhotoBase64] = useState(null)
+  const [cameraOn, setCameraOn] = useState(false)
+  const videoRef = useRef(null)
+  const streamRef = useRef(null)
+  const fileRef = useRef(null)
 
   useEffect(() => {
     api.listProducts().then((r) => {
@@ -38,14 +53,128 @@ export function NewTransaction({ session, onDone }) {
     })
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop())
+    }
+  }, [])
+
   const selected = products.find((p) => String(p.id) === String(productId))
   const amount = selected?.price ?? 0
   const allPricesZero = products.length > 0 && products.every((p) => !p.price)
+
+  const setPhotoFromDataUrl = (dataUrl) => {
+    setPhotoPreview(dataUrl)
+    setPhotoBase64(dataUrl)
+  }
+
+  const handleFilePhoto = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setPhotoFromDataUrl(reader.result)
+    reader.readAsDataURL(file)
+  }
+
+  const startCamera = async () => {
+    setError('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+      streamRef.current = stream
+      setCameraOn(true)
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.play()
+        }
+      }, 50)
+    } catch {
+      setError('Could not access camera. Try uploading a photo instead.')
+    }
+  }
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+    setCameraOn(false)
+  }
+
+  const capturePhoto = () => {
+    const video = videoRef.current
+    if (!video) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth || 320
+    canvas.height = video.videoHeight || 240
+    canvas.getContext('2d').drawImage(video, 0, 0)
+    setPhotoFromDataUrl(canvas.toDataURL('image/jpeg', 0.85))
+    stopCamera()
+  }
+
+  const clearPhoto = () => {
+    setPhotoPreview(null)
+    setPhotoBase64(null)
+    stopCamera()
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
   const labels = ['Type', 'Product', 'Customer', 'Payment', 'Confirm']
 
   const handleSave = async () => {
     setSaving(true)
     setError('')
+
+    if (type === 'Membership') {
+      if (!name.trim()) {
+        setError('Member name is required for memberships')
+        setSaving(false)
+        return
+      }
+      const memberResult = await api.createMember({ name: name.trim(), phone: phone || null })
+      if (memberResult?.success === false) {
+        setSaving(false)
+        setError(memberResult.error || 'Failed to create member')
+        return
+      }
+      const result = await api.addMembership({
+        memberId: memberResult.memberId,
+        productId: selected?.id,
+        amount,
+        paymentMethod: pay.toLowerCase(),
+        staffId: session?.userId
+      })
+      if (result?.success === false) {
+        setSaving(false)
+        setError(result.error || 'Failed to save membership')
+        return
+      }
+
+      let photoPath = null
+      if (photoBase64) {
+        const photoResult = await api.savePhoto({ memberId: memberResult.memberId, base64: photoBase64 })
+        if (photoResult?.success !== false) photoPath = photoResult.photoPath
+      }
+
+      const startDate = todayLocal()
+      const endDate = addDays(startDate, selected?.duration_days || 30)
+      setSaving(false)
+      setSavedTxn({
+        transactionId: result.transactionId,
+        product: selected?.displayName || selected?.name || productId,
+        amount,
+        pay,
+        isMembership: true,
+        memberId: memberResult.memberId,
+        memberName: name.trim(),
+        startDate,
+        endDate,
+        photoPath
+      })
+      setSaved(true)
+      return
+    }
+
     const result = await api.createTransaction({
       type: uiTypeToDbType(type),
       source: 'pool',
@@ -65,7 +194,8 @@ export function NewTransaction({ session, onDone }) {
       transactionId: result.transactionId,
       product: selected?.displayName || selected?.name || productId,
       amount,
-      pay
+      pay,
+      isMembership: false
     })
     setSaved(true)
   }
@@ -81,6 +211,18 @@ export function NewTransaction({ session, onDone }) {
     })
   }
 
+  const handlePrintCard = async () => {
+    if (!savedTxn?.isMembership) return
+    await api.printMembershipCard({
+      memberId: savedTxn.memberId,
+      memberName: savedTxn.memberName,
+      productName: savedTxn.product,
+      startDate: savedTxn.startDate,
+      endDate: savedTxn.endDate,
+      photoPath: savedTxn.photoPath || ''
+    })
+  }
+
   const reset = () => {
     setSaved(false)
     setSavedTxn(null)
@@ -90,6 +232,7 @@ export function NewTransaction({ session, onDone }) {
     setName('')
     setPhone('')
     setError('')
+    clearPhoto()
   }
 
   if (saved) {
@@ -103,6 +246,9 @@ export function NewTransaction({ session, onDone }) {
           <div className="sub" style={{ marginTop: 6 }}>{savedTxn?.product} · {fmt(savedTxn?.amount)} · {savedTxn?.pay}</div>
           <div style={{ display: 'flex', gap: 10, marginTop: 22, flexDirection: 'column' }}>
             <button className="btn btn-ghost btn-block" onClick={handlePrint}><Icon name="printer" size={16} /> Print Ticket</button>
+            {savedTxn?.isMembership && (
+              <button className="btn btn-ghost btn-block" onClick={handlePrintCard}><Icon name="credit-card" size={16} /> Print membership card</button>
+            )}
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="btn btn-ghost btn-block" onClick={reset}>New transaction</button>
               <button className="btn btn-primary btn-block" onClick={() => onDone('home')}>Done</button>
@@ -126,6 +272,33 @@ export function NewTransaction({ session, onDone }) {
   const next = () => setStep((s) => Math.min(4, s + 1))
   const back = () => setStep((s) => Math.max(0, s - 1))
   const typeProducts = grouped[type] || []
+
+
+  const PhotoCapture = () => (
+    <div style={{ marginTop: 12, padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid var(--border)' }}>
+      <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 8 }}>Member photo (optional)</div>
+      {photoPreview ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src={photoPreview} alt="Member" style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover' }} />
+          <button className="btn btn-ghost" style={{ padding: '6px 10px', fontSize: 12 }} onClick={clearPhoto}>Remove photo</button>
+        </div>
+      ) : cameraOn ? (
+        <div>
+          <video ref={videoRef} style={{ width: '100%', maxWidth: 280, borderRadius: 8, background: '#000' }} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: 12 }} onClick={capturePhoto}>Capture</button>
+            <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: 12 }} onClick={stopCamera}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: 12 }} onClick={startCamera}><Icon name="camera" size={14} /> Take photo</button>
+          <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => fileRef.current?.click()}><Icon name="upload" size={14} /> Upload</button>
+          <input ref={fileRef} type="file" accept="image/*" capture="user" style={{ display: 'none' }} onChange={handleFilePhoto} />
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <div className="content fade-in" style={{ display: 'grid', placeItems: 'start center', paddingTop: 26 }}>
@@ -167,6 +340,7 @@ export function NewTransaction({ session, onDone }) {
             <div className="field"><label>Product</label><select className="select" value={productId} disabled style={{ color: '#475569' }}><option>{selected?.displayName || selected?.name}</option></select></div>
             <div className="field"><label>Customer name</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" /></div>
             <div className="field"><label>Phone (optional)</label><input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="98XXXXXXXX" /></div>
+            {type === 'Membership' && <PhotoCapture />}
             <div className="amount-box"><span className="a-label">Amount</span><span className="a-value">{fmt(amount)}</span></div>
           </div>
         )}
@@ -187,6 +361,12 @@ export function NewTransaction({ session, onDone }) {
                 <span style={{ color: '#64748b' }}>{k}</span><span style={{ color: '#1a202c' }}>{v}</span>
               </div>
             ))}
+            {type === 'Membership' && photoPreview && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid var(--border)', fontSize: 13, alignItems: 'center' }}>
+                <span style={{ color: '#64748b' }}>Photo</span>
+                <img src={photoPreview} alt="Preview" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover' }} />
+              </div>
+            )}
             <div className="amount-box" style={{ marginTop: 14 }}><span className="a-label">Total</span><span className="a-value">{fmt(amount)}</span></div>
           </div>
         )}
