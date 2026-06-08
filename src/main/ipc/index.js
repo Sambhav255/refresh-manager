@@ -10,6 +10,10 @@ import { registerSettingsHandlers } from './settings.js'
 import { registerWhatsappHandlers } from './whatsapp.js'
 import { registerBackupHandlers } from './backup.js'
 import { registerTicketHandlers } from './tickets.js'
+import { registerReminderHandlers } from './reminders.js'
+import { registerPhotoHandlers } from './photos.js'
+import { registerReconciliationHandlers } from './reconciliation.js'
+import { registerRestaurantMenuHandlers } from './restaurant-menu.js'
 
 export function registerAllHandlers() {
   registerAuthHandlers()
@@ -24,4 +28,8 @@ export function registerAllHandlers() {
   registerWhatsappHandlers()
   registerBackupHandlers()
   registerTicketHandlers()
+  registerReminderHandlers()
+  registerPhotoHandlers()
+  registerReconciliationHandlers()
+  registerRestaurantMenuHandlers()
 }
