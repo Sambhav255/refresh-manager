@@ -1,58 +1,98 @@
 import {
-  AlertTriangle, Banknote, BarChart3, Building2, Calendar, CalendarClock,
-  CalendarRange, Check, CheckCheck, ChevronLeft, ChevronRight, ClockAlert,
-  Download, Filter, Folder, Home, LayoutDashboard, LayoutGrid, List, LogOut,
-  MessageCircle, MoreVertical, Package, Plus, PlusCircle, QrCode, ReceiptText,
-  Search, Send, Settings, Sheet, Shield, Tag, TrendingUp, User, UserCheck,
-  UserSearch, Users,
-} from 'lucide-react';
+  AlertTriangle,
+  Banknote,
+  BarChart3,
+  Building2,
+  Calendar,
+  CalendarClock,
+  CalendarDays,
+  CalendarRange,
+  Check,
+  CheckCheck,
+  ChevronLeft,
+  ChevronRight,
+  ClockAlert,
+  Download,
+  Filter,
+  Folder,
+  Home,
+  LayoutDashboard,
+  LayoutGrid,
+  List,
+  LogOut,
+  MessageCircle,
+  MoreVertical,
+  Package,
+  Plus,
+  PlusCircle,
+  Printer,
+  QrCode,
+  ReceiptText,
+  Search,
+  Send,
+  Settings,
+  Sheet,
+  Shield,
+  Tag,
+  TrendingUp,
+  User,
+  UserCheck,
+  UserSearch,
+  Users,
+  UtensilsCrossed,
+  X
+} from 'lucide-react'
 
 const ICONS = {
-  'alert-triangle':  AlertTriangle,
-  'banknote':        Banknote,
-  'bar-chart-3':     BarChart3,
-  'building-2':      Building2,
-  'calendar':        Calendar,
-  'calendar-clock':  CalendarClock,
-  'calendar-range':  CalendarRange,
-  'check':           Check,
-  'check-check':     CheckCheck,
-  'chevron-left':    ChevronLeft,
-  'chevron-right':   ChevronRight,
-  'clock-alert':     ClockAlert,
-  'download':        Download,
-  'filter':          Filter,
-  'folder':          Folder,
-  'home':            Home,
-  'layout-dashboard':LayoutDashboard,
-  'layout-grid':     LayoutGrid,
-  'list':            List,
-  'log-out':         LogOut,
-  'message-circle':  MessageCircle,
-  'more-vertical':   MoreVertical,
-  'package':         Package,
-  'plus':            Plus,
-  'plus-circle':     PlusCircle,
-  'qr-code':         QrCode,
-  'receipt-text':    ReceiptText,
-  'search':          Search,
-  'send':            Send,
-  'settings':        Settings,
-  'sheet':           Sheet,
-  'shield':          Shield,
-  'tag':             Tag,
-  'trending-up':     TrendingUp,
-  'user':            User,
-  'user-check':      UserCheck,
-  'user-search':     UserSearch,
-  'users':           Users,
-};
+  'alert-triangle': AlertTriangle,
+  banknote: Banknote,
+  'bar-chart-3': BarChart3,
+  'building-2': Building2,
+  calendar: Calendar,
+  'calendar-clock': CalendarClock,
+  'calendar-days': CalendarDays,
+  'calendar-range': CalendarRange,
+  check: Check,
+  'check-check': CheckCheck,
+  'chevron-left': ChevronLeft,
+  'chevron-right': ChevronRight,
+  'clock-alert': ClockAlert,
+  download: Download,
+  filter: Filter,
+  folder: Folder,
+  home: Home,
+  'layout-dashboard': LayoutDashboard,
+  'layout-grid': LayoutGrid,
+  list: List,
+  'log-out': LogOut,
+  'message-circle': MessageCircle,
+  'more-vertical': MoreVertical,
+  package: Package,
+  plus: Plus,
+  'plus-circle': PlusCircle,
+  printer: Printer,
+  'qr-code': QrCode,
+  'receipt-text': ReceiptText,
+  search: Search,
+  send: Send,
+  settings: Settings,
+  sheet: Sheet,
+  shield: Shield,
+  tag: Tag,
+  'trending-up': TrendingUp,
+  user: User,
+  'user-check': UserCheck,
+  'user-search': UserSearch,
+  users: Users,
+  utensils: UtensilsCrossed,
+  x: X
+}
 
 export function Icon({ name, size = 18, color, strokeWidth = 1.9, style }) {
-  const Comp = ICONS[name];
+  const Comp = ICONS[name]
   if (!Comp) {
-    console.warn(`Icon not found: "${name}"`);
-    return <span style={{ display: 'inline-flex', width: size, height: size }} />;
+    console.warn(`Icon not found: "${name}"`)
+    return <span style={{ display: 'inline-flex', width: size, height: size }} />
   }
   return (
     <Comp
@@ -61,41 +101,46 @@ export function Icon({ name, size = 18, color, strokeWidth = 1.9, style }) {
       strokeWidth={strokeWidth}
       style={{ display: 'inline-flex', flexShrink: 0, ...style }}
     />
-  );
+  )
 }
 
-export const WaveMark = ({ size = 22, color = "#fff" }) => (
+export const WaveMark = ({ size = 22, color = '#fff' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <path
       d="M2 8c2.2 0 2.2 2 4.4 2s2.2-2 4.4-2 2.2 2 4.4 2S17.4 8 19.6 8 21.8 10 22 10"
-      stroke={color} strokeWidth="2" strokeLinecap="round"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
     />
     <path
       d="M2 13c2.2 0 2.2 2 4.4 2s2.2-2 4.4-2 2.2 2 4.4 2 2.2-2 4.4-2 2 2 2.4 2"
-      stroke={color} strokeWidth="2" strokeLinecap="round" opacity=".6"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      opacity=".6"
     />
   </svg>
-);
+)
 
 export function Badge({ kind, children }) {
   const map = {
-    "Active":        "b-active",
-    "Expiring soon": "b-exp",
-    "Expired":       "b-dead",
-    "Cash":          "b-cash",
-    "QR":            "b-qr",
-    "Membership":    "b-mem",
-  };
-  return <span className={"badge " + (map[kind] || "b-cash")}>{children || kind}</span>;
+    Active: 'b-active',
+    'Expiring soon': 'b-exp',
+    Expired: 'b-dead',
+    Cash: 'b-cash',
+    QR: 'b-qr',
+    Membership: 'b-mem'
+  }
+  return <span className={'badge ' + (map[kind] || 'b-cash')}>{children || kind}</span>
 }
 
 export function PayBadge({ pay }) {
-  return <span className={"badge " + (pay === "QR" ? "b-qr" : "b-cash")}>{pay}</span>;
+  return <span className={'badge ' + (pay === 'QR' ? 'b-qr' : 'b-cash')}>{pay}</span>
 }
 
 export function Avatar({ initials, status }) {
-  const cls = status === "Active" ? "av-active" : status === "Expired" ? "av-dead" : "av-exp";
-  return <div className={"avatar " + cls}>{initials}</div>;
+  const cls = status === 'Active' ? 'av-active' : status === 'Expired' ? 'av-dead' : 'av-exp'
+  return <div className={'avatar ' + cls}>{initials}</div>
 }
 
 export function Window({ children, onClose }) {
@@ -114,7 +159,15 @@ export function Window({ children, onClose }) {
           </button>
           <button title="Maximize">
             <svg className="gl" viewBox="0 0 10 10">
-              <rect x="1.2" y="1.2" width="7.6" height="7.6" fill="none" stroke="currentColor" strokeWidth="1" />
+              <rect
+                x="1.2"
+                y="1.2"
+                width="7.6"
+                height="7.6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1"
+              />
             </svg>
           </button>
           <button className="close" title="Close" onClick={onClose}>
@@ -127,27 +180,34 @@ export function Window({ children, onClose }) {
       </div>
       {children}
     </div>
-  );
+  )
 }
 
-export function AppHeader({ role, onLogout }) {
+export function AppHeader({ role, session, onLogout }) {
+  const userLabel = session?.name
+    ? `${session.name} · ${role === 'staff' ? 'Reception' : 'Admin'}`
+    : role === 'staff'
+      ? 'Staff'
+      : 'Owner · Admin'
   return (
     <div className="hdr">
       <div className="hdr-brand">
-        <div className="hdr-logo"><WaveMark size={24} /></div>
+        <div className="hdr-logo">
+          <WaveMark size={24} />
+        </div>
         <span className="hdr-name">Refresh Manager</span>
       </div>
       <div className="hdr-right">
         <div className="hdr-user">
-          <Icon name={role === "staff" ? "user" : "shield"} size={15} color="#bcd4ee" />
-          <span>{role === "staff" ? "Aarti · Reception" : "Owner · Admin"}</span>
+          <Icon name={role === 'staff' ? 'user' : 'shield'} size={15} color="#bcd4ee" />
+          <span>{userLabel}</span>
         </div>
         <button className="ghost-btn" onClick={onLogout}>
           <Icon name="log-out" size={14} /> Log out
         </button>
       </div>
     </div>
-  );
+  )
 }
 
 export function SectionHead({ title, date, children }) {
@@ -155,9 +215,15 @@ export function SectionHead({ title, date, children }) {
     <div className="between" style={{ marginBottom: 18 }}>
       <div>
         <div className="h1">{title}</div>
-        {date && <div className="sub" style={{ marginTop: 3 }}>{date}</div>}
+        {date && (
+          <div className="sub" style={{ marginTop: 3 }}>
+            {date}
+          </div>
+        )}
       </div>
-      <div className="row" style={{ gap: 10, alignItems: "center" }}>{children}</div>
+      <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+        {children}
+      </div>
     </div>
-  );
+  )
 }

@@ -1,17 +1,189 @@
 import { useState, useEffect } from 'react'
 import { Window, WaveMark, Icon, AppHeader, SectionHead } from './components/ui'
-import { StaffHome, NewTransaction, MemberSearch, TodaysLog, EndOfDay } from './screens/staff'
+import { api } from './lib/api'
+import {
+  StaffHome,
+  NewTransaction,
+  MemberSearch,
+  TodaysLog,
+  EndOfDay,
+  StaffBookings
+} from './screens/staff'
 import {
   OwnerDashboard,
   OwnerTransactions,
   OwnerMembers,
   OwnerInventory,
+  OwnerRestaurantInventory,
+  OwnerBookings,
   OwnerReports,
   OwnerSettings
 } from './screens/owner'
-import { inventory } from './data/mock'
+
+
+function SetupWizard({ onDone }) {
+  const [ownerName, setOwnerName] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [staffName, setStaffName] = useState('')
+  const [staffPin, setStaffPin] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const submit = async () => {
+    setError('')
+    if (password !== confirm) {
+      setError('Passwords do not match')
+      return
+    }
+    if (!/^\d{4}$/.test(staffPin)) {
+      setError('Staff PIN must be 4 digits')
+      return
+    }
+    setLoading(true)
+    const result = await api.setup({ ownerName, password, staffName, staffPin })
+    setLoading(false)
+    if (result?.success === false) {
+      setError(result.error || 'Setup failed')
+      return
+    }
+    onDone(result.user)
+  }
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: 'grid',
+        placeItems: 'center',
+        background: 'var(--bg)',
+        minHeight: '100%'
+      }}
+      className="fade-in"
+    >
+      <div className="card" style={{ width: 400, padding: 28 }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 20, fontWeight: 500 }}>Welcome to Refresh Manager</div>
+          <div className="sub" style={{ marginTop: 4 }}>
+            Set up your owner account and first staff PIN
+          </div>
+        </div>
+        <div className="field">
+          <label>Owner name</label>
+          <input
+            className="input"
+            value={ownerName}
+            onChange={(e) => setOwnerName(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Password</label>
+          <input
+            className="input"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Confirm password</label>
+          <input
+            className="input"
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>First staff name</label>
+          <input
+            className="input"
+            value={staffName}
+            onChange={(e) => setStaffName(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Staff PIN (4 digits)</label>
+          <input
+            className="input"
+            value={staffPin}
+            onChange={(e) => setStaffPin(e.target.value)}
+            maxLength={4}
+          />
+        </div>
+        {error && (
+          <div className="alert red" style={{ marginBottom: 12 }}>
+            <div className="a-desc">{error}</div>
+          </div>
+        )}
+        <button className="btn btn-primary btn-block" disabled={loading} onClick={submit}>
+          {loading ? 'Setting up…' : 'Complete setup'}
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function Login({ onLogin }) {
+  const [modal, setModal] = useState(null)
+  const [pin, setPin] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const submitStaff = async () => {
+    setError('')
+    setLoading(true)
+    const result = await api.login({ pin })
+    setLoading(false)
+    if (result?.success === false) {
+      setError(result.error || 'Login failed')
+      return
+    }
+    onLogin(result.user)
+  }
+
+  const submitOwner = async () => {
+    setError('')
+    setLoading(true)
+    const result = await api.login({ username, password })
+    setLoading(false)
+    if (result?.success === false) {
+      setError(result.error || 'Login failed')
+      return
+    }
+    onLogin(result.user)
+  }
+
+  const Modal = ({ title, children, onClose }) => (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,.35)',
+        display: 'grid',
+        placeItems: 'center',
+        zIndex: 50
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="card scale-in"
+        style={{ width: 360, padding: 24 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 500 }}>{title}</div>
+          <button className="btn btn-ghost" style={{ padding: 4 }} onClick={onClose}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+
   return (
     <div
       style={{
@@ -38,34 +210,99 @@ function Login({ onLogin }) {
         >
           <WaveMark size={34} />
         </div>
-        <div style={{ fontSize: 23, fontWeight: 500, color: '#1a202c', letterSpacing: '.2px' }}>
-          Refresh Manager
-        </div>
+        <div style={{ fontSize: 23, fontWeight: 500, color: '#1a202c' }}>Refresh Manager</div>
         <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>Boudha, Kathmandu</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 30 }}>
           <button
             className="btn btn-ghost btn-block"
             style={{ padding: 14, fontSize: 14 }}
-            onClick={() => onLogin('staff')}
+            onClick={() => {
+              setModal('staff')
+              setError('')
+              setPin('')
+            }}
           >
             <Icon name="user" size={18} /> Staff Login
           </button>
           <button
             className="btn btn-primary btn-block"
             style={{ padding: 14, fontSize: 14 }}
-            onClick={() => onLogin('owner')}
+            onClick={() => {
+              setModal('owner')
+              setError('')
+              setUsername('')
+              setPassword('')
+            }}
           >
             <Icon name="shield" size={18} /> Owner / Admin Login
           </button>
         </div>
       </div>
+      {modal === 'staff' && (
+        <Modal title="Staff PIN" onClose={() => setModal(null)}>
+          <div className="field">
+            <label>Enter 4-digit PIN</label>
+            <input
+              className="input"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              maxLength={4}
+              autoFocus
+            />
+          </div>
+          {error && (
+            <div className="alert red" style={{ marginBottom: 10 }}>
+              <div className="a-desc">{error}</div>
+            </div>
+          )}
+          <button className="btn btn-primary btn-block" disabled={loading} onClick={submitStaff}>
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </Modal>
+      )}
+      {modal === 'owner' && (
+        <Modal title="Owner login" onClose={() => setModal(null)}>
+          <div className="field">
+            <label>Username</label>
+            <input
+              className="input"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input
+              className="input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          {error && (
+            <div className="alert red" style={{ marginBottom: 10 }}>
+              <div className="a-desc">{error}</div>
+            </div>
+          )}
+          <button className="btn btn-primary btn-block" disabled={loading} onClick={submitOwner}>
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </Modal>
+      )}
       <div style={{ position: 'absolute', bottom: 16, fontSize: 11.5, color: '#94a3b8' }}>v1.0</div>
     </div>
   )
 }
-
 function StaffInventory({ back }) {
-  const inv = inventory
+  const [inv, setInv] = useState([])
+  const [lowStock, setLowStock] = useState([])
+
+  useEffect(() => {
+    api.listPoolInventory().then((r) => setInv(r.items || []))
+    api.poolLowStock().then((r) => setLowStock(r.items || []))
+  }, [])
+
   return (
     <div className="content fade-in" style={{ maxWidth: 860, margin: '0 auto' }}>
       <SectionHead title="Inventory">
@@ -73,13 +310,19 @@ function StaffInventory({ back }) {
           <Icon name="chevron-left" size={15} /> Back to home
         </button>
       </SectionHead>
-      <div className="alert red" style={{ marginBottom: 14 }}>
-        <Icon name="alert-triangle" size={17} />
-        <div>
-          <div className="a-title">2 items below reorder threshold</div>
-          <div className="a-desc">Goggles (Baby) · Nose Pin</div>
+      {lowStock.length > 0 && (
+        <div className="alert red" style={{ marginBottom: 14 }}>
+          <Icon name="alert-triangle" size={17} />
+          <div>
+            <div className="a-title">{lowStock.length} items below reorder threshold</div>
+            <div className="a-desc">
+              {lowStock
+                .map((r) => r.item + (r.variant !== '—' ? ' (' + r.variant + ')' : ''))
+                .join(' · ')}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
       <table className="tbl">
         <thead>
           <tr>
@@ -95,7 +338,7 @@ function StaffInventory({ back }) {
         </thead>
         <tbody>
           {inv.map((r) => (
-            <tr key={r.item + r.variant}>
+            <tr key={r.id}>
               <td style={{ fontWeight: 500 }}>
                 {r.low && (
                   <Icon
@@ -122,7 +365,7 @@ function StaffInventory({ back }) {
   )
 }
 
-function StaffApp({ onLogout }) {
+function StaffApp({ session, onLogout }) {
   const [tab, setTab] = useState('home')
   const tabs = [
     { k: 'home', icon: 'home', label: 'Home' },
@@ -133,17 +376,19 @@ function StaffApp({ onLogout }) {
   ]
   let screen
   if (tab === 'home') screen = <StaffHome key="home" go={setTab} />
-  else if (tab === 'new') screen = <NewTransaction key="new" onDone={setTab} />
+  else if (tab === 'new') screen = <NewTransaction key="new" session={session} onDone={setTab} />
   else if (tab === 'members') screen = <MemberSearch key="members" />
   else if (tab === 'log') screen = <TodaysLog key="log" />
   else if (tab === 'eod') screen = <EndOfDay key="eod" />
   else if (tab === 'inv') screen = <StaffInventory key="inv" back={() => setTab('home')} />
+  else if (tab === 'bookings') screen = <StaffBookings key="bookings" back={() => setTab('home')} />
 
-  const navActive = (k) => k === tab || (tab === 'inv' && k === 'home')
+  const navActive = (k) =>
+    k === tab || (tab === 'inv' && k === 'home') || (tab === 'bookings' && k === 'home')
 
   return (
     <div className="app">
-      <AppHeader role="staff" onLogout={onLogout} />
+      <AppHeader role="staff" session={session} onLogout={onLogout} />
       <div className="body-wrap">
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {screen}
@@ -165,13 +410,15 @@ function StaffApp({ onLogout }) {
   )
 }
 
-function OwnerApp({ onLogout }) {
+function OwnerApp({ session, onLogout }) {
   const [tab, setTab] = useState('dashboard')
   const nav = [
     { k: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
     { k: 'transactions', icon: 'receipt-text', label: 'Transactions' },
     { k: 'members', icon: 'users', label: 'Members' },
+    { k: 'bookings', icon: 'calendar-days', label: 'Bookings' },
     { k: 'inventory', icon: 'package', label: 'Inventory' },
+    { k: 'restaurant', icon: 'utensils', label: 'Restaurant' },
     { k: 'reports', icon: 'bar-chart-3', label: 'Reports' },
     { k: 'settings', icon: 'settings', label: 'Settings' }
   ]
@@ -179,12 +426,16 @@ function OwnerApp({ onLogout }) {
   if (tab === 'dashboard') ownerScreen = <OwnerDashboard key="dashboard" />
   else if (tab === 'transactions') ownerScreen = <OwnerTransactions key="transactions" />
   else if (tab === 'members') ownerScreen = <OwnerMembers key="members" />
-  else if (tab === 'inventory') ownerScreen = <OwnerInventory key="inventory" />
+  else if (tab === 'bookings') ownerScreen = <OwnerBookings key="bookings" session={session} />
+  else if (tab === 'inventory') ownerScreen = <OwnerInventory key="inventory" session={session} />
+  else if (tab === 'restaurant')
+    ownerScreen = <OwnerRestaurantInventory key="restaurant" session={session} />
   else if (tab === 'reports') ownerScreen = <OwnerReports key="reports" />
   else if (tab === 'settings') ownerScreen = <OwnerSettings key="settings" />
+
   return (
     <div className="app">
-      <AppHeader role="owner" onLogout={onLogout} />
+      <AppHeader role="owner" session={session} onLogout={onLogout} />
       <div className="body-wrap">
         <div className="sidebar">
           {nav.map((n) => (
@@ -207,34 +458,75 @@ function OwnerApp({ onLogout }) {
 }
 
 export default function App() {
-  const [role, setRole] = useState('login')
+  const [view, setView] = useState('loading')
+  const [session, setSession] = useState(null)
+
+  useEffect(() => {
+    async function init() {
+      const needs = await api.needsSetup()
+      if (needs) {
+        setView('setup')
+        return
+      }
+      const user = await api.getSession()
+      if (user) {
+        setSession(user)
+        setView(user.role)
+      } else setView('login')
+    }
+    init()
+  }, [])
 
   useEffect(() => {
     if (window.__fitStage) window.__fitStage()
-  }, [role])
+  }, [view])
 
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape' && role !== 'login') setRole('login')
+    const onKey = async (e) => {
+      if (e.key === 'Escape' && view !== 'login' && view !== 'loading' && view !== 'setup') {
+        await api.logout()
+        setSession(null)
+        setView('login')
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [role])
+  }, [view])
 
   useEffect(() => {
     const h = document.getElementById('hint')
     if (!h) return
     h.innerHTML =
-      role === 'login'
-        ? 'Refresh Manager · choose a login to begin'
+      view === 'login' || view === 'setup'
+        ? 'Refresh Manager · sign in to begin'
         : 'Press <kbd>Esc</kbd> to log out · everything is clickable'
-  }, [role])
+  }, [view])
+
+  const handleLogin = (user) => {
+    setSession(user)
+    setView(user.role)
+  }
+  const handleLogout = async () => {
+    await api.logout()
+    setSession(null)
+    setView('login')
+  }
+
+  if (view === 'loading')
+    return (
+      <Window onClose={() => window.close()}>
+        <div className="content" style={{ display: 'grid', placeItems: 'center', flex: 1 }}>
+          <div className="sub">Loading…</div>
+        </div>
+      </Window>
+    )
 
   return (
     <Window onClose={() => window.close()}>
-      {role === 'login' && <Login onLogin={setRole} />}
-      {role === 'staff' && <StaffApp key="staff" onLogout={() => setRole('login')} />}
-      {role === 'owner' && <OwnerApp key="owner" onLogout={() => setRole('login')} />}
+      {view === 'setup' && <SetupWizard onDone={handleLogin} />}
+      {view === 'login' && <Login onLogin={handleLogin} />}
+      {view === 'staff' && <StaffApp key="staff" session={session} onLogout={handleLogout} />}
+      {view === 'owner' && <OwnerApp key="owner" session={session} onLogout={handleLogout} />}
     </Window>
   )
 }

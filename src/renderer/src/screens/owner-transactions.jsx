@@ -1,0 +1,147 @@
+import { useState, useEffect } from 'react'
+import { api } from '../lib/api'
+import { fmt, todayLocal } from '../lib/format'
+import { PayBadge, SectionHead } from '../components/ui'
+
+export function OwnerTransactions() {
+  const [tx, setTx] = useState([])
+  const [staff, setStaff] = useState([])
+  const [range, setRange] = useState('today')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [staffFilter, setStaffFilter] = useState('')
+  const [voidId, setVoidId] = useState(null)
+  const [reason, setReason] = useState('')
+
+  const load = () => {
+    const today = todayLocal()
+    const params = { dateFrom: today, dateTo: today }
+    if (range === 'week') {
+      const d = new Date()
+      d.setDate(d.getDate() - 7)
+      params.dateFrom = d.toISOString().slice(0, 10)
+    }
+    if (typeFilter) params.type = typeFilter
+    if (staffFilter) params.staffId = Number(staffFilter)
+    api.listTransactions(params).then((r) => setTx(r.transactions || []))
+  }
+
+  useEffect(() => {
+    api.listStaff().then((r) => setStaff(r.users || []))
+    load()
+  }, [])
+  useEffect(() => {
+    load()
+  }, [range, typeFilter, staffFilter])
+
+  const handleVoid = async () => {
+    if (!voidId || !reason.trim()) return
+    await api.voidTransaction({ transactionId: voidId, reason })
+    setVoidId(null)
+    setReason('')
+    load()
+  }
+
+  const total = tx.reduce((s, t) => s + t.amount, 0)
+
+  return (
+    <div className="content fade-in">
+      <SectionHead title="Transactions" />
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
+        <select
+          className="select"
+          style={{ width: 130 }}
+          value={range}
+          onChange={(e) => setRange(e.target.value)}
+        >
+          <option value="today">Today</option>
+          <option value="week">This week</option>
+        </select>
+        <select
+          className="select"
+          style={{ width: 140 }}
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+        >
+          <option value="">All types</option>
+          <option value="membership">Membership</option>
+          <option value="day_package">Day Package</option>
+          <option value="day_pass">Day Pass</option>
+        </select>
+        <select
+          className="select"
+          style={{ width: 130 }}
+          value={staffFilter}
+          onChange={(e) => setStaffFilter(e.target.value)}
+        >
+          <option value="">All staff</option>
+          {staff.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th style={{ width: 56 }}>ID</th>
+            <th style={{ width: 84 }}>Time</th>
+            <th>Customer</th>
+            <th>Product</th>
+            <th className="num" style={{ width: 96 }}>
+              Amount
+            </th>
+            <th style={{ width: 76 }}>Payment</th>
+            <th style={{ width: 80 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {tx.map((t) => (
+            <tr key={t.id}>
+              <td style={{ color: '#94a3b8' }}>{t.displayId || t.id}</td>
+              <td style={{ color: '#94a3b8' }}>{t.time}</td>
+              <td style={{ fontWeight: 500 }}>{t.customer}</td>
+              <td style={{ color: '#64748b', fontSize: 12.5 }}>{t.product}</td>
+              <td className="num">{fmt(t.amount)}</td>
+              <td>
+                <PayBadge pay={t.pay} />
+              </td>
+              <td>
+                <button
+                  className="btn btn-ghost"
+                  style={{ padding: '4px 8px', fontSize: 11 }}
+                  onClick={() => setVoidId(t.id)}
+                >
+                  Void
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="tbl-foot">
+        <span>{tx.length} transactions</span>
+        <span className="total">Total: {fmt(total)}</span>
+      </div>
+      {voidId && (
+        <div className="card" style={{ marginTop: 14, padding: 16 }}>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>Void transaction #{voidId}</div>
+          <input
+            className="input"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason for void"
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button className="btn btn-primary" onClick={handleVoid}>
+              Confirm void
+            </button>
+            <button className="btn btn-ghost" onClick={() => setVoidId(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

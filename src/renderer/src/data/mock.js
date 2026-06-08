@@ -72,6 +72,4 @@ export const settings = [
   { icon: "building-2",    title: "Business info",    desc: "Name, address, phone" },
 ];
 
-export function fmt(n) {
-  return "Rs. " + n.toLocaleString("en-IN");
-}
+export { fmt } from '../lib/format'
