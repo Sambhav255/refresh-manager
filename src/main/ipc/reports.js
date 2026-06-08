@@ -309,8 +309,43 @@ export function registerReportHandlers() {
       const rows = fetchTransactionRows(db, { dateFrom, dateTo })
       const summary = buildSummary(rows)
       const byWeek = fetchByWeek(db, dateFrom, dateTo)
-      const byProduct = fetchByProduct(db, dateFrom, dateTo)
-      return { summary, byWeek, byProduct, year: y, month: m, dateFrom, dateTo }
+      const byProduct = fetchByProduct(db, dateFrom, dateTo).slice(0, 5)
+
+      const newMembers =
+        db
+          .prepare(
+            `SELECT COUNT(DISTINCT ms.member_id) as count FROM memberships ms
+             WHERE ms.start_date >= ? AND ms.start_date <= ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM memberships prev
+                 WHERE prev.member_id = ms.member_id AND prev.id < ms.id
+               )`
+          )
+          .get(dateFrom, dateTo)?.count || 0
+
+      const renewals =
+        db
+          .prepare(
+            `SELECT COUNT(DISTINCT ms.member_id) as count FROM memberships ms
+             WHERE ms.start_date >= ? AND ms.start_date <= ?
+               AND EXISTS (
+                 SELECT 1 FROM memberships prev
+                 WHERE prev.member_id = ms.member_id AND prev.id < ms.id
+               )`
+          )
+          .get(dateFrom, dateTo)?.count || 0
+
+      return {
+        summary,
+        byWeek,
+        byProduct,
+        newMembers,
+        renewals,
+        year: y,
+        month: m,
+        dateFrom,
+        dateTo
+      }
     })
   )
 
@@ -324,6 +359,83 @@ export function registerReportHandlers() {
       const summary = buildSummary(rows)
       const transactions = rows.map(mapTransaction)
       return { summary, transactions, dateFrom, dateTo }
+    })
+  )
+
+
+  ipcMain.handle(
+    'reports:retention',
+    wrap(({ year, month } = {}) => {
+      requireOwner()
+      const now = new Date()
+      const y = year ?? now.getFullYear()
+      const m = month ?? now.getMonth() + 1
+      const { dateFrom, dateTo } = monthRange(y, m)
+      const db = getDb()
+      const due = db.prepare(`SELECT COUNT(*) as count FROM memberships WHERE end_date >= ? AND end_date <= ?`).get(dateFrom, dateTo)?.count || 0
+      const renewed = db.prepare(`SELECT COUNT(DISTINCT ms.member_id) as count FROM memberships ms WHERE ms.start_date >= ? AND ms.start_date <= ? AND EXISTS (SELECT 1 FROM memberships prev WHERE prev.member_id = ms.member_id AND prev.id < ms.id)`).get(dateFrom, dateTo)?.count || 0
+      const churned = db.prepare(`SELECT m.name, m.phone, ms.end_date, p.name as product_name FROM memberships ms JOIN members m ON m.id = ms.member_id JOIN products p ON p.id = ms.product_id WHERE ms.end_date >= ? AND ms.end_date <= ? AND ms.status != 'active' AND NOT EXISTS (SELECT 1 FROM memberships newer WHERE newer.member_id = ms.member_id AND newer.start_date > ms.end_date) ORDER BY ms.end_date`).all(dateFrom, dateTo)
+      const retentionRate = due > 0 ? Math.round((renewed / due) * 100) : 0
+      return { due, renewed, retentionRate, churned, year: y, month: m, dateFrom, dateTo }
+    })
+  )
+
+  ipcMain.handle(
+    'reports:inventory-turnover',
+    wrap(({ year, month } = {}) => {
+      requireOwner()
+      const now = new Date()
+      const y = year ?? now.getFullYear()
+      const m = month ?? now.getMonth() + 1
+      const { dateFrom, dateTo } = monthRange(y, m)
+      const db = getDb()
+      const pool = db.prepare(`SELECT pi.name, pi.variant, SUM(pit.quantity) as sold, SUM(pit.quantity * pi.selling_price) as revenue FROM pool_inventory_transactions pit JOIN pool_inventory_items pi ON pi.id = pit.item_id WHERE pit.txn_type = 'out' AND date(pit.created_at) >= ? AND date(pit.created_at) <= ? GROUP BY pi.id ORDER BY sold DESC`).all(dateFrom, dateTo)
+      const restaurant = db.prepare(`SELECT ri.name, SUM(rit.quantity) as sold, SUM(rit.quantity * ri.selling_price) as revenue FROM restaurant_inventory_transactions rit JOIN restaurant_inventory_items ri ON ri.id = rit.item_id WHERE rit.txn_type = 'out' AND date(rit.created_at) >= ? AND date(rit.created_at) <= ? GROUP BY ri.id ORDER BY sold DESC`).all(dateFrom, dateTo)
+      const lowStock = [
+        ...db.prepare(`SELECT name, variant, current_stock, reorder_level, 'pool' as source FROM pool_inventory_items WHERE is_active = 1 AND current_stock <= reorder_level`).all(),
+        ...db.prepare(`SELECT name, unit as variant, current_stock, reorder_level, 'restaurant' as source FROM restaurant_inventory_items WHERE is_active = 1 AND current_stock <= reorder_level`).all()
+      ]
+      return { pool, restaurant, lowStock, year: y, month: m }
+    })
+  )
+
+  ipcMain.handle(
+    'reports:bookings',
+    wrap(({ year, month } = {}) => {
+      requireOwner()
+      const now = new Date()
+      const y = year ?? now.getFullYear()
+      const m = month ?? now.getMonth() + 1
+      const { dateFrom, dateTo } = monthRange(y, m)
+      const db = getDb()
+      const bookings = db.prepare(`SELECT * FROM bookings WHERE booking_date >= ? AND booking_date <= ? ORDER BY booking_date`).all(dateFrom, dateTo)
+      const byStatus = {}
+      let depositTotal = 0
+      let expectedTotal = 0
+      for (const b of bookings) {
+        byStatus[b.status] = (byStatus[b.status] || 0) + 1
+        depositTotal += b.deposit_paid || 0
+        expectedTotal += b.total_expected || 0
+      }
+      return { bookings, summary: { count: bookings.length, byStatus, depositTotal, expectedTotal }, year: y, month: m }
+    })
+  )
+
+  ipcMain.handle(
+    'reports:staff-activity',
+    wrap(({ dateFrom, dateTo, staffId } = {}) => {
+      requireOwner()
+      const from = dateFrom || todayLocal()
+      const to = dateTo || todayLocal()
+      const db = getDb()
+      let staffSql = `SELECT u.id, u.name, COUNT(t.id) as txn_count, SUM(t.amount) as total FROM users u JOIN transactions t ON t.staff_id = u.id WHERE u.role = 'staff' AND t.is_voided = 0 AND date(t.created_at) >= ? AND date(t.created_at) <= ?`
+      const params = [from, to]
+      if (staffId) { staffSql += ` AND u.id = ?`; params.push(staffId) }
+      staffSql += ` GROUP BY u.id ORDER BY total DESC`
+      const staff = db.prepare(staffSql).all(...params)
+      const rows = fetchTransactionRows(db, { dateFrom: from, dateTo: to, staffId })
+      const transactions = rows.map(mapTransaction)
+      return { staff, transactions, dateFrom: from, dateTo: to }
     })
   )
 

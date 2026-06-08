@@ -8,6 +8,7 @@ export function OwnerTransactions() {
   const [staff, setStaff] = useState([])
   const [range, setRange] = useState('today')
   const [typeFilter, setTypeFilter] = useState('')
+  const [payFilter, setPayFilter] = useState('')
   const [staffFilter, setStaffFilter] = useState('')
   const [voidId, setVoidId] = useState(null)
   const [reason, setReason] = useState('')
@@ -21,6 +22,7 @@ export function OwnerTransactions() {
       params.dateFrom = d.toISOString().slice(0, 10)
     }
     if (typeFilter) params.type = typeFilter
+    if (payFilter) params.paymentMethod = payFilter
     if (staffFilter) params.staffId = Number(staffFilter)
     api.listTransactions(params).then((r) => setTx(r.transactions || []))
   }
@@ -31,7 +33,7 @@ export function OwnerTransactions() {
   }, [])
   useEffect(() => {
     load()
-  }, [range, typeFilter, staffFilter])
+  }, [range, typeFilter, payFilter, staffFilter])
 
   const handleVoid = async () => {
     if (!voidId || !reason.trim()) return
@@ -66,6 +68,16 @@ export function OwnerTransactions() {
           <option value="membership">Membership</option>
           <option value="day_package">Day Package</option>
           <option value="day_pass">Day Pass</option>
+        </select>
+        <select
+          className="select"
+          style={{ width: 110 }}
+          value={payFilter}
+          onChange={(e) => setPayFilter(e.target.value)}
+        >
+          <option value="">All payments</option>
+          <option value="cash">Cash</option>
+          <option value="qr">QR</option>
         </select>
         <select
           className="select"
