@@ -22,7 +22,6 @@ import {
   OwnerSettings
 } from './screens/owner'
 
-
 function SetupWizard({ onDone }) {
   const [ownerName, setOwnerName] = useState('')
   const [password, setPassword] = useState('')
@@ -389,7 +388,11 @@ function StaffApp({ session, onLogout }) {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')
+      if (
+        e.target.tagName === 'INPUT' ||
+        e.target.tagName === 'TEXTAREA' ||
+        e.target.tagName === 'SELECT'
+      )
         return
       const map = { n: 'new', m: 'members', l: 'log', e: 'eod' }
       const next = map[e.key.toLowerCase()]

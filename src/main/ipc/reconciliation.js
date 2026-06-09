@@ -72,7 +72,9 @@ export function registerReconciliationHandlers() {
         params.push(dateTo)
       }
       sql += ` ORDER BY cr.reconcile_date DESC, cr.created_at DESC`
-      const reconciliations = getDb().prepare(sql).all(...params)
+      const reconciliations = getDb()
+        .prepare(sql)
+        .all(...params)
       return { reconciliations }
     })
   )

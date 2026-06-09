@@ -17,10 +17,7 @@ export default defineConfig({
       {
         name: 'copy-ticket-html',
         closeBundle() {
-          copyFileSync(
-            resolve('src/renderer/ticket.html'),
-            resolve('out/renderer/ticket.html')
-          )
+          copyFileSync(resolve('src/renderer/ticket.html'), resolve('out/renderer/ticket.html'))
           copyFileSync(
             resolve('src/renderer/membership-card.html'),
             resolve('out/renderer/membership-card.html')

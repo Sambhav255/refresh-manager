@@ -5,12 +5,31 @@ import { Icon, SectionHead } from '../components/ui'
 import { reports } from '../data/mock'
 
 const ADVANCED = [
-  { key: 'retention', icon: 'user-check', title: 'Member retention', desc: 'Renewals vs churn this month' },
-  { key: 'inventory-turnover', icon: 'package', title: 'Inventory turnover', desc: 'Items sold, revenue, low stock' },
-  { key: 'bookings', icon: 'calendar-days', title: 'Booking report', desc: 'Bookings by status and deposits' },
-  { key: 'staff-activity', icon: 'users', title: 'Staff activity', desc: 'Transactions logged per staff member' }
+  {
+    key: 'retention',
+    icon: 'user-check',
+    title: 'Member retention',
+    desc: 'Renewals vs churn this month'
+  },
+  {
+    key: 'inventory-turnover',
+    icon: 'package',
+    title: 'Inventory turnover',
+    desc: 'Items sold, revenue, low stock'
+  },
+  {
+    key: 'bookings',
+    icon: 'calendar-days',
+    title: 'Booking report',
+    desc: 'Bookings by status and deposits'
+  },
+  {
+    key: 'staff-activity',
+    icon: 'users',
+    title: 'Staff activity',
+    desc: 'Transactions logged per staff member'
+  }
 ]
-
 
 export function OwnerReports() {
   const [busy, setBusy] = useState('')
@@ -64,11 +83,18 @@ export function OwnerReports() {
         data = await api.bookingReport({})
         reportType = 'booking'
       } else if (key === 'staff-activity') {
-        data = await api.staffActivityReport({ dateFrom: customFrom, dateTo: customTo, staffId: customStaffId ? Number(customStaffId) : undefined })
+        data = await api.staffActivityReport({
+          dateFrom: customFrom,
+          dateTo: customTo,
+          staffId: customStaffId ? Number(customStaffId) : undefined
+        })
         reportType = 'staff-activity'
       } else if (key === 'reconciliation') {
         const r = await api.listReconciliations({ dateFrom: customFrom, dateTo: customTo })
-        data = { summary: { count: r.reconciliations?.length || 0, total: 0 }, reconciliations: r.reconciliations }
+        data = {
+          summary: { count: r.reconciliations?.length || 0, total: 0 },
+          reconciliations: r.reconciliations
+        }
         reportType = 'reconciliation'
       }
       await api.exportExcel({ reportType, data })
@@ -101,11 +127,20 @@ export function OwnerReports() {
             onChange={(e) => setCustomTo(e.target.value)}
           />
           {(busy === 'custom' || busy === 'staff-activity') && (
-            <select className="select" value={customStaffId} onChange={(e) => setCustomStaffId(e.target.value)} style={{ width: 160 }}>
+            <select
+              className="select"
+              value={customStaffId}
+              onChange={(e) => setCustomStaffId(e.target.value)}
+              style={{ width: 160 }}
+            >
               <option value="">All staff</option>
-              {staffList.filter((s) => s.is_active).map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
+              {staffList
+                .filter((s) => s.is_active)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
             </select>
           )}
         </div>
@@ -148,18 +183,42 @@ export function OwnerReports() {
         ))}
       </div>
 
-      <div style={{ marginTop: 24, marginBottom: 10, fontSize: 14, fontWeight: 500 }}>Advanced reports</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 14, marginBottom: 24 }}>
+      <div style={{ marginTop: 24, marginBottom: 10, fontSize: 14, fontWeight: 500 }}>
+        Advanced reports
+      </div>
+      <div
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 14, marginBottom: 24 }}
+      >
         {ADVANCED.map((r) => (
-          <div key={r.key} className="card" style={{ padding: '16px 16px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div
+            key={r.key}
+            className="card"
+            style={{ padding: '16px 16px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: '#E6F1FB', display: 'grid', placeItems: 'center' }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 9,
+                  background: '#E6F1FB',
+                  display: 'grid',
+                  placeItems: 'center'
+                }}
+              >
                 <Icon name={r.icon} size={18} color="#185FA5" />
               </div>
               <div style={{ fontSize: 14, fontWeight: 500 }}>{r.title}</div>
             </div>
-            <div className="sub" style={{ color: '#64748b', lineHeight: 1.45 }}>{r.desc}</div>
-            <button className="btn btn-ghost" style={{ alignSelf: 'flex-start', padding: '6px 11px', fontSize: 12 }} disabled={!!busy} onClick={() => exportReport(r.key)}>
+            <div className="sub" style={{ color: '#64748b', lineHeight: 1.45 }}>
+              {r.desc}
+            </div>
+            <button
+              className="btn btn-ghost"
+              style={{ alignSelf: 'flex-start', padding: '6px 11px', fontSize: 12 }}
+              disabled={!!busy}
+              onClick={() => exportReport(r.key)}
+            >
               <Icon name="sheet" size={14} color="#16a34a" />
               {busy === r.key ? 'Exporting…' : 'Export to Excel'}
             </button>
@@ -169,7 +228,12 @@ export function OwnerReports() {
 
       <div className="between" style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 14, fontWeight: 500 }}>Cash reconciliation history</div>
-        <button className="btn btn-ghost" style={{ padding: '6px 11px', fontSize: 12 }} disabled={!!busy} onClick={() => exportReport('reconciliation')}>
+        <button
+          className="btn btn-ghost"
+          style={{ padding: '6px 11px', fontSize: 12 }}
+          disabled={!!busy}
+          onClick={() => exportReport('reconciliation')}
+        >
           <Icon name="sheet" size={14} color="#16a34a" />
           {busy === 'reconciliation' ? 'Exporting…' : 'Export'}
         </button>
@@ -196,7 +260,9 @@ export function OwnerReports() {
                 <td>{r.reconcile_date}</td>
                 <td className="num">{fmt(r.system_cash)}</td>
                 <td className="num">{fmt(r.physical_cash)}</td>
-                <td className="num" style={{ color: r.discrepancy ? '#b45309' : '#16a34a' }}>{fmt(r.discrepancy)}</td>
+                <td className="num" style={{ color: r.discrepancy ? '#b45309' : '#16a34a' }}>
+                  {fmt(r.discrepancy)}
+                </td>
                 <td>{r.staff_name}</td>
                 <td style={{ color: '#64748b' }}>{r.reason || '—'}</td>
               </tr>

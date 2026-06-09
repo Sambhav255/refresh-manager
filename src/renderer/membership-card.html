@@ -1,85 +1,140 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Membership Card</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      background: #fff;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      padding: 20px;
-    }
-    .card {
-      width: 340px;
-      height: 214px;
-      border: 2px solid #185FA5;
-      border-radius: 12px;
-      padding: 16px 18px;
-      background: linear-gradient(135deg, #f8fbff 0%, #e6f1fb 100%);
-      position: relative;
-      overflow: hidden;
-    }
-    .brand { font-size: 11px; font-weight: 700; color: #185FA5; letter-spacing: 0.5px; }
-    .address { font-size: 9px; color: #64748b; margin-top: 2px; }
-    .divider { border-top: 1px solid #cbd5e1; margin: 10px 0; }
-    .body { display: flex; gap: 12px; align-items: center; }
-    .photo {
-      width: 64px; height: 64px; border-radius: 8px;
-      background: #dbeafe; object-fit: cover; border: 1px solid #93c5fd;
-    }
-    .photo-placeholder {
-      width: 64px; height: 64px; border-radius: 8px;
-      background: #dbeafe; display: grid; place-items: center;
-      font-size: 20px; font-weight: 600; color: #185FA5;
-    }
-    .name { font-size: 15px; font-weight: 600; color: #1a202c; }
-    .type { font-size: 11px; color: #475569; margin-top: 3px; }
-    .meta { font-size: 10px; color: #64748b; margin-top: 4px; }
-    .valid { font-size: 10px; color: #0F6E56; margin-top: 6px; font-weight: 500; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="brand" id="businessName">≋ REFRESH RECREATION CENTER</div>
-    <div class="address" id="address">Boudha, Kathmandu</div>
-    <div class="divider"></div>
-    <div class="body">
-      <div id="photoWrap"></div>
-      <div>
-        <div class="name" id="memberName"></div>
-        <div class="type" id="productName"></div>
-        <div class="meta" id="memberId"></div>
-        <div class="valid" id="validity"></div>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Membership Card</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: #fff;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        padding: 20px;
+      }
+      .card {
+        width: 340px;
+        height: 214px;
+        border: 2px solid #185fa5;
+        border-radius: 12px;
+        padding: 16px 18px;
+        background: linear-gradient(135deg, #f8fbff 0%, #e6f1fb 100%);
+        position: relative;
+        overflow: hidden;
+      }
+      .brand {
+        font-size: 11px;
+        font-weight: 700;
+        color: #185fa5;
+        letter-spacing: 0.5px;
+      }
+      .address {
+        font-size: 9px;
+        color: #64748b;
+        margin-top: 2px;
+      }
+      .divider {
+        border-top: 1px solid #cbd5e1;
+        margin: 10px 0;
+      }
+      .body {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .photo {
+        width: 64px;
+        height: 64px;
+        border-radius: 8px;
+        background: #dbeafe;
+        object-fit: cover;
+        border: 1px solid #93c5fd;
+      }
+      .photo-placeholder {
+        width: 64px;
+        height: 64px;
+        border-radius: 8px;
+        background: #dbeafe;
+        display: grid;
+        place-items: center;
+        font-size: 20px;
+        font-weight: 600;
+        color: #185fa5;
+      }
+      .name {
+        font-size: 15px;
+        font-weight: 600;
+        color: #1a202c;
+      }
+      .type {
+        font-size: 11px;
+        color: #475569;
+        margin-top: 3px;
+      }
+      .meta {
+        font-size: 10px;
+        color: #64748b;
+        margin-top: 4px;
+      }
+      .valid {
+        font-size: 10px;
+        color: #0f6e56;
+        margin-top: 6px;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="brand" id="businessName">≋ REFRESH RECREATION CENTER</div>
+      <div class="address" id="address">Boudha, Kathmandu</div>
+      <div class="divider"></div>
+      <div class="body">
+        <div id="photoWrap"></div>
+        <div>
+          <div class="name" id="memberName"></div>
+          <div class="type" id="productName"></div>
+          <div class="meta" id="memberId"></div>
+          <div class="valid" id="validity"></div>
+        </div>
       </div>
     </div>
-  </div>
-  <script>
-    const params = new URLSearchParams(location.search)
-    document.getElementById('businessName').textContent = '≋ ' + (params.get('businessName') || 'REFRESH RECREATION CENTER')
-    document.getElementById('address').textContent = params.get('address') || 'Boudha, Kathmandu'
-    document.getElementById('memberName').textContent = params.get('memberName') || ''
-    document.getElementById('productName').textContent = params.get('productName') || ''
-    document.getElementById('memberId').textContent = 'Member ID: #' + (params.get('memberId') || '')
-    document.getElementById('validity').textContent = 'Valid: ' + (params.get('startDate') || '') + ' – ' + (params.get('endDate') || '')
-    const photoPath = params.get('photoPath')
-    const wrap = document.getElementById('photoWrap')
-    if (photoPath) {
-      const img = document.createElement('img')
-      img.className = 'photo'
-      img.src = photoPath.startsWith('file://') ? photoPath : 'file://' + photoPath
-      wrap.appendChild(img)
-    } else {
-      const initials = (params.get('memberName') || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
-      const div = document.createElement('div')
-      div.className = 'photo-placeholder'
-      div.textContent = initials
-      wrap.appendChild(div)
-    }
-  </script>
-</body>
+    <script>
+      const params = new URLSearchParams(location.search)
+      document.getElementById('businessName').textContent =
+        '≋ ' + (params.get('businessName') || 'REFRESH RECREATION CENTER')
+      document.getElementById('address').textContent = params.get('address') || 'Boudha, Kathmandu'
+      document.getElementById('memberName').textContent = params.get('memberName') || ''
+      document.getElementById('productName').textContent = params.get('productName') || ''
+      document.getElementById('memberId').textContent =
+        'Member ID: #' + (params.get('memberId') || '')
+      document.getElementById('validity').textContent =
+        'Valid: ' + (params.get('startDate') || '') + ' – ' + (params.get('endDate') || '')
+      const photoPath = params.get('photoPath')
+      const wrap = document.getElementById('photoWrap')
+      if (photoPath) {
+        const img = document.createElement('img')
+        img.className = 'photo'
+        img.src = photoPath.startsWith('file://') ? photoPath : 'file://' + photoPath
+        wrap.appendChild(img)
+      } else {
+        const initials = (params.get('memberName') || '?')
+          .split(' ')
+          .map((w) => w[0])
+          .join('')
+          .slice(0, 2)
+          .toUpperCase()
+        const div = document.createElement('div')
+        div.className = 'photo-placeholder'
+        div.textContent = initials
+        wrap.appendChild(div)
+      }
+    </script>
+  </body>
 </html>

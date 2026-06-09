@@ -1,94 +1,129 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Entry Ticket</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      background: #fff;
-      color: #1a202c;
-      display: flex;
-      justify-content: center;
-      padding: 20px;
-    }
-    .ticket {
-      width: 105mm;
-      max-width: 105mm;
-      border: 2px solid #1a202c;
-      padding: 16px 18px;
-    }
-    .header {
-      text-align: center;
-      border-bottom: 2px dashed #cbd5e1;
-      padding-bottom: 12px;
-      margin-bottom: 12px;
-    }
-    .logo { font-size: 18px; font-weight: 600; letter-spacing: 1px; }
-    .sub { font-size: 11px; color: #64748b; margin-top: 4px; }
-    .title-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-weight: 600;
-      font-size: 13px;
-      border-bottom: 1px solid #e2e8f0;
-      padding-bottom: 8px;
-      margin-bottom: 10px;
-    }
-    .row { display: flex; justify-content: space-between; font-size: 12px; padding: 5px 0; }
-    .row span:first-child { color: #64748b; }
-    .divider { border-top: 2px dashed #cbd5e1; margin: 12px 0; padding-top: 10px; }
-    .footer { text-align: center; font-size: 11px; color: #64748b; }
-    .ticket-num {
-      text-align: center;
-      font-size: 42px;
-      font-weight: 700;
-      letter-spacing: 4px;
-      margin-top: 14px;
-      font-family: monospace;
-    }
-    @media print {
-      body { padding: 0; }
-      .ticket { border: none; width: 105mm; }
-    }
-  </style>
-</head>
-<body>
-  <div class="ticket">
-    <div class="header">
-      <div class="logo">≋ REFRESH RECREATION CENTER</div>
-      <div class="sub" id="address">Nayabasti, Boudha, Kathmandu</div>
-      <div class="sub" id="phone">+977 9801010422</div>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Entry Ticket</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: #fff;
+        color: #1a202c;
+        display: flex;
+        justify-content: center;
+        padding: 20px;
+      }
+      .ticket {
+        width: 105mm;
+        max-width: 105mm;
+        border: 2px solid #1a202c;
+        padding: 16px 18px;
+      }
+      .header {
+        text-align: center;
+        border-bottom: 2px dashed #cbd5e1;
+        padding-bottom: 12px;
+        margin-bottom: 12px;
+      }
+      .logo {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 1px;
+      }
+      .sub {
+        font-size: 11px;
+        color: #64748b;
+        margin-top: 4px;
+      }
+      .title-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: 600;
+        font-size: 13px;
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 8px;
+        margin-bottom: 10px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        padding: 5px 0;
+      }
+      .row span:first-child {
+        color: #64748b;
+      }
+      .divider {
+        border-top: 2px dashed #cbd5e1;
+        margin: 12px 0;
+        padding-top: 10px;
+      }
+      .footer {
+        text-align: center;
+        font-size: 11px;
+        color: #64748b;
+      }
+      .ticket-num {
+        text-align: center;
+        font-size: 42px;
+        font-weight: 700;
+        letter-spacing: 4px;
+        margin-top: 14px;
+        font-family: monospace;
+      }
+      @media print {
+        body {
+          padding: 0;
+        }
+        .ticket {
+          border: none;
+          width: 105mm;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ticket">
+      <div class="header">
+        <div class="logo">≋ REFRESH RECREATION CENTER</div>
+        <div class="sub" id="address">Nayabasti, Boudha, Kathmandu</div>
+        <div class="sub" id="phone">+977 9801010422</div>
+      </div>
+      <div class="title-row">
+        <span>ENTRY TICKET</span>
+        <span id="ticketId">#—</span>
+      </div>
+      <div class="row"><span>Name:</span><span id="customerName">—</span></div>
+      <div class="row"><span>Package:</span><span id="product">—</span></div>
+      <div class="row"><span>Date:</span><span id="date">—</span></div>
+      <div class="row"><span>Time:</span><span id="time">—</span></div>
+      <div class="row"><span>Payment:</span><span id="payment">—</span></div>
+      <div class="divider footer">
+        <div>Valid for today only</div>
+        <div>Show this ticket at pool entrance</div>
+        <div class="ticket-num" id="ticketNum">—</div>
+      </div>
     </div>
-    <div class="title-row">
-      <span>ENTRY TICKET</span>
-      <span id="ticketId">#—</span>
-    </div>
-    <div class="row"><span>Name:</span><span id="customerName">—</span></div>
-    <div class="row"><span>Package:</span><span id="product">—</span></div>
-    <div class="row"><span>Date:</span><span id="date">—</span></div>
-    <div class="row"><span>Time:</span><span id="time">—</span></div>
-    <div class="row"><span>Payment:</span><span id="payment">—</span></div>
-    <div class="divider footer">
-      <div>Valid for today only</div>
-      <div>Show this ticket at pool entrance</div>
-      <div class="ticket-num" id="ticketNum">—</div>
-    </div>
-  </div>
-  <script>
-    const params = new URLSearchParams(window.location.search)
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—' }
-    set('ticketId', '#' + (params.get('id') || ''))
-    set('ticketNum', '#' + (params.get('id') || ''))
-    set('customerName', params.get('customerName'))
-    set('product', params.get('product'))
-    set('date', params.get('date'))
-    set('time', params.get('time'))
-    set('payment', params.get('payment'))
-    set('address', params.get('address'))
-    set('phone', params.get('phone'))
-  </script>
-</body>
+    <script>
+      const params = new URLSearchParams(window.location.search)
+      const set = (id, val) => {
+        const el = document.getElementById(id)
+        if (el) el.textContent = val || '—'
+      }
+      set('ticketId', '#' + (params.get('id') || ''))
+      set('ticketNum', '#' + (params.get('id') || ''))
+      set('customerName', params.get('customerName'))
+      set('product', params.get('product'))
+      set('date', params.get('date'))
+      set('time', params.get('time'))
+      set('payment', params.get('payment'))
+      set('address', params.get('address'))
+      set('phone', params.get('phone'))
+    </script>
+  </body>
 </html>

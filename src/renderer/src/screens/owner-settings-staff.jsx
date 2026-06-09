@@ -19,10 +19,19 @@ export function ManageStaff({ back }) {
   const add = async () => {
     setError('')
     const pinErr = validatePin(pin)
-    if (pinErr) { setError(pinErr); return }
-    if (!name.trim()) { setError('Name is required'); return }
+    if (pinErr) {
+      setError(pinErr)
+      return
+    }
+    if (!name.trim()) {
+      setError('Name is required')
+      return
+    }
     const r = await api.addStaff({ name: name.trim(), pin })
-    if (r?.success === false) { setError(r.error || 'Failed to add staff'); return }
+    if (r?.success === false) {
+      setError(r.error || 'Failed to add staff')
+      return
+    }
     setName('')
     setPin('')
     load()
@@ -36,9 +45,15 @@ export function ManageStaff({ back }) {
   const changePin = async () => {
     setError('')
     const pinErr = validatePin(newPin)
-    if (pinErr) { setError(pinErr); return }
+    if (pinErr) {
+      setError(pinErr)
+      return
+    }
     const r = await api.changePin({ userId: changeId, newPin })
-    if (r?.success === false) { setError(r.error || 'Failed to change PIN'); return }
+    if (r?.success === false) {
+      setError(r.error || 'Failed to change PIN')
+      return
+    }
     setChangeId(null)
     setNewPin('')
   }

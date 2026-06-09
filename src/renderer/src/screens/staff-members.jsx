@@ -46,7 +46,9 @@ export function MemberSearch() {
         </div>
       </div>
       <div className="sub" style={{ marginBottom: 12 }}>
-        {loading ? 'Searching...' : `${results.length} result${results.length !== 1 ? 's' : ''} found}`}
+        {loading
+          ? 'Searching...'
+          : `${results.length} result${results.length !== 1 ? 's' : ''} found}`}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {results.map((m) => {
@@ -55,7 +57,11 @@ export function MemberSearch() {
           const type = mem?.productName || 'No active membership'
           const expiry = mem?.endDisplay || '√'
           return (
-            <div key={m.id} className="card" style={{ padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div
+              key={m.id}
+              className="card"
+              style={{ padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 14 }}
+            >
               <Avatar initials={m.initials} status={status} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{m.name}</div>
@@ -77,7 +83,11 @@ export function MemberSearch() {
                   style={{
                     fontSize: 11.5,
                     color:
-                      status === 'Expiring soon' ? '#b45309' : status === 'Expired' ? '#991b1b' : '#94a3b8'
+                      status === 'Expiring soon'
+                        ? '#b45309'
+                        : status === 'Expired'
+                          ? '#991b1b'
+                          : '#94a3b8'
                   }}
                 >
                   Expires {expiry}
@@ -87,7 +97,10 @@ export function MemberSearch() {
           )
         })}
         {q.trim() && !loading && results.length === 0 && (
-          <div className="card" style={{ padding: 28, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+          <div
+            className="card"
+            style={{ padding: 28, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}
+          >
             No members match {q}.
           </div>
         )}

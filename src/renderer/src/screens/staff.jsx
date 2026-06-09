@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { fmt, todayLocal } from '../lib/format'
-import { Icon, Badge, PayBadge, Avatar, SectionHead } from '../components/ui'
+import { Icon } from '../components/ui'
 
 export function StaffHome({ go }) {
   const [summary, setSummary] = useState(null)

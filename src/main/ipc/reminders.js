@@ -109,9 +109,9 @@ export function registerReminderHandlers() {
       const phone = normalizePhone(row.phone)
       const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
       shell.openExternal(url)
-      db.prepare(`UPDATE memberships SET reminder_sent_at = datetime('now','localtime') WHERE id = ?`).run(
-        membershipId
-      )
+      db.prepare(
+        `UPDATE memberships SET reminder_sent_at = datetime('now','localtime') WHERE id = ?`
+      ).run(membershipId)
       return { success: true }
     })
   )
@@ -128,9 +128,9 @@ export function registerReminderHandlers() {
         const phone = normalizePhone(member.phone)
         const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
         shell.openExternal(url)
-        db.prepare(`UPDATE memberships SET reminder_sent_at = datetime('now','localtime') WHERE id = ?`).run(
-          member.membershipId
-        )
+        db.prepare(
+          `UPDATE memberships SET reminder_sent_at = datetime('now','localtime') WHERE id = ?`
+        ).run(member.membershipId)
       }
       return { success: true, count: members.length }
     })

@@ -58,9 +58,13 @@ function pruneOldBackups(folder) {
 function updateBackupStatus(db, { status, filePath }) {
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
   db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('last_backup_at', ?)`).run(now)
-  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('last_backup_status', ?)`).run(status)
+  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('last_backup_status', ?)`).run(
+    status
+  )
   if (filePath) {
-    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('last_backup_path', ?)`).run(filePath)
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('last_backup_path', ?)`).run(
+      filePath
+    )
   }
 }
 
@@ -115,7 +119,9 @@ export function registerBackupHandlers() {
       requireOwner()
       const db = getDb()
       const rows = db
-        .prepare(`SELECT key, value FROM settings WHERE key IN ('last_backup_at','last_backup_path','last_backup_status','backup_path','backup_schedule','backup_auto_enabled')`)
+        .prepare(
+          `SELECT key, value FROM settings WHERE key IN ('last_backup_at','last_backup_path','last_backup_status','backup_path','backup_schedule','backup_auto_enabled')`
+        )
         .all()
       const settings = Object.fromEntries(rows.map((r) => [r.key, r.value]))
       return {

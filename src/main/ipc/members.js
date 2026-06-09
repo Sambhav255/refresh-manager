@@ -183,7 +183,6 @@ export function registerMemberHandlers() {
     })
   )
 
-
   ipcMain.handle(
     'members:renew',
     wrap(({ membershipId, newStartDate, amount, paymentMethod, staffId, transactionId }) => {
