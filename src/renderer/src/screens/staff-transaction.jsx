@@ -38,6 +38,7 @@ export function NewTransaction({ session, onDone }) {
   const [products, setProducts] = useState([])
   const [grouped, setGrouped] = useState({})
   const [savedTxn, setSavedTxn] = useState(null)
+  const [printError, setPrintError] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
   const [photoBase64, setPhotoBase64] = useState(null)
   const [cameraOn, setCameraOn] = useState(false)
@@ -202,13 +203,19 @@ export function NewTransaction({ session, onDone }) {
 
   const handlePrint = async () => {
     if (!savedTxn) return
-    await api.printTicket({
+    setPrintError(null)
+    const result = await api.printTicket({
       transactionId: savedTxn.transactionId,
       customerName: name || 'Walk-in',
       product: savedTxn.product,
       amount: savedTxn.amount,
       paymentMethod: savedTxn.pay
     })
+    if (!result?.success) {
+      setPrintError(
+        'No printer found. Check the printer is on and connected, then try again.'
+      )
+    }
   }
 
   const handlePrintCard = async () => {
@@ -232,6 +239,7 @@ export function NewTransaction({ session, onDone }) {
     setName('')
     setPhone('')
     setError('')
+    setPrintError(null)
     clearPhoto()
   }
 
@@ -253,6 +261,11 @@ export function NewTransaction({ session, onDone }) {
               <button className="btn btn-ghost btn-block" onClick={reset}>New transaction</button>
               <button className="btn btn-primary btn-block" onClick={() => onDone('home')}>Done</button>
             </div>
+            {printError && (
+              <div className="alert amber" style={{ marginTop: 12 }}>
+                {printError}
+              </div>
+            )}
           </div>
         </div>
       </div>
