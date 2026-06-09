@@ -5,6 +5,7 @@ import cron from 'node-cron'
 import { initDatabase, getDb } from './db/index.js'
 import { registerAllHandlers } from './ipc/index.js'
 import { performBackup } from './ipc/backup.js'
+import { clearSession } from './session.js'
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -35,6 +36,10 @@ function createWindow() {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    clearSession()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
