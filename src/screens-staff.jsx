@@ -50,7 +50,7 @@ function StaffHome({ go }) {
 }
 
 /* ---------- New Transaction (5-step wizard) ---------- */
-function NewTransaction({ onDone }) {
+function NewTransaction({ onDone, staffName }) {
   const [step, setStep] = React.useState(0);
   const [product, setProduct] = React.useState("");
   const [name, setName] = React.useState("");
@@ -167,7 +167,20 @@ function NewTransaction({ onDone }) {
           <div className="spacer" />
           {step < 4
             ? <button className="btn btn-primary" disabled={step === 1 && !product} style={step === 1 && !product ? { opacity: .5, cursor: "not-allowed" } : null} onClick={next}>Continue <Icon name="chevron-right" size={16} /></button>
-            : <button className="btn btn-primary btn-block" style={{ width: "auto", flex: 1 }} onClick={() => { setSaved(true); showToast("Transaction saved · " + fmt(amount)); }}><Icon name="check" size={16} /> Confirm & Save</button>}
+            : <button className="btn btn-primary btn-block" style={{ width: "auto", flex: 1 }} onClick={() => {
+                const newTx = {
+                  id: "T-" + String(window.RM.transactions.length + 1).padStart(3, "0"),
+                  time: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+                  customer: name.trim() || "Walk-in",
+                  product,
+                  amount,
+                  pay,
+                  staff: staffName || "Staff",
+                };
+                window.RM.transactions = [newTx, ...window.RM.transactions];
+                setSaved(true);
+                showToast("Transaction saved · " + fmt(amount));
+              }}><Icon name="check" size={16} /> Confirm & Save</button>}
         </div>
       </div>
     </div>
@@ -197,7 +210,7 @@ function MemberSearch() {
   return (
     <div className="content fade-in" style={{ maxWidth: 720, margin: "0 auto" }}>
       {showAdd && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.38)", display: "grid", placeItems: "center", zIndex: 50 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.32)", backdropFilter: "blur(3px)", display: "grid", placeItems: "center", zIndex: 50 }}>
           <div className="card scale-in" style={{ width: 380, padding: 24 }}>
             <div className="between" style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 500 }}>New Member</div>
@@ -273,7 +286,7 @@ function MemberSearch() {
         ))}
         {res.length === 0 && (
         <div className="card" style={{ padding: 28, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
-          {q ? `No members match "${q}".` : "Start typing to search members."}
+          {q ? `No members match "${q}".` : "No members on record yet."}
         </div>
       )}
       </div>
@@ -296,7 +309,7 @@ function TodaysLog() {
 
   return (
     <div className="content fade-in" style={{ maxWidth: 860, margin: "0 auto" }}>
-      <SectionHead title="Today's Log" date="Sunday, 7 Jun 2026" />
+      <SectionHead title="Today's Log" date={window.fmtDate(new Date())} />
       <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
         <div style={{ position: "relative", flex: 1 }}>
           <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", display: "flex" }}><Icon name="search" size={15} color="#94a3b8" /></span>
@@ -348,7 +361,7 @@ function EndOfDay() {
         <div style={{ textAlign: "center", paddingBottom: 18 }}>
           <div className="m-label" style={{ fontSize: 12 }}>Total revenue today</div>
           <div style={{ fontSize: 34, fontWeight: 500, margin: "4px 0 4px", letterSpacing: ".2px" }}>{fmt(e.total)}</div>
-          <div className="sub">{e.count} transactions · Sunday, 7 Jun 2026</div>
+          <div className="sub">{e.count} transactions · {window.fmtDate(new Date())}</div>
         </div>
 
         {step === 0 && (
@@ -413,7 +426,7 @@ function EndOfDay() {
               onClick={() => {
                 setSent(true);
                 showToast("EOD report sent via WhatsApp");
-                const msg = "EOD Report · Sunday, 7 Jun 2026\n" +
+                const msg = `EOD Report · ${window.fmtDate(new Date())}\n` +
                   "Total: " + window.RM.fmt(e.total) + " (" + e.count + " txns)\n" +
                   "Cash: " + window.RM.fmt(e.cash) + "\n" +
                   "QR: " + window.RM.fmt(e.qr);

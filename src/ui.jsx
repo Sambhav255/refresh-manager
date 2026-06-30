@@ -39,6 +39,12 @@ const WaveMark = ({ size = 22, color = "#fff" }) => (
   </svg>
 );
 
+function fmtDate(d) {
+  const da = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  const mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return da[d.getDay()] + ", " + d.getDate() + " " + mo[d.getMonth()] + " " + d.getFullYear();
+}
+
 function Badge({ kind, children }) {
   const map = {
     "Active": "b-active", "Expiring soon": "b-exp", "Expired": "b-dead",
@@ -76,6 +82,16 @@ function Window({ children, onClose }) {
 }
 
 function AppHeader({ role, userName, onLogout }) {
+  const [time, setTime] = React.useState(() =>
+    new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
+  );
+  React.useEffect(() => {
+    const id = setInterval(() =>
+      setTime(new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })),
+      10000
+    );
+    return () => clearInterval(id);
+  }, []);
   return (
     <div className="hdr">
       <div className="hdr-brand">
@@ -83,6 +99,7 @@ function AppHeader({ role, userName, onLogout }) {
         <span className="hdr-name">Refresh Manager</span>
       </div>
       <div className="hdr-right">
+        <span style={{ fontSize: 12, color: "#bcd4ee", opacity: .75, letterSpacing: ".3px" }}>{time}</span>
         <div className="hdr-user">
           <Icon name={role === "staff" ? "user" : "shield"} size={15} color="#bcd4ee" />
           <span>{role === "staff" ? (userName || "Aarti") + " · Reception" : "Owner · Admin"}</span>
@@ -145,7 +162,7 @@ function MemberDetail({ member, onClose }) {
     const p = str.split(" ");
     return new Date(parseInt(p[2]), mo[p[1]], parseInt(p[0]));
   };
-  const APP_DATE = new Date(2026, 5, 7);
+  const APP_DATE = new Date();
   const expDate = parseDate(member.expiry);
   const daysLeft = Math.round((expDate - APP_DATE) / 86400000);
   const txs = window.RM.transactions.filter((t) => t.customer === member.name);
@@ -208,4 +225,4 @@ function MemberDetail({ member, onClose }) {
   );
 }
 
-Object.assign(window, { Icon, useLucide, WaveMark, Badge, PayBadge, Avatar, Window, AppHeader, SectionHead, showToast, ToastHost, MemberDetail });
+Object.assign(window, { Icon, useLucide, WaveMark, fmtDate, Badge, PayBadge, Avatar, Window, AppHeader, SectionHead, showToast, ToastHost, MemberDetail });

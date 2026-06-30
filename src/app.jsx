@@ -154,21 +154,37 @@ function Login({ onLogin }) {
 /* ---------- Staff inventory (reachable from Home tile) ---------- */
 function StaffInventory({ back }) {
   const inv = window.RM.inventory;
+  const lowItems = inv.filter((r) => r.low);
   return (
     <div className="content fade-in" style={{ maxWidth: 860, margin: "0 auto" }}>
       <SectionHead title="Inventory">
         <button className="btn btn-ghost" onClick={back}><Icon name="chevron-left" size={15} /> Back to home</button>
       </SectionHead>
-      <div className="alert red" style={{ marginBottom: 14 }}>
-        <Icon name="alert-triangle" size={17} />
-        <div><div className="a-title">2 items below reorder threshold</div><div className="a-desc">Goggles (Baby) · Nose Pin</div></div>
-      </div>
+      {lowItems.length > 0 && (
+        <div className="alert red" style={{ marginBottom: 14 }}>
+          <Icon name="alert-triangle" size={17} />
+          <div>
+            <div className="a-title">{lowItems.length} item{lowItems.length !== 1 ? "s" : ""} below reorder threshold</div>
+            <div className="a-desc">{lowItems.map((r) => r.item + (r.variant !== "—" ? " (" + r.variant + ")" : "")).join(" · ")}</div>
+          </div>
+        </div>
+      )}
       <table className="tbl">
-        <thead><tr><th>Item</th><th style={{ width: 140 }}>Variant</th><th className="num" style={{ width: 80 }}>Stock</th><th className="num" style={{ width: 100 }}>Reorder at</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th style={{ width: 140 }}>Variant</th>
+            <th className="num" style={{ width: 80 }}>Stock</th>
+            <th className="num" style={{ width: 100 }}>Reorder at</th>
+          </tr>
+        </thead>
         <tbody>
           {inv.map((r, i) => (
             <tr key={i}>
-              <td style={{ fontWeight: 500 }}>{r.low && <Icon name="alert-triangle" size={14} color="#ef4444" style={{ verticalAlign: "-2px", marginRight: 6 }} />}{r.item}</td>
+              <td style={{ fontWeight: 500 }}>
+                {r.low && <Icon name="alert-triangle" size={14} color="#ef4444" style={{ verticalAlign: "-2px", marginRight: 6 }} />}
+                {r.item}
+              </td>
               <td style={{ color: "#64748b" }}>{r.variant}</td>
               <td className="num" style={{ color: r.low ? "#ef4444" : "#1a202c" }}>{r.stock}</td>
               <td className="num" style={{ color: "#94a3b8" }}>{r.reorder}</td>
@@ -203,7 +219,7 @@ function StaffApp({ onLogout, userName }) {
   ];
   let screen;
   if (tab === "home") screen = <StaffHome go={setTab} />;
-  else if (tab === "new") screen = <NewTransaction onDone={setTab} />;
+  else if (tab === "new") screen = <NewTransaction onDone={setTab} staffName={userName} />;
   else if (tab === "members") screen = <MemberSearch />;
   else if (tab === "log") screen = <TodaysLog />;
   else if (tab === "eod") screen = <EndOfDay />;

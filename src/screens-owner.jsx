@@ -1,6 +1,14 @@
 /* ===== Owner interface screens ===== */
 const RMo = window.RM;
 
+function fmtBookingDate(str) {
+  if (!str) return "";
+  if (!str.includes("-")) return str; // already formatted (mock data)
+  const [y, m, d] = str.split("-").map(Number);
+  const mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return d + " " + mo[m - 1] + " " + y;
+}
+
 /* ---------- Weekly revenue bar chart ---------- */
 function RevenueChart() {
   const data = RMo.weeklyRevenue;
@@ -39,7 +47,7 @@ function OwnerDashboard({ go }) {
   ];
   return (
     <div className="content fade-in">
-      <SectionHead title="Dashboard" date="Sunday, 7 Jun 2026">
+      <SectionHead title="Dashboard" date={window.fmtDate(new Date())}>
         <button className="btn btn-ghost" onClick={() => showToast("Daily export — available in the Electron app", "info")}><Icon name="download" size={15} /> Export today</button>
       </SectionHead>
 
@@ -130,7 +138,7 @@ function OwnerTransactions() {
       <SectionHead title="Transactions" />
 
       {voidPending && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.35)", display: "grid", placeItems: "center", zIndex: 50 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.32)", backdropFilter: "blur(3px)", display: "grid", placeItems: "center", zIndex: 50 }}>
           <div className="card scale-in" style={{ width: 320, padding: 24, textAlign: "center" }}>
             <div style={{ width: 52, height: 52, borderRadius: "50%", background: "#fee2e2", display: "grid", placeItems: "center", margin: "0 auto 14px" }}>
               <Icon name="alert-triangle" size={26} color="#ef4444" />
@@ -190,8 +198,11 @@ function OwnerTransactions() {
               <td>{t.voided ? <span className="badge b-dead">Voided</span> : <PayBadge pay={t.pay} />}</td>
               <td style={{ textAlign: "right" }}>
                 {!t.voided && (
-                  <button className="rowmenu" title="Void transaction" onClick={() => setVoidPending(t.id)}>
-                    <Icon name="more-vertical" size={16} color="#94a3b8" />
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: "3px 9px", fontSize: 11, color: "#dc2626", borderColor: "#fecaca" }}
+                    onClick={() => setVoidPending(t.id)}>
+                    Void
                   </button>
                 )}
               </td>
@@ -282,6 +293,10 @@ function OwnerBookings() {
   const [showNew, setShowNew] = React.useState(false);
   const emptyForm = { customer: "", type: "Pool — Private Event", date: "", time: "", guests: "", deposit: "", note: "" };
   const [form, setForm] = React.useState(emptyForm);
+  const nextId = React.useRef(bookings.reduce((max, b) => {
+    const n = parseInt(b.id.replace(/\D/g, "")) || 0;
+    return Math.max(max, n);
+  }, 0) + 1);
 
   const tabs = ["All", "Upcoming", "Completed", "Cancelled"];
   const filtered = filter === "All" ? bookings : bookings.filter((b) => b.status === filter);
@@ -290,7 +305,7 @@ function OwnerBookings() {
 
   const saveBooking = () => {
     if (!form.customer || !form.date) return;
-    const id = "B-0" + (bookings.length + 1);
+    const id = "B-" + String(nextId.current++).padStart(2, "0");
     setBookings([{ ...form, id, guests: Number(form.guests) || 0, deposit: Number(form.deposit) || 0, status: "Upcoming" }, ...bookings]);
     setShowNew(false);
     setForm(emptyForm);
@@ -308,7 +323,7 @@ function OwnerBookings() {
       </SectionHead>
 
       {showNew && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.38)", display: "grid", placeItems: "center", zIndex: 50 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.32)", backdropFilter: "blur(3px)", display: "grid", placeItems: "center", zIndex: 50 }}>
           <div className="card scale-in" style={{ width: 460, padding: 26 }}>
             <div className="between" style={{ marginBottom: 18 }}>
               <div style={{ fontSize: 16, fontWeight: 500 }}>New Booking</div>
@@ -382,7 +397,7 @@ function OwnerBookings() {
                   <div style={{ fontSize: 11.5, color: "#64748b" }}>{b.type}{b.note ? " · " + b.note : ""}</div>
                 </td>
                 <td>
-                  <div style={{ fontSize: 13 }}>{b.date}</div>
+                  <div style={{ fontSize: 13 }}>{fmtBookingDate(b.date)}</div>
                   {b.time && <div style={{ fontSize: 11, color: "#94a3b8" }}>{b.time}</div>}
                 </td>
                 <td className="num" style={{ color: "#64748b" }}>{b.guests}</td>
@@ -422,7 +437,7 @@ function OwnerInventory() {
 
   const confirmRestock = (idx) => {
     const n = parseInt(qty);
-    if (!n || n <= 0) return;
+    if (isNaN(n) || n <= 0) { showToast("Enter a quantity greater than 0", "error"); return; }
     setInv(inv.map((item, i) => {
       if (i !== idx) return item;
       const s = item.stock + n;
@@ -451,7 +466,7 @@ function OwnerInventory() {
       </SectionHead>
 
       {showAdd && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.38)", display: "grid", placeItems: "center", zIndex: 50 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.32)", backdropFilter: "blur(3px)", display: "grid", placeItems: "center", zIndex: 50 }}>
           <div className="card scale-in" style={{ width: 380, padding: 24 }}>
             <div className="between" style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 500 }}>Add inventory item</div>
@@ -681,7 +696,7 @@ function StaffPinsPanel({ back }) {
       </SectionHead>
 
       {showAdd && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.38)", display: "grid", placeItems: "center", zIndex: 50 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.32)", backdropFilter: "blur(3px)", display: "grid", placeItems: "center", zIndex: 50 }}>
           <div className="card scale-in" style={{ width: 340, padding: 22 }}>
             <div className="between" style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 15, fontWeight: 500 }}>Add staff member</div>
@@ -691,8 +706,9 @@ function StaffPinsPanel({ back }) {
             <div className="field"><label>Role</label><input className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} /></div>
             <div className="field">
               <label>4-digit PIN *</label>
-              <input className="input" type="number" value={form.pin}
-                onChange={(e) => setForm({ ...form, pin: e.target.value.slice(0, 4) })}
+              <input className="input" type="text" inputMode="numeric" pattern="[0-9]*"
+                maxLength={4} value={form.pin}
+                onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, "").slice(0, 4) })}
                 placeholder="••••" style={{ letterSpacing: 6 }} />
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 4 }}>

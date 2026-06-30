@@ -1,0 +1,7 @@
+.DS_Store
+*.DS_Store
+refresh-manager-win.zip
+*.zip
+node_modules/
+.env
+*.log
