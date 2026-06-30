@@ -1,8 +1,133 @@
 /* ===== Refresh Manager — app shell & routing ===== */
 const { useState, useEffect } = React;
 
-/* ---------- Login ---------- */
+/* ---------- Staff PIN Login ---------- */
+function StaffPinLogin({ onLogin, back }) {
+  const [pin, setPin] = useState("");
+  const [shake, setShake] = useState(false);
+
+  const handleDigit = (d) => {
+    const next = (pin + d).slice(0, 4);
+    setPin(next);
+    if (next.length === 4) {
+      const found = window.RM.staff.find((s) => s.pin === next);
+      if (found) {
+        onLogin("staff", found.name);
+      } else {
+        setShake(true);
+        setTimeout(() => { setPin(""); setShake(false); }, 420);
+      }
+    }
+  };
+
+  const keys = [1, 2, 3, 4, 5, 6, 7, 8, 9, null, 0, "del"];
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key >= "0" && e.key <= "9") handleDigit(e.key);
+      if (e.key === "Backspace") setPin((p) => p.slice(0, -1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pin]);
+
+  return (
+    <div style={{ flex: 1, display: "grid", placeItems: "center", background: "var(--bg)" }} className="fade-in">
+      <div style={{ textAlign: "center" }}>
+        <div style={{ width: 52, height: 52, borderRadius: 14, background: "linear-gradient(150deg,#185FA5,#0C447C)", display: "grid", placeItems: "center", margin: "0 auto 14px", boxShadow: "0 8px 20px -6px rgba(12,68,124,.4)" }}>
+          <Icon name="user" size={24} color="#fff" />
+        </div>
+        <div style={{ fontSize: 17, fontWeight: 500, color: "#1a202c" }}>Staff Login</div>
+        <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 3 }}>Enter your 4-digit PIN</div>
+
+        <div className={"pin-dots" + (shake ? " shake" : "")}>
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className={"pin-dot" + (pin.length > i ? " filled" : "") + (shake ? " error" : "")} />
+          ))}
+        </div>
+
+        <div className="numpad">
+          {keys.map((k, i) => {
+            if (k === null) return <div key={i} className="numpad-key blank" />;
+            if (k === "del") return (
+              <button key="del" className="numpad-key del" onClick={() => setPin((p) => p.slice(0, -1))}>
+                <Icon name="delete" size={19} />
+              </button>
+            );
+            return (
+              <button key={k} className="numpad-key" onClick={() => handleDigit(String(k))}>{k}</button>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 16, fontSize: 11.5, color: "#94a3b8" }}>Demo PINs: 1234 · 5678</div>
+        <button onClick={back} style={{ marginTop: 14, background: "none", border: "none", color: "#64748b", fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <Icon name="chevron-left" size={14} /> Back
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Owner Password Login ---------- */
+function OwnerPasswordLogin({ onLogin, back }) {
+  const [user, setUser] = useState("");
+  const [pass, setPass] = useState("");
+  const [error, setError] = useState(false);
+
+  const submit = () => {
+    if (user === "admin" && pass === "refresh2026") {
+      onLogin("owner");
+    } else {
+      setError(true);
+      setTimeout(() => setError(false), 3000);
+    }
+  };
+
+  return (
+    <div style={{ flex: 1, display: "grid", placeItems: "center", background: "var(--bg)" }} className="fade-in">
+      <div style={{ width: 320, textAlign: "center" }}>
+        <div style={{ width: 52, height: 52, borderRadius: 14, background: "linear-gradient(150deg,#185FA5,#0C447C)", display: "grid", placeItems: "center", margin: "0 auto 14px", boxShadow: "0 8px 20px -6px rgba(12,68,124,.4)" }}>
+          <Icon name="shield" size={24} color="#fff" />
+        </div>
+        <div style={{ fontSize: 17, fontWeight: 500, color: "#1a202c" }}>Owner Login</div>
+        <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 3, marginBottom: 22 }}>Admin credentials required</div>
+
+        <div className="field" style={{ textAlign: "left" }}>
+          <label>Username</label>
+          <input className="input" value={user} onChange={(e) => setUser(e.target.value)} placeholder="admin" />
+        </div>
+        <div className="field" style={{ textAlign: "left" }}>
+          <label>Password</label>
+          <input className="input" type="password" value={pass} onChange={(e) => setPass(e.target.value)}
+            placeholder="••••••••••" onKeyDown={(e) => e.key === "Enter" && submit()} />
+        </div>
+
+        {error && (
+          <div className="alert red" style={{ marginBottom: 12, fontSize: 12.5 }}>
+            <Icon name="alert-circle" size={15} /> Invalid credentials · try admin / refresh2026
+          </div>
+        )}
+
+        <button className="btn btn-primary btn-block" onClick={submit}>
+          <Icon name="log-in" size={16} /> Log in
+        </button>
+        <button onClick={back} style={{ marginTop: 12, background: "none", border: "none", color: "#64748b", fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <Icon name="chevron-left" size={14} /> Back
+        </button>
+        <div style={{ marginTop: 14, fontSize: 11.5, color: "#94a3b8" }}>Demo: admin / refresh2026</div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Login chooser ---------- */
 function Login({ onLogin }) {
+  const [mode, setMode] = useState("choose");
+
+  if (mode === "staff") return <StaffPinLogin onLogin={onLogin} back={() => setMode("choose")} />;
+  if (mode === "owner") return <OwnerPasswordLogin onLogin={onLogin} back={() => setMode("choose")} />;
+
   return (
     <div style={{ flex: 1, display: "grid", placeItems: "center", background: "var(--bg)" }} className="fade-in">
       <div style={{ width: 340, textAlign: "center" }}>
@@ -13,10 +138,10 @@ function Login({ onLogin }) {
         <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>Boudha, Kathmandu</div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 30 }}>
-          <button className="btn btn-ghost btn-block" style={{ padding: 14, fontSize: 14 }} onClick={() => onLogin("staff")}>
+          <button className="btn btn-ghost btn-block" style={{ padding: 14, fontSize: 14 }} onClick={() => setMode("staff")}>
             <Icon name="user" size={18} /> Staff Login
           </button>
-          <button className="btn btn-primary btn-block" style={{ padding: 14, fontSize: 14 }} onClick={() => onLogin("owner")}>
+          <button className="btn btn-primary btn-block" style={{ padding: 14, fontSize: 14 }} onClick={() => setMode("owner")}>
             <Icon name="shield" size={18} /> Owner / Admin Login
           </button>
         </div>
@@ -56,9 +181,19 @@ function StaffInventory({ back }) {
 }
 
 /* ---------- Staff shell ---------- */
-function StaffApp({ onLogout }) {
+function StaffApp({ onLogout, userName }) {
   const [tab, setTab] = useState("home");
-  useLucide(tab);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
+      const map = { n: "new", N: "new", m: "members", M: "members", l: "log", L: "log", e: "eod", E: "eod" };
+      if (map[e.key]) setTab(map[e.key]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const tabs = [
     { k: "home", icon: "home", label: "Home" },
     { k: "new", icon: "plus-circle", label: "New Transaction" },
@@ -78,7 +213,7 @@ function StaffApp({ onLogout }) {
 
   return (
     <div className="app">
-      <AppHeader role="staff" onLogout={onLogout} />
+      <AppHeader role="staff" userName={userName} onLogout={onLogout} />
       <div className="body-wrap"><div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>{screen}</div></div>
       <div className="botnav">
         {tabs.map((t) => (
@@ -95,18 +230,23 @@ function StaffApp({ onLogout }) {
 /* ---------- Owner shell ---------- */
 function OwnerApp({ onLogout }) {
   const [tab, setTab] = useState("dashboard");
-  useLucide(tab);
   const nav = [
     { k: "dashboard", icon: "layout-dashboard", label: "Dashboard" },
     { k: "transactions", icon: "receipt-text", label: "Transactions" },
     { k: "members", icon: "users", label: "Members" },
+    { k: "bookings", icon: "calendar", label: "Bookings" },
     { k: "inventory", icon: "package", label: "Inventory" },
     { k: "reports", icon: "bar-chart-3", label: "Reports" },
     { k: "settings", icon: "settings", label: "Settings" },
   ];
   const screens = {
-    dashboard: <OwnerDashboard />, transactions: <OwnerTransactions />, members: <OwnerMembers />,
-    inventory: <OwnerInventory />, reports: <OwnerReports />, settings: <OwnerSettings />,
+    dashboard: <OwnerDashboard go={setTab} />,
+    transactions: <OwnerTransactions />,
+    members: <OwnerMembers />,
+    bookings: <OwnerBookings />,
+    inventory: <OwnerInventory />,
+    reports: <OwnerReports />,
+    settings: <OwnerSettings />,
   };
   return (
     <div className="app">
@@ -127,7 +267,13 @@ function OwnerApp({ onLogout }) {
 
 /* ---------- Root ---------- */
 function App() {
-  const [role, setRole] = useState("login"); // login | staff | owner
+  const [role, setRole] = useState("login");
+  const [staffName, setStaffName] = useState("");
+
+  const handleLogin = (r, name) => {
+    setRole(r);
+    if (name) setStaffName(name);
+  };
 
   useEffect(() => { if (window.__fitStage) window.__fitStage(); }, [role]);
 
@@ -137,20 +283,22 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [role]);
 
-  // footer hint
   useEffect(() => {
     const h = document.getElementById("hint");
     if (!h) return;
     h.innerHTML = role === "login"
-      ? "Refresh Manager · interactive prototype — choose a login to begin"
-      : "Press <kbd>Esc</kbd> to log out · everything is clickable";
+      ? "Refresh Manager · choose a login to begin"
+      : role === "staff"
+        ? "Press <kbd>Esc</kbd> to log out · <kbd>N</kbd> New · <kbd>M</kbd> Members · <kbd>L</kbd> Log · <kbd>E</kbd> EOD"
+        : "Press <kbd>Esc</kbd> to log out · everything is clickable";
   }, [role]);
 
   return (
     <Window onClose={() => setRole("login")}>
-      {role === "login" && <Login onLogin={setRole} />}
-      {role === "staff" && <StaffApp key="staff" onLogout={() => setRole("login")} />}
+      {role === "login" && <Login onLogin={handleLogin} />}
+      {role === "staff" && <StaffApp key="staff" userName={staffName} onLogout={() => setRole("login")} />}
       {role === "owner" && <OwnerApp key="owner" onLogout={() => setRole("login")} />}
+      <ToastHost />
     </Window>
   );
 }

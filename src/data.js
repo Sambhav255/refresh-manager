@@ -27,6 +27,33 @@ window.RM = (function () {
     { item: "Floating Tube", variant: "—", stock: 4, reorder: 2, price: 600, low: false },
   ];
 
+  const prices = {
+    "Pool Day Pass": 500, "Gym Day Pass": 300,
+    "Sauna + Steam + Jacuzzi": 600, "Swimming + Sauna + Steam": 700,
+    "Whole Package (Pool + Gym + Sauna + Steam + Jacuzzi)": 800,
+    "Beginner Training — 15 Days": 2000, "Beginner Training — Monthly": 3000,
+    "Advanced Training — 15 Days": 2500, "Advanced Training — Monthly": 4000,
+    "Gym Only — Monthly": 2000, "Gym Only — 3 Months": 5500, "Gym Only — 6 Months": 10000, "Gym Only — 1 Year": 18000,
+    "Swimming + Gym — Monthly": 3500, "Swimming + Gym — 3 Months": 9500, "Swimming + Gym — 6 Months": 18000, "Swimming + Gym — 1 Year": 32000,
+  };
+
+  const bookings = [
+    { id: "B-01", customer: "Rajesh Kumar", type: "Pool — Corporate Event", date: "12 Jun 2026", time: "9:00 AM – 12:00 PM", guests: 20, status: "Upcoming", deposit: 5000, note: "Needs projector" },
+    { id: "B-02", customer: "Priya Sharma", type: "Sauna + Steam Private", date: "10 Jun 2026", time: "6:00 PM – 7:30 PM", guests: 2, status: "Upcoming", deposit: 2000, note: "" },
+    { id: "B-03", customer: "Bikash Tamang", type: "Pool — Birthday Party", date: "8 Jun 2026", time: "4:00 PM – 6:00 PM", guests: 15, status: "Completed", deposit: 4000, note: "Kids party" },
+    { id: "B-04", customer: "Anita Shrestha", type: "Gym — Group Session", date: "5 Jun 2026", time: "7:00 AM – 8:00 AM", guests: 8, status: "Completed", deposit: 1500, note: "" },
+  ];
+
+  const weeklyRevenue = [
+    { day: "Mon", amt: 5800 },
+    { day: "Tue", amt: 4200 },
+    { day: "Wed", amt: 7100 },
+    { day: "Thu", amt: 3900 },
+    { day: "Fri", amt: 8400 },
+    { day: "Sat", amt: 9200 },
+    { day: "Sun", amt: 6200 },
+  ];
+
   const products = {
     "Membership": [
       "Beginner Training — 15 Days", "Beginner Training — Monthly",
@@ -74,7 +101,12 @@ window.RM = (function () {
     { icon: "building-2", title: "Business info", desc: "Name, address, phone" },
   ];
 
+  const staff = [
+    { name: "Aarti", role: "Reception", pin: "1234" },
+    { name: "Bikash", role: "Reception", pin: "5678" },
+  ];
+
   const fmt = (n) => "Rs. " + n.toLocaleString("en-IN");
 
-  return { transactions, members, inventory, products, eod, kpis, reports, settings, fmt };
+  return { transactions, members, inventory, prices, products, bookings, weeklyRevenue, eod, kpis, reports, settings, staff, fmt };
 })();
