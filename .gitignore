@@ -1,6 +1,8 @@
 node_modules
 dist
+dist-app
 out
 .DS_Store
 .eslintcache
+.code-review-graph
 *.log*

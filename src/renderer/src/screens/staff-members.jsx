@@ -48,14 +48,14 @@ export function MemberSearch() {
       <div className="sub" style={{ marginBottom: 12 }}>
         {loading
           ? 'Searching...'
-          : `${results.length} result${results.length !== 1 ? 's' : ''} found}`}
+          : `${results.length} result${results.length !== 1 ? 's' : ''} found`}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {results.map((m) => {
           const mem = m.activeMembership
           const status = mem?.uiStatus || 'Expired'
           const type = mem?.productName || 'No active membership'
-          const expiry = mem?.endDisplay || '√'
+          const expiry = mem?.endDisplay || '—'
           return (
             <div
               key={m.id}
@@ -66,7 +66,7 @@ export function MemberSearch() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{m.name}</div>
                 <div className="sub" style={{ color: '#64748b', marginTop: 2 }}>
-                  {type} ∘ {m.phone || '√'}
+                  {type} ∘ {m.phone || '—'}
                 </div>
               </div>
               <div
