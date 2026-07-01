@@ -74,17 +74,28 @@ export function registerPoolInventoryHandlers() {
 
   ipcMain.handle(
     'pool-inventory:sell',
-    wrap(({ itemId, quantity, transactionId, staffId }) => {
-      requireStaffOrOwner()
+    // P0-1: staff id from session. P0-4: refuse to drive stock negative.
+    wrap(({ itemId, quantity, transactionId }) => {
+      const session = requireStaffOrOwner()
+      const staffId = session.userId
+      const qty = Number(quantity)
+      if (!Number.isInteger(qty) || qty <= 0) throw new Error('Invalid quantity')
       const db = getDb()
       const tx = db.transaction(() => {
+        const item = db
+          .prepare('SELECT current_stock, name FROM pool_inventory_items WHERE id = ?')
+          .get(itemId)
+        if (!item) throw new Error('Item not found')
+        if (qty > item.current_stock) {
+          throw new Error(`Not enough stock: only ${item.current_stock} left`)
+        }
         db.prepare(
           `INSERT INTO pool_inventory_transactions (item_id, txn_type, quantity, transaction_id, staff_id)
            VALUES (?, 'out', ?, ?, ?)`
-        ).run(itemId, quantity, transactionId, staffId)
+        ).run(itemId, qty, transactionId || null, staffId)
         db.prepare(
           `UPDATE pool_inventory_items SET current_stock = current_stock - ? WHERE id = ?`
-        ).run(quantity, itemId)
+        ).run(qty, itemId)
       })
       tx()
       return { success: true }
@@ -92,9 +103,60 @@ export function registerPoolInventoryHandlers() {
   )
 
   ipcMain.handle(
+    'pool-inventory:sell-item',
+    // P2-1: staff-facing sale of a pool inventory item (goggles, caps, …).
+    // Creates the money transaction AND the stock draw-down in ONE DB
+    // transaction. P0-1: amount and staff are derived server-side. P0-4: guarded.
+    wrap(({ itemId, quantity, paymentMethod, customerName }) => {
+      const session = requireStaffOrOwner()
+      const staffId = session.userId
+      const qty = Number(quantity)
+      if (!Number.isInteger(qty) || qty <= 0) throw new Error('Invalid quantity')
+
+      const db = getDb()
+      const item = db.prepare('SELECT * FROM pool_inventory_items WHERE id = ?').get(itemId)
+      if (!item || !item.is_active) throw new Error('Item not available')
+      if (!(item.selling_price > 0)) throw new Error('Item has no selling price')
+
+      const pay = paymentMethod?.toLowerCase() === 'qr' ? 'qr' : 'cash'
+      const amount = qty * item.selling_price
+      const name = customerName || 'Walk-in'
+      const label = item.variant ? `${item.name} (${item.variant})` : item.name
+
+      const run = db.transaction(() => {
+        if (qty > item.current_stock) {
+          throw new Error(`Not enough stock: only ${item.current_stock} left`)
+        }
+        const result = db
+          .prepare(
+            `INSERT INTO transactions
+             (transaction_type, source, customer_name, amount, payment_method, staff_id, notes)
+             VALUES ('pool_inventory', 'pool', ?, ?, ?, ?, ?)`
+          )
+          .run(name, amount, pay, staffId, `${label} x${qty}`)
+        const transactionId = result.lastInsertRowid
+        db.prepare(
+          `INSERT INTO pool_inventory_transactions (item_id, txn_type, quantity, transaction_id, staff_id)
+           VALUES (?, 'out', ?, ?, ?)`
+        ).run(itemId, qty, transactionId, staffId)
+        db.prepare(
+          `UPDATE pool_inventory_items SET current_stock = current_stock - ? WHERE id = ?`
+        ).run(qty, itemId)
+        return transactionId
+      })
+
+      const transactionId = run()
+      return { success: true, transactionId, total: amount, paymentMethod: pay }
+    })
+  )
+
+  ipcMain.handle(
     'pool-inventory:adjust',
     wrap(({ itemId, newQuantity, reason, staffId }) => {
       requireOwner()
+      // P0-4: an adjustment is a deliberate correction to any value, but the
+      // resulting stock may never be negative.
+      if (Number(newQuantity) < 0) throw new Error('Stock cannot be negative')
       const db = getDb()
       const current = db
         .prepare('SELECT current_stock FROM pool_inventory_items WHERE id = ?')

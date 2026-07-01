@@ -112,10 +112,10 @@ export function registerMemberHandlers() {
             `SELECT ms.*, p.name as product_name, p.category, p.duration_days, p.sub_category
              FROM memberships ms
              JOIN products p ON p.id = ms.product_id
-             WHERE ms.member_id = ? AND ms.status = 'active'
+             WHERE ms.member_id = ? AND ms.status = 'active' AND ms.end_date >= ?
              ORDER BY ms.end_date DESC LIMIT 1`
           )
-          .get(row.id)
+          .get(row.id, todayLocal())
         return mapMember(row, active, getExpiryWarningDays(db))
       })
       return { members }
@@ -138,8 +138,10 @@ export function registerMemberHandlers() {
 
   ipcMain.handle(
     'members:add-membership',
-    wrap(({ memberId, productId, startDate, amount, paymentMethod, staffId, transactionId }) => {
-      requireStaffOrOwner()
+    // P0-1: staff_id from the session; amount is always the catalogue price.
+    wrap(({ memberId, productId, startDate, paymentMethod, transactionId }) => {
+      const session = requireStaffOrOwner()
+      const staffId = session.userId
       const db = getDb()
       const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
       if (!product) throw new Error('Product not found')
@@ -159,15 +161,7 @@ export function registerMemberHandlers() {
                (transaction_type, source, customer_name, phone, product_id, member_id, amount, payment_method, staff_id)
                VALUES ('membership', 'pool', ?, ?, ?, ?, ?, ?, ?)`
             )
-            .run(
-              member.name,
-              member.phone,
-              productId,
-              memberId,
-              amount ?? product.price,
-              pay,
-              staffId
-            )
+            .run(member.name, member.phone, productId, memberId, product.price, pay, staffId)
           txnId = txn.lastInsertRowid
         }
         const result = db
@@ -185,8 +179,10 @@ export function registerMemberHandlers() {
 
   ipcMain.handle(
     'members:renew',
-    wrap(({ membershipId, newStartDate, amount, paymentMethod, staffId, transactionId }) => {
-      requireStaffOrOwner()
+    // P0-1: staff_id from the session; amount is always the catalogue price.
+    wrap(({ membershipId, newStartDate, paymentMethod, transactionId }) => {
+      const session = requireStaffOrOwner()
+      const staffId = session.userId
       const db = getDb()
       const old = db
         .prepare(
@@ -219,7 +215,7 @@ export function registerMemberHandlers() {
               old.member_phone,
               old.product_id,
               old.member_id,
-              amount ?? old.price,
+              old.price,
               pay,
               staffId
             )
@@ -276,10 +272,11 @@ export function registerMemberHandlers() {
       const activeSql = `SELECT ms.*, p.name as product_name, p.category, p.duration_days, p.sub_category
              FROM memberships ms
              JOIN products p ON p.id = ms.product_id
-             WHERE ms.member_id = ? AND ms.status = 'active'
+             WHERE ms.member_id = ? AND ms.status = 'active' AND ms.end_date >= ?
              ORDER BY ms.end_date DESC LIMIT 1`
+      const today = todayLocal()
       const members = rows.map((row) => {
-        const active = db.prepare(activeSql).get(row.id)
+        const active = db.prepare(activeSql).get(row.id, today)
         return mapMember(row, active, warningDays)
       })
       return { members }

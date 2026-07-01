@@ -40,7 +40,7 @@ const api = {
   // Pool inventory
   listPoolInventory: (data) => invoke('pool-inventory:list', data),
   restockPoolItem: (data) => invoke('pool-inventory:restock', data),
-  sellPoolItem: (data) => invoke('pool-inventory:sell', data),
+  sellPoolItem: (data) => invoke('pool-inventory:sell-item', data),
   adjustPoolItem: (data) => invoke('pool-inventory:adjust', data),
   addPoolItem: (data) => invoke('pool-inventory:add-item', data),
   updatePoolItem: (data) => invoke('pool-inventory:update', data),
@@ -88,6 +88,7 @@ const api = {
   getExpiringReminders: (data) => invoke('reminders:get-expiring', data),
   sendReminder: (data) => invoke('reminders:send-one', data),
   sendAllReminders: (data) => invoke('reminders:send-all', data),
+  clearReminder: (data) => invoke('reminders:clear', data),
 
   // Photos
   savePhoto: (data) => invoke('photos:save', data),

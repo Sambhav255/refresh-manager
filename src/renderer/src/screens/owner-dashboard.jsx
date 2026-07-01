@@ -42,12 +42,15 @@ export function OwnerDashboard() {
     })
   }, [today])
 
-  const sendAllReminders = async () => {
+  // P1-5: guided one-at-a-time flow — open (and mark sent) only the next
+  // pending member's WhatsApp chat, never a burst of tabs.
+  const sendNextReminder = async () => {
+    if (!reminders.length) return
     setSendingReminders(true)
-    await api.sendAllReminders({ days: 5 })
-    setSendingReminders(false)
+    await api.sendReminder({ membershipId: reminders[0].membershipId })
     const rem = await api.getExpiringReminders({ days: 5 })
     setReminders(rem.members || [])
+    setSendingReminders(false)
   }
 
   const kpis = [
@@ -214,10 +217,12 @@ export function OwnerDashboard() {
                       className="btn btn-ghost"
                       style={{ marginTop: 8, padding: '5px 10px', fontSize: 12 }}
                       disabled={sendingReminders}
-                      onClick={sendAllReminders}
+                      onClick={sendNextReminder}
                     >
                       <Icon name="message-circle" size={14} />
-                      {sendingReminders ? 'Sending…' : 'Send all reminders'}
+                      {sendingReminders
+                        ? 'Opening…'
+                        : `Send next reminder (${reminders.length} left)`}
                     </button>
                   )}
                 </div>

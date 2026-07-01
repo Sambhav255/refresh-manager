@@ -1,9 +1,49 @@
 import { app, ipcMain, dialog } from 'electron'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  unlinkSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync
+} from 'fs'
 import { join, dirname } from 'path'
-import { getDb } from '../db/index.js'
+import { getDb, closeDatabase } from '../db/index.js'
 import { requireOwner } from '../session.js'
 import bcrypt from 'bcryptjs'
+
+const SQLITE_MAGIC = 'SQLite format 3\0'
+
+// Cheap validity check: a real SQLite file starts with a fixed 16-byte header.
+function isSqliteFile(filePath) {
+  let fd
+  try {
+    fd = openSync(filePath, 'r')
+    const buf = Buffer.alloc(16)
+    const read = readSync(fd, buf, 0, 16, 0)
+    return read === 16 && buf.toString('binary') === SQLITE_MAGIC
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
+}
+
+function removeSidecars(dbPath) {
+  for (const suffix of ['-wal', '-shm']) {
+    const sidecar = `${dbPath}${suffix}`
+    if (existsSync(sidecar)) {
+      try {
+        unlinkSync(sidecar)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
 
 const MAX_BACKUPS = 30
 const BACKUP_PREFIX = 'refresh_backup_'
@@ -170,10 +210,33 @@ export function registerBackupHandlers() {
         throw new Error('Incorrect owner password')
       }
 
-      db.pragma('wal_checkpoint(TRUNCATE)')
+      // Reject a corrupt/non-SQLite file BEFORE touching the live DB, so a bad
+      // restore leaves the current data intact.
+      if (!isSqliteFile(backupFilePath)) {
+        throw new Error('Selected file is not a valid database backup.')
+      }
+
       const livePath = join(app.getPath('userData'), 'refresh.db')
+
+      // Flush and fully close the live connection so we can replace the file
+      // (Windows locks it while open) and so no stale WAL replays over it.
+      db.pragma('wal_checkpoint(TRUNCATE)')
+      closeDatabase()
+      removeSidecars(livePath)
+
       copyFileSync(backupFilePath, livePath)
-      return { success: true }
+
+      // Defensive: a checkpointed backup shouldn't carry sidecars, but if the
+      // copy brought any along, clear them so the restored file is authoritative.
+      removeSidecars(livePath)
+
+      // Reopen cleanly against the restored file on the next launch.
+      setTimeout(() => {
+        app.relaunch()
+        app.exit(0)
+      }, 800)
+
+      return { success: true, willRelaunch: true }
     })
   )
 }

@@ -9,7 +9,8 @@ import {
   TodaysLog,
   EndOfDay,
   StaffBookings,
-  StaffRestaurantPos
+  StaffRestaurantPos,
+  SellItem
 } from './screens/staff'
 import {
   OwnerDashboard,
@@ -385,6 +386,7 @@ function StaffApp({ session, onLogout }) {
   else if (tab === 'bookings') screen = <StaffBookings key="bookings" back={() => setTab('home')} />
   else if (tab === 'restaurant')
     screen = <StaffRestaurantPos session={session} back={() => setTab('home')} />
+  else if (tab === 'sellitem') screen = <SellItem key="sellitem" back={() => setTab('home')} />
 
   useEffect(() => {
     const onKey = (e) => {
@@ -406,7 +408,8 @@ function StaffApp({ session, onLogout }) {
     k === tab ||
     (tab === 'inv' && k === 'home') ||
     (tab === 'bookings' && k === 'home') ||
-    (tab === 'restaurant' && k === 'home')
+    (tab === 'restaurant' && k === 'home') ||
+    (tab === 'sellitem' && k === 'home')
 
   return (
     <div className="app">

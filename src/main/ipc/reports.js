@@ -237,14 +237,26 @@ function addTransactionsSheet(workbook, transactions, summary) {
 function addByWeekSheet(workbook, byWeek) {
   const sheet = workbook.addWorksheet('By Week')
   sheet.columns = [
-    { header: 'Week', key: 'week', width: 10 },
+    { header: 'Period (days 1–7, 8–14, …)', key: 'period', width: 26 },
     { header: 'Start', key: 'weekStart', width: 14 },
     { header: 'End', key: 'weekEnd', width: 14 },
     { header: 'Count', key: 'count', width: 12 },
     { header: 'Amount (NPR)', key: 'total', width: 18 }
   ]
   styleHeaderRow(sheet.getRow(1))
-  sheet.addRows(byWeek)
+  sheet.addRows(
+    byWeek.map((w) => {
+      const startDay = (w.week - 1) * 7 + 1
+      const endDay = w.week * 7
+      return {
+        period: `Days ${startDay}–${endDay}`,
+        weekStart: w.weekStart,
+        weekEnd: w.weekEnd,
+        count: w.count,
+        total: w.total
+      }
+    })
+  )
   if (byWeek.length) applyAlternatingRows(sheet, 2, sheet.rowCount)
 }
 
@@ -260,15 +272,206 @@ function addByProductSheet(workbook, byProduct) {
   if (byProduct.length) applyAlternatingRows(sheet, 2, sheet.rowCount)
 }
 
-async function exportToExcel({ reportType, data, savePath }) {
-  const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'Refresh Manager'
+function addRetentionSheets(workbook, data) {
+  const sheet = workbook.addWorksheet('Retention')
+  sheet.columns = [
+    { header: 'Metric', key: 'metric', width: 28 },
+    { header: 'Value', key: 'value', width: 18 }
+  ]
+  styleHeaderRow(sheet.getRow(1))
+  sheet.addRows([
+    { metric: 'Memberships due', value: data.due ?? 0 },
+    { metric: 'Renewed', value: data.renewed ?? 0 },
+    { metric: 'Retention rate (%)', value: data.retentionRate ?? 0 }
+  ])
+  applyAlternatingRows(sheet, 2, sheet.rowCount)
+
+  const churnSheet = workbook.addWorksheet('Churned Members')
+  churnSheet.columns = [
+    { header: 'Name', key: 'name', width: 24 },
+    { header: 'Phone', key: 'phone', width: 16 },
+    { header: 'Product', key: 'product', width: 28 },
+    { header: 'End date', key: 'end_date', width: 14 }
+  ]
+  styleHeaderRow(churnSheet.getRow(1))
+  const churned = data.churned || []
+  churnSheet.addRows(
+    churned.map((c) => ({
+      name: c.name,
+      phone: c.phone || '',
+      product: c.product_name || '',
+      end_date: c.end_date
+    }))
+  )
+  if (churned.length) applyAlternatingRows(churnSheet, 2, churnSheet.rowCount)
+}
+
+function addInventoryTurnoverSheets(workbook, data) {
+  const poolSheet = workbook.addWorksheet('Pool Items')
+  poolSheet.columns = [
+    { header: 'Item', key: 'name', width: 28 },
+    { header: 'Variant', key: 'variant', width: 18 },
+    { header: 'Sold', key: 'sold', width: 12 },
+    { header: 'Revenue (NPR)', key: 'revenue', width: 18 }
+  ]
+  styleHeaderRow(poolSheet.getRow(1))
+  const pool = data.pool || []
+  poolSheet.addRows(
+    pool.map((p) => ({
+      name: p.name,
+      variant: p.variant || '',
+      sold: p.sold ?? 0,
+      revenue: p.revenue ?? 0
+    }))
+  )
+  if (pool.length) applyAlternatingRows(poolSheet, 2, poolSheet.rowCount)
+
+  const restSheet = workbook.addWorksheet('Restaurant Items')
+  restSheet.columns = [
+    { header: 'Item', key: 'name', width: 28 },
+    { header: 'Sold', key: 'sold', width: 12 },
+    { header: 'Revenue (NPR)', key: 'revenue', width: 18 }
+  ]
+  styleHeaderRow(restSheet.getRow(1))
+  const restaurant = data.restaurant || []
+  restSheet.addRows(
+    restaurant.map((r) => ({
+      name: r.name,
+      sold: r.sold ?? 0,
+      revenue: r.revenue ?? 0
+    }))
+  )
+  if (restaurant.length) applyAlternatingRows(restSheet, 2, restSheet.rowCount)
+
+  const lowSheet = workbook.addWorksheet('Low Stock')
+  lowSheet.columns = [
+    { header: 'Item', key: 'name', width: 28 },
+    { header: 'Source', key: 'source', width: 14 },
+    { header: 'Current', key: 'current_stock', width: 12 },
+    { header: 'Reorder', key: 'reorder_level', width: 12 }
+  ]
+  styleHeaderRow(lowSheet.getRow(1))
+  const lowStock = data.lowStock || []
+  lowSheet.addRows(
+    lowStock.map((l) => ({
+      name: l.name,
+      source: l.source,
+      current_stock: l.current_stock ?? 0,
+      reorder_level: l.reorder_level ?? 0
+    }))
+  )
+  if (lowStock.length) applyAlternatingRows(lowSheet, 2, lowSheet.rowCount)
+}
+
+function addBookingsSheets(workbook, data) {
+  const summary = data.summary || {}
+  const summarySheet = workbook.addWorksheet('Bookings Summary')
+  summarySheet.columns = [
+    { header: 'Metric', key: 'metric', width: 28 },
+    { header: 'Value', key: 'value', width: 18 }
+  ]
+  styleHeaderRow(summarySheet.getRow(1))
+  const summaryRows = [
+    { metric: 'Total bookings', value: summary.count ?? 0 },
+    { metric: 'Deposit total (NPR)', value: summary.depositTotal ?? 0 },
+    { metric: 'Expected total (NPR)', value: summary.expectedTotal ?? 0 }
+  ]
+  for (const [status, count] of Object.entries(summary.byStatus || {})) {
+    summaryRows.push({ metric: `Status: ${status}`, value: count })
+  }
+  summarySheet.addRows(summaryRows)
+  applyAlternatingRows(summarySheet, 2, summarySheet.rowCount)
+
+  const sheet = workbook.addWorksheet('Bookings')
+  sheet.columns = [
+    { header: 'Booking', key: 'booking_name', width: 24 },
+    { header: 'Contact', key: 'contact_person', width: 20 },
+    { header: 'Phone', key: 'contact_phone', width: 16 },
+    { header: 'Date', key: 'booking_date', width: 14 },
+    { header: 'Time slot', key: 'time_slot', width: 16 },
+    { header: 'People', key: 'num_people', width: 10 },
+    { header: 'Facilities', key: 'facilities_booked', width: 24 },
+    { header: 'Status', key: 'status', width: 14 },
+    { header: 'Deposit (NPR)', key: 'deposit_paid', width: 16 },
+    { header: 'Deposit method', key: 'deposit_method', width: 16 },
+    { header: 'Expected (NPR)', key: 'total_expected', width: 16 },
+    { header: 'Notes', key: 'notes', width: 24 }
+  ]
+  styleHeaderRow(sheet.getRow(1))
+  const bookings = data.bookings || []
+  sheet.addRows(
+    bookings.map((b) => ({
+      booking_name: b.booking_name,
+      contact_person: b.contact_person || '',
+      contact_phone: b.contact_phone || '',
+      booking_date: b.booking_date,
+      time_slot: b.time_slot || '',
+      num_people: b.num_people ?? 0,
+      facilities_booked: b.facilities_booked || '',
+      status: b.status,
+      deposit_paid: b.deposit_paid ?? 0,
+      deposit_method: b.deposit_method || '',
+      total_expected: b.total_expected ?? 0,
+      notes: b.notes || ''
+    }))
+  )
+  if (bookings.length) applyAlternatingRows(sheet, 2, sheet.rowCount)
+}
+
+function addStaffTotalsSheet(workbook, staff) {
+  const sheet = workbook.addWorksheet('Staff Totals')
+  sheet.columns = [
+    { header: 'Staff', key: 'name', width: 24 },
+    { header: 'Transactions', key: 'txn_count', width: 16 },
+    { header: 'Total (NPR)', key: 'total', width: 18 }
+  ]
+  styleHeaderRow(sheet.getRow(1))
+  const staffRows = staff || []
+  sheet.addRows(
+    staffRows.map((s) => ({
+      name: s.name,
+      txn_count: s.txn_count ?? 0,
+      total: s.total ?? 0
+    }))
+  )
+  if (staffRows.length) applyAlternatingRows(sheet, 2, sheet.rowCount)
+}
+
+function buildDefaultSheets(workbook, data) {
   addSummarySheet(workbook, data.summary || {})
   if (data.transactions?.length) {
     addTransactionsSheet(workbook, data.transactions, data.summary)
   }
   if (data.byWeek?.length) addByWeekSheet(workbook, data.byWeek)
   if (data.byProduct?.length) addByProductSheet(workbook, data.byProduct)
+}
+
+async function exportToExcel({ reportType, data, savePath }) {
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'Refresh Manager'
+  switch (reportType) {
+    case 'retention':
+      addRetentionSheets(workbook, data)
+      break
+    case 'inventory-turnover':
+      addInventoryTurnoverSheets(workbook, data)
+      break
+    case 'bookings':
+      addBookingsSheets(workbook, data)
+      break
+    case 'staff-activity':
+      addStaffTotalsSheet(workbook, data.staff)
+      if (data.transactions?.length) {
+        addTransactionsSheet(workbook, data.transactions)
+      }
+      break
+    default:
+      buildDefaultSheets(workbook, data)
+      break
+  }
+  if (workbook.worksheets.length === 0) {
+    workbook.addWorksheet('Summary')
+  }
   const dateRange = resolveDateRange(reportType, data)
   let filePath = savePath
   if (!filePath) {

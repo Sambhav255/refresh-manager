@@ -1,0 +1,35 @@
+name: Lint & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      # better-sqlite3 is rebuilt for Electron by the postinstall hook; the
+      # Vitest suite runs under plain Node, so rebuild it for the Node ABI first.
+      - name: Rebuild better-sqlite3 for Node
+        run: npm rebuild better-sqlite3
+
+      # Reported for visibility but not a merge gate: the codebase carries
+      # pre-existing style-only findings (react/prop-types, prettier).
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Test
+        run: npm test

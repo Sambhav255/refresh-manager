@@ -6,16 +6,20 @@ import { Icon, SectionHead } from '../components/ui'
 
 export function RestaurantMenuSettings({ back }) {
   const [items, setItems] = useState([])
+  const [stockItems, setStockItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [name, setName] = useState('')
   const [category, setCategory] = useState('Snacks')
   const [price, setPrice] = useState('')
+  const [inventoryItemId, setInventoryItemId] = useState('')
   const [error, setError] = useState('')
 
   const load = async () => {
     setLoading(true)
     const r = await api.listMenuItems({ activeOnly: false })
+    const inv = await api.listRestaurantInventory()
     setItems(r.items || [])
+    setStockItems(inv.items || [])
     setLoading(false)
   }
 
@@ -31,14 +35,35 @@ export function RestaurantMenuSettings({ back }) {
       setError(nameErr || priceErr)
       return
     }
-    await api.addMenuItem({ name, category, price: Number(price) })
+    await api.addMenuItem({
+      name,
+      category,
+      price: Number(price),
+      inventoryItemId: inventoryItemId ? Number(inventoryItemId) : null
+    })
     setName('')
     setPrice('')
+    setInventoryItemId('')
     load()
   }
 
   const toggle = async (id, isActive) => {
     await api.toggleMenuItem({ id, isActive: !isActive })
+    load()
+  }
+
+  // P0-2: change (or clear) a menu item's linked stock item. updateMenuItem is a
+  // full update, so we resend the item's existing fields alongside the new link.
+  const setLink = async (item, newId) => {
+    await api.updateMenuItem({
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      price: item.price,
+      sortOrder: item.sort_order,
+      isActive: !!item.is_active,
+      inventoryItemId: newId ? Number(newId) : null
+    })
     load()
   }
 
@@ -50,8 +75,8 @@ export function RestaurantMenuSettings({ back }) {
         </button>
       </SectionHead>
 
-      <div className="card" style={{ padding: 14, marginBottom: 14, maxWidth: 480 }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div className="card" style={{ padding: 14, marginBottom: 14, maxWidth: 620 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <input
             className="input"
             value={name}
@@ -72,9 +97,26 @@ export function RestaurantMenuSettings({ back }) {
             placeholder="Price"
             style={{ width: 90 }}
           />
+          <select
+            className="select"
+            value={inventoryItemId}
+            onChange={(e) => setInventoryItemId(e.target.value)}
+            style={{ width: 180 }}
+            title="Linked stock item (optional)"
+          >
+            <option value="">No linked stock</option>
+            {stockItems.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
           <button className="btn btn-primary" onClick={add}>
             Add
           </button>
+        </div>
+        <div className="sub" style={{ marginTop: 8 }}>
+          Linking a stock item draws it down 1:1 when the item is sold at the POS.
         </div>
         {error && (
           <div className="sub" style={{ color: '#ef4444', marginTop: 8 }}>
@@ -88,12 +130,13 @@ export function RestaurantMenuSettings({ back }) {
       ) : items.length === 0 ? (
         <div className="sub">No menu items yet. Add items staff can sell at the POS.</div>
       ) : (
-        <table className="tbl" style={{ maxWidth: 560 }}>
+        <table className="tbl" style={{ maxWidth: 720 }}>
           <thead>
             <tr>
               <th>Item</th>
               <th>Category</th>
               <th className="num">Price</th>
+              <th style={{ width: 190 }}>Linked stock</th>
               <th style={{ width: 90 }}>Status</th>
             </tr>
           </thead>
@@ -103,6 +146,21 @@ export function RestaurantMenuSettings({ back }) {
                 <td style={{ fontWeight: 500 }}>{i.name}</td>
                 <td style={{ color: '#64748b' }}>{i.category || '—'}</td>
                 <td className="num">{fmt(i.price)}</td>
+                <td>
+                  <select
+                    className="select"
+                    value={i.inventory_item_id || ''}
+                    onChange={(e) => setLink(i, e.target.value)}
+                    style={{ maxWidth: 180 }}
+                  >
+                    <option value="">— none —</option>
+                    {stockItems.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </td>
                 <td>
                   <button
                     className="btn btn-ghost"

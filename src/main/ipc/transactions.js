@@ -38,6 +38,10 @@ export function registerTransactionHandlers() {
   ipcMain.handle(
     'transactions:create',
     wrap(
+      // P0-1: staff_id is taken from the authenticated session, never the
+      // payload; amount is re-derived from the product catalogue when a product
+      // is given, so a tampered/buggy renderer cannot mis-price or mis-attribute
+      // a sale. (staffId/amount are intentionally NOT destructured here.)
       ({
         type,
         source = 'pool',
@@ -45,14 +49,21 @@ export function registerTransactionHandlers() {
         phone,
         productId,
         memberId,
-        amount,
         paymentMethod,
-        staffId,
         notes
       }) => {
-        requireStaffOrOwner()
+        const session = requireStaffOrOwner()
+        const staffId = session.userId
         const db = getDb()
         const pay = paymentMethod?.toLowerCase() === 'qr' ? 'qr' : 'cash'
+
+        let amount = 0
+        if (productId) {
+          const product = db.prepare('SELECT price FROM products WHERE id = ?').get(productId)
+          if (!product) throw new Error('Product not found')
+          amount = product.price
+        }
+
         const result = db
           .prepare(
             `INSERT INTO transactions

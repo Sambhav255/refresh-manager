@@ -118,21 +118,28 @@ export function registerReminderHandlers() {
 
   ipcMain.handle(
     'reminders:send-all',
+    // P1-5: no longer bursts open a tab per member and pre-marks everyone as
+    // "sent". Instead it returns the pending list so the UI can walk them one at
+    // a time, each confirmed via `reminders:send-one`.
     wrap(({ days } = {}) => {
       requireOwner()
       const db = getDb()
       const members = fetchExpiring(db, days)
-      const template = getTemplate(db)
-      for (const member of members) {
-        const message = buildMessage(template, member)
-        const phone = normalizePhone(member.phone)
-        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
-        shell.openExternal(url)
-        db.prepare(
-          `UPDATE memberships SET reminder_sent_at = datetime('now','localtime') WHERE id = ?`
-        ).run(member.membershipId)
-      }
-      return { success: true, count: members.length }
+      return { success: true, members, count: members.length }
+    })
+  )
+
+  ipcMain.handle(
+    'reminders:clear',
+    // P1-5: allow re-sending — clears the "sent" flag so the member reappears
+    // in the pending list.
+    wrap(({ membershipId }) => {
+      requireOwner()
+      if (!membershipId) throw new Error('membershipId required')
+      getDb()
+        .prepare(`UPDATE memberships SET reminder_sent_at = NULL WHERE id = ?`)
+        .run(membershipId)
+      return { success: true }
     })
   )
 }

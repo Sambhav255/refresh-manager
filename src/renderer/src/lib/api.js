@@ -59,6 +59,7 @@ export const api = {
   poolLowStock: async () => unwrap(await invoke('poolLowStock'), { items: [] }),
   addPoolItem: (data) => invoke('addPoolItem', data),
   restockPoolItem: (data) => invoke('restockPoolItem', data),
+  sellPoolItem: (data) => invoke('sellPoolItem', data),
 
   listRestaurantInventory: async (data) =>
     unwrap(await invoke('listRestaurantInventory', data), { items: [] }),
@@ -110,6 +111,7 @@ export const api = {
     unwrap(await invoke('getExpiringReminders', data), { members: [] }),
   sendReminder: (data) => invoke('sendReminder', data),
   sendAllReminders: (data) => invoke('sendAllReminders', data),
+  clearReminder: (data) => invoke('clearReminder', data),
 
   savePhoto: (data) => invoke('savePhoto', data),
   getPhotoPath: async (data) => unwrap(await invoke('getPhotoPath', data), { photoPath: null }),

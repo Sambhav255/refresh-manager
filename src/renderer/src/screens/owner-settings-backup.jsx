@@ -12,6 +12,7 @@ export function BackupSettings({ back }) {
   const [autoEnabled, setAutoEnabled] = useState(true)
   const [restorePath, setRestorePath] = useState('')
   const [restorePassword, setRestorePassword] = useState('')
+  const [restored, setRestored] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -59,12 +60,27 @@ export function BackupSettings({ back }) {
     setBusy('restore')
     setError('')
     const r = await api.restoreBackup({ backupFilePath: restorePath, password: restorePassword })
-    setBusy('')
-    if (r?.success === false) setError(r.error || 'Restore failed')
-    else {
-      alert('Database restored. Please restart the app.')
-      window.location.reload()
+    if (r?.success === false) {
+      setBusy('')
+      setError(r.error || 'Restore failed')
+    } else {
+      // Main process closes the DB, replaces the file, and relaunches the app.
+      setRestored(true)
     }
+  }
+
+  if (restored) {
+    return (
+      <div className="content fade-in" style={{ display: 'grid', placeItems: 'center' }}>
+        <div className="card scale-in" style={{ width: 380, padding: 28, textAlign: 'center' }}>
+          <Icon name="check-circle" size={34} color="#0F6E56" />
+          <div style={{ fontSize: 16, fontWeight: 500, marginTop: 12 }}>Backup restored</div>
+          <div className="sub" style={{ marginTop: 6 }}>
+            The app will restart automatically to load the restored data…
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (loading) {
