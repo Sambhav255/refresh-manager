@@ -1,3 +1,18 @@
+// Database migrations — versioned with PRAGMA user_version (2-D).
+//
+// Each entry in MIGRATIONS is applied once, in order, inside its own
+// transaction; the runner bumps user_version as part of that same transaction
+// so a failure rolls the version back too. Migrations that rebuild a table
+// referenced by foreign keys set `rebuildsReferencedTable: true` — the runner
+// disables foreign_keys *outside* the transaction (a no-op inside one), runs
+// the rebuild, then verifies with PRAGMA foreign_key_check before re-enabling
+// (2-C). Adding a future migration is a one-line append to MIGRATIONS.
+//
+// v1 backfills every additive change made before user_version existed, so a
+// pre-existing v1.0.0 production DB (user_version 0, columns already present)
+// and a brand-new DB (schema.js already current) both converge to the same
+// final version. Every v1 step is individually guarded/idempotent.
+
 function hasColumn(db, table, column) {
   return db
     .prepare(`PRAGMA table_info(${table})`)
@@ -5,52 +20,47 @@ function hasColumn(db, table, column) {
     .some((c) => c.name === column)
 }
 
-// P2-3: older databases were created before 'booking_deposit' was a valid
-// transaction_type. SQLite cannot ALTER a CHECK constraint, so rebuild the
-// table in place (ids preserved, so foreign-key references stay valid).
+// P2-3 / 2-C: SQLite cannot ALTER a CHECK constraint, so rebuild the table in
+// place (ids preserved ⇒ foreign-key references stay valid). FK toggling and
+// the post-rebuild foreign_key_check are handled by the runner.
 function migrateTransactionTypeCheck(db) {
   const row = db
     .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'transactions'`)
     .get()
   if (!row?.sql || row.sql.includes('booking_deposit')) return
 
-  db.pragma('foreign_keys = OFF')
-  db.transaction(() => {
-    db.exec(`
-      CREATE TABLE transactions_new (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT,
-        transaction_type TEXT NOT NULL CHECK(transaction_type IN ('membership','day_package','day_pass','pool_inventory','restaurant','booking_deposit')),
-        source           TEXT NOT NULL DEFAULT 'pool' CHECK(source IN ('pool','restaurant')),
-        customer_name    TEXT NOT NULL,
-        phone            TEXT,
-        product_id       INTEGER REFERENCES products(id),
-        member_id        INTEGER REFERENCES members(id),
-        amount           REAL NOT NULL,
-        payment_method   TEXT NOT NULL CHECK(payment_method IN ('cash','qr')),
-        staff_id         INTEGER NOT NULL REFERENCES users(id),
-        notes            TEXT,
-        is_voided        INTEGER DEFAULT 0,
-        void_reason      TEXT,
-        void_by          INTEGER REFERENCES users(id),
-        void_at          TEXT,
-        created_at       TEXT DEFAULT (datetime('now','localtime'))
-      );
-      INSERT INTO transactions_new
-        (id, transaction_type, source, customer_name, phone, product_id, member_id, amount,
-         payment_method, staff_id, notes, is_voided, void_reason, void_by, void_at, created_at)
-        SELECT id, transaction_type, source, customer_name, phone, product_id, member_id, amount,
-               payment_method, staff_id, notes, is_voided, void_reason, void_by, void_at, created_at
-        FROM transactions;
-      DROP TABLE transactions;
-      ALTER TABLE transactions_new RENAME TO transactions;
-    `)
-  })()
-  db.pragma('foreign_keys = ON')
+  db.exec(`
+    CREATE TABLE transactions_new (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_type TEXT NOT NULL CHECK(transaction_type IN ('membership','day_package','day_pass','pool_inventory','restaurant','booking_deposit')),
+      source           TEXT NOT NULL DEFAULT 'pool' CHECK(source IN ('pool','restaurant')),
+      customer_name    TEXT NOT NULL,
+      phone            TEXT,
+      product_id       INTEGER REFERENCES products(id),
+      member_id        INTEGER REFERENCES members(id),
+      amount           REAL NOT NULL,
+      payment_method   TEXT NOT NULL CHECK(payment_method IN ('cash','qr')),
+      staff_id         INTEGER NOT NULL REFERENCES users(id),
+      notes            TEXT,
+      is_voided        INTEGER DEFAULT 0,
+      void_reason      TEXT,
+      void_by          INTEGER REFERENCES users(id),
+      void_at          TEXT,
+      created_at       TEXT DEFAULT (datetime('now','localtime'))
+    );
+    INSERT INTO transactions_new
+      (id, transaction_type, source, customer_name, phone, product_id, member_id, amount,
+       payment_method, staff_id, notes, is_voided, void_reason, void_by, void_at, created_at)
+      SELECT id, transaction_type, source, customer_name, phone, product_id, member_id, amount,
+             payment_method, staff_id, notes, is_voided, void_reason, void_by, void_at, created_at
+      FROM transactions;
+    DROP TABLE transactions;
+    ALTER TABLE transactions_new RENAME TO transactions;
+  `)
 }
 
-export function runMigrations(db) {
-  const cols = db.prepare(`PRAGMA table_info(memberships)`).all()
-  if (!cols.some((c) => c.name === 'reminder_sent_at')) {
+function backfillBaseline(db) {
+  if (!hasColumn(db, 'memberships', 'reminder_sent_at')) {
     db.exec(`ALTER TABLE memberships ADD COLUMN reminder_sent_at TEXT`)
   }
 
@@ -97,14 +107,10 @@ Renewal को लागि हामीलाई सम्पर्क गर�
     },
     { key: 'session_timeout_minutes', value: '30' }
   ]
-
   const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
-  for (const s of settings) {
-    insert.run(s.key, s.value)
-  }
+  for (const s of settings) insert.run(s.key, s.value)
 
-  // P0-2: optional 1:1 link from a menu item to the pool/restaurant stock item
-  // it draws down on sale.
+  // P0-2: optional 1:1 link from a menu item to the stock item it draws down.
   if (!hasColumn(db, 'restaurant_menu_items', 'inventory_item_id')) {
     db.exec(
       `ALTER TABLE restaurant_menu_items ADD COLUMN inventory_item_id INTEGER REFERENCES restaurant_inventory_items(id)`
@@ -120,4 +126,41 @@ Renewal को लागि हामीलाई सम्पर्क गर�
 
   // P2-3: allow 'booking_deposit' transactions on pre-existing databases.
   migrateTransactionTypeCheck(db)
+}
+
+const MIGRATIONS = [
+  {
+    name: 'v1: baseline additive backfill + booking_deposit CHECK',
+    rebuildsReferencedTable: true,
+    up: backfillBaseline
+  }
+]
+
+export function runMigrations(db) {
+  let version = db.pragma('user_version', { simple: true })
+
+  while (version < MIGRATIONS.length) {
+    const migration = MIGRATIONS[version]
+
+    // foreign_keys pragma is a no-op inside a transaction, so toggle it here.
+    if (migration.rebuildsReferencedTable) db.pragma('foreign_keys = OFF')
+
+    const apply = db.transaction(() => {
+      migration.up(db)
+      db.pragma(`user_version = ${version + 1}`)
+    })
+    apply()
+
+    if (migration.rebuildsReferencedTable) {
+      const problems = db.pragma('foreign_key_check')
+      if (problems.length) {
+        throw new Error(
+          `Migration "${migration.name}" left dangling foreign keys: ${JSON.stringify(problems)}`
+        )
+      }
+      db.pragma('foreign_keys = ON')
+    }
+
+    version++
+  }
 }
