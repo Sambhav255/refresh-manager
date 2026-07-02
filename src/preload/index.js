@@ -92,6 +92,7 @@ const api = {
   sendReminder: (data) => invoke('reminders:send-one', data),
   sendAllReminders: (data) => invoke('reminders:send-all', data),
   clearReminder: (data) => invoke('reminders:clear', data),
+  getReminderHistory: (data) => invoke('reminders:history', data),
 
   // Photos
   savePhoto: (data) => invoke('photos:save', data),

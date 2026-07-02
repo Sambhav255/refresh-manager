@@ -115,6 +115,8 @@ export const api = {
   sendReminder: (data) => invoke('sendReminder', data),
   sendAllReminders: (data) => invoke('sendAllReminders', data),
   clearReminder: (data) => invoke('clearReminder', data),
+  getReminderHistory: async (data) =>
+    unwrap(await invoke('getReminderHistory', data), { history: [] }),
 
   savePhoto: (data) => invoke('savePhoto', data),
   getPhotoPath: async (data) => unwrap(await invoke('getPhotoPath', data), { photoPath: null }),
