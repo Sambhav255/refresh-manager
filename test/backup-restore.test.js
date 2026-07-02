@@ -74,6 +74,38 @@ describe('P0-3 — backup restore is a safe close/replace/relaunch', () => {
     expect(countTxns(db)).toBe(1)
   })
 
+  it('rejects a header-valid but corrupt backup and leaves live data untouched (2-A)', async () => {
+    addMarker('live')
+    // A file that passes the 16-byte magic check but is not a real database:
+    // valid header prefix followed by garbage so integrity_check fails.
+    const junkDir = mkdtempSync(join(tmpdir(), 'refresh-corrupt-'))
+    const corrupt = join(junkDir, 'corrupt.db')
+    const header = Buffer.from('SQLite format 3\0', 'binary')
+    writeFileSync(corrupt, Buffer.concat([header, Buffer.alloc(4096, 0xee)]))
+
+    const res = await __invoke('backup:restore', {
+      backupFilePath: corrupt,
+      password: OWNER_PASSWORD
+    })
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/integrity/i)
+    // Live DB still open and intact — the restore aborted before closing it.
+    expect(countTxns(db)).toBe(1)
+  })
+
+  it('a freshly created backup passes verification and restores (2-B happy path)', async () => {
+    addMarker('marker')
+    const backupDir = mkdtempSync(join(tmpdir(), 'refresh-bak-'))
+    const result = performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
+    expect(result.success).toBe(true)
+    // The backup verified clean at creation; restoring it succeeds.
+    const res = await __invoke('backup:restore', {
+      backupFilePath: result.filePath,
+      password: OWNER_PASSWORD
+    })
+    expect(res.success).toBe(true)
+  })
+
   it('rejects a wrong owner password', async () => {
     const backupDir = mkdtempSync(join(tmpdir(), 'refresh-bak-'))
     const { filePath } = performBackup({ destinationPath: backupDir, skipOwnerCheck: true })

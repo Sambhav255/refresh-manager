@@ -11,6 +11,7 @@ import {
   closeSync
 } from 'fs'
 import { join, dirname } from 'path'
+import Database from 'better-sqlite3'
 import { getDb, closeDatabase } from '../db/index.js'
 import { requireOwner } from '../session.js'
 import bcrypt from 'bcryptjs'
@@ -29,6 +30,24 @@ function isSqliteFile(filePath) {
     return false
   } finally {
     if (fd !== undefined) closeSync(fd)
+  }
+}
+
+// 2-A / 2-B: a valid header does not mean a valid database. Open the file in a
+// throwaway read-only connection and run an integrity pragma. `full` is the
+// thorough integrity_check (used before a restore clobbers live data); `quick`
+// is the cheaper quick_check (used to verify a freshly-written backup).
+function verifyDatabaseIntegrity(filePath, mode = 'full') {
+  const pragma = mode === 'quick' ? 'quick_check' : 'integrity_check'
+  let probe
+  try {
+    probe = new Database(filePath, { readonly: true, fileMustExist: true })
+    const rows = probe.pragma(pragma)
+    return rows.length === 1 && (rows[0].integrity_check === 'ok' || rows[0].quick_check === 'ok')
+  } catch {
+    return false
+  } finally {
+    if (probe) probe.close()
   }
 }
 
@@ -122,6 +141,20 @@ export function performBackup({ destinationPath, skipOwnerCheck = false } = {}) 
   const filePath = join(dest, backupFilename())
   mkdirSync(dirname(filePath), { recursive: true })
   copyFileSync(sourcePath, filePath)
+
+  // 2-B: never report success for a backup that isn't a readable database. A
+  // silently-corrupt live DB would otherwise produce silently-corrupt backups.
+  if (!verifyDatabaseIntegrity(filePath, 'quick')) {
+    try {
+      unlinkSync(filePath)
+    } catch {
+      /* ignore */
+    }
+    throw new Error(
+      'Backup verification failed — the written file did not pass an integrity check.'
+    )
+  }
+
   pruneOldBackups(dest)
   updateBackupStatus(db, { status: 'success', filePath })
 
@@ -214,6 +247,13 @@ export function registerBackupHandlers() {
       // restore leaves the current data intact.
       if (!isSqliteFile(backupFilePath)) {
         throw new Error('Selected file is not a valid database backup.')
+      }
+
+      // 2-A: a valid header is not enough — a header-valid but corrupt backup
+      // would overwrite good data with garbage. Run a full integrity_check on
+      // the backup in a read-only probe and abort (live DB untouched) unless ok.
+      if (!verifyDatabaseIntegrity(backupFilePath, 'full')) {
+        throw new Error('Backup failed its integrity check — restore aborted, live data untouched.')
       }
 
       const livePath = join(app.getPath('userData'), 'refresh.db')
