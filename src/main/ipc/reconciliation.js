@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
-import { getSession, requireOwner, requireStaffOrOwner } from '../session.js'
+import { requireOwner, requireStaffOrOwner } from '../session.js'
 import { todayLocal } from './utils.js'
 
 function wrap(handler) {

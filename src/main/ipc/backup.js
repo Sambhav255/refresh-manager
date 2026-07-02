@@ -231,7 +231,9 @@ function auditRestore(livePath, session, from) {
       );
     `)
     restored
-      .prepare(`INSERT INTO audit_log (actor_user_id, action, detail) VALUES (?, 'backup:restore', ?)`)
+      .prepare(
+        `INSERT INTO audit_log (actor_user_id, action, detail) VALUES (?, 'backup:restore', ?)`
+      )
       .run(session.userId, JSON.stringify({ from, by: session.name }))
     restored.close()
   } catch {

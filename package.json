@@ -8,8 +8,11 @@
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
+    "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
     "test:watch": "vitest",
+    "predev": "electron-builder install-app-deps",
+    "prestart": "electron-builder install-app-deps",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",

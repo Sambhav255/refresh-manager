@@ -22,8 +22,9 @@ async function sellPoolItem(qty) {
 }
 
 function stock() {
-  return db.prepare('SELECT current_stock FROM pool_inventory_items WHERE id = ?').get(ids.poolItemId)
-    .current_stock
+  return db
+    .prepare('SELECT current_stock FROM pool_inventory_items WHERE id = ?')
+    .get(ids.poolItemId).current_stock
 }
 
 describe('3-C — refunds', () => {
@@ -39,7 +40,9 @@ describe('3-C — refunds', () => {
     expect(res.full).toBe(true)
     expect(res.refundAmount).toBe(600)
 
-    const refund = db.prepare('SELECT * FROM transactions WHERE id = ?').get(res.refundTransactionId)
+    const refund = db
+      .prepare('SELECT * FROM transactions WHERE id = ?')
+      .get(res.refundTransactionId)
     expect(refund.transaction_type).toBe('refund')
     expect(refund.amount).toBe(-600)
     expect(refund.refunds_transaction_id).toBe(sale.transactionId)

@@ -25,9 +25,7 @@ export function registerCheckinHandlers() {
         if (!member) throw new Error('Member not found')
       }
       const result = db
-        .prepare(
-          `INSERT INTO check_ins (member_id, staff_id, source) VALUES (?, ?, ?)`
-        )
+        .prepare(`INSERT INTO check_ins (member_id, staff_id, source) VALUES (?, ?, ?)`)
         .run(memberId || null, session.userId, source)
       return { success: true, id: result.lastInsertRowid }
     })
@@ -40,9 +38,8 @@ export function registerCheckinHandlers() {
       const today = todayLocal()
       const db = getDb()
       const count =
-        db
-          .prepare(`SELECT COUNT(*) as c FROM check_ins WHERE date(checked_in_at) = ?`)
-          .get(today)?.c || 0
+        db.prepare(`SELECT COUNT(*) as c FROM check_ins WHERE date(checked_in_at) = ?`).get(today)
+          ?.c || 0
       const recent = db
         .prepare(
           `SELECT ci.id, ci.checked_in_at, ci.source, m.name as member_name
@@ -72,7 +69,13 @@ export function registerCheckinHandlers() {
         .all(from, to)
       const total = rows.reduce((s, r) => s + r.count, 0)
       const days = rows.length || 1
-      return { series: rows, total, dailyAverage: Math.round(total / days), dateFrom: from, dateTo: to }
+      return {
+        series: rows,
+        total,
+        dailyAverage: Math.round(total / days),
+        dateFrom: from,
+        dateTo: to
+      }
     })
   )
 

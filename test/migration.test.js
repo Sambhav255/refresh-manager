@@ -89,7 +89,9 @@ describe('migrations — upgrading a pre-existing database', () => {
 
     // 2-C: the rebuild must not have orphaned any child references.
     expect(db.pragma('foreign_key_check')).toEqual([])
-    expect(db.prepare('SELECT transaction_id FROM memberships WHERE id = 1').get().transaction_id).toBe(7)
+    expect(
+      db.prepare('SELECT transaction_id FROM memberships WHERE id = 1').get().transaction_id
+    ).toBe(7)
     expect(
       db.prepare('SELECT transaction_id FROM pool_inventory_transactions WHERE id = 1').get()
         .transaction_id
@@ -119,9 +121,18 @@ describe('migrations — upgrading a pre-existing database', () => {
   it('adds the new columns, bumps user_version, and is idempotent on a second run', () => {
     const db = oldDatabase()
     runMigrations(db)
-    const menuCols = db.prepare(`PRAGMA table_info(restaurant_menu_items)`).all().map((c) => c.name)
-    const bookingCols = db.prepare(`PRAGMA table_info(bookings)`).all().map((c) => c.name)
-    const memberCols = db.prepare(`PRAGMA table_info(memberships)`).all().map((c) => c.name)
+    const menuCols = db
+      .prepare(`PRAGMA table_info(restaurant_menu_items)`)
+      .all()
+      .map((c) => c.name)
+    const bookingCols = db
+      .prepare(`PRAGMA table_info(bookings)`)
+      .all()
+      .map((c) => c.name)
+    const memberCols = db
+      .prepare(`PRAGMA table_info(memberships)`)
+      .all()
+      .map((c) => c.name)
     expect(menuCols).toContain('inventory_item_id')
     expect(bookingCols).toContain('deposit_transaction_id')
     expect(memberCols).toContain('reminder_sent_at')

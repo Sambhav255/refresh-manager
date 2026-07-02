@@ -44,17 +44,21 @@ describe('2-E — audit log', () => {
     await __invoke('settings:set', { key: 'backup_passphrase', value: 'super-secret' })
 
     const normal = db
-      .prepare(`SELECT detail FROM audit_log WHERE action='settings:set' AND detail LIKE '%whatsapp%'`)
+      .prepare(
+        `SELECT detail FROM audit_log WHERE action='settings:set' AND detail LIKE '%whatsapp%'`
+      )
       .get()
     expect(JSON.parse(normal.detail).value).toBe('9800000000')
 
     const sensitive = db
-      .prepare(`SELECT detail FROM audit_log WHERE action='settings:set' AND detail LIKE '%backup_passphrase%'`)
+      .prepare(
+        `SELECT detail FROM audit_log WHERE action='settings:set' AND detail LIKE '%backup_passphrase%'`
+      )
       .get()
     expect(JSON.parse(sensitive.detail).value).toBeUndefined()
   })
 
-  it("audit:list is owner-only and returns entries newest-first", async () => {
+  it('audit:list is owner-only and returns entries newest-first', async () => {
     loginOwner(ids)
     const txnId = makeSale('x')
     await __invoke('transactions:void', { transactionId: txnId, reason: 'r' })
@@ -84,7 +88,9 @@ describe('2-E — reconciliation-aware voids', () => {
     expect(blocked.success).toBe(false)
     expect(blocked.requiresConfirmation).toBe(true)
     expect(blocked.reconciledDay).toBe(day)
-    expect(db.prepare('SELECT is_voided FROM transactions WHERE id = ?').get(txnId).is_voided).toBe(0)
+    expect(db.prepare('SELECT is_voided FROM transactions WHERE id = ?').get(txnId).is_voided).toBe(
+      0
+    )
 
     // Confirmed void proceeds and is flagged in the audit log.
     const ok = await __invoke('transactions:void', {
@@ -95,7 +101,9 @@ describe('2-E — reconciliation-aware voids', () => {
     expect(ok.success).toBe(true)
     expect(ok.wasReconciled).toBe(true)
     const entry = db
-      .prepare(`SELECT detail FROM audit_log WHERE action='transaction:void' ORDER BY id DESC LIMIT 1`)
+      .prepare(
+        `SELECT detail FROM audit_log WHERE action='transaction:void' ORDER BY id DESC LIMIT 1`
+      )
       .get()
     expect(JSON.parse(entry.detail).reconciledDay).toBe(day)
   })
