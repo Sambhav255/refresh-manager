@@ -229,7 +229,7 @@ export function registerBackupHandlers() {
   ipcMain.handle(
     'backup:restore',
     wrap(async ({ backupFilePath, password }) => {
-      requireOwner()
+      const session = requireOwner()
       if (!backupFilePath || !existsSync(backupFilePath)) {
         throw new Error('Backup file not found')
       }
@@ -269,6 +269,30 @@ export function registerBackupHandlers() {
       // Defensive: a checkpointed backup shouldn't carry sidecars, but if the
       // copy brought any along, clear them so the restored file is authoritative.
       removeSidecars(livePath)
+
+      // 2-E: record the restore in the RESTORED file (a restore rewrites the
+      // whole ledger behind one password — that must be tamper-evident). The
+      // backup may predate audit_log, so ensure the table exists first.
+      try {
+        const restored = new Database(livePath)
+        restored.exec(`
+          CREATE TABLE IF NOT EXISTS audit_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_user_id INTEGER,
+            action        TEXT NOT NULL,
+            detail        TEXT,
+            created_at    TEXT DEFAULT (datetime('now','localtime'))
+          );
+        `)
+        restored
+          .prepare(
+            `INSERT INTO audit_log (actor_user_id, action, detail) VALUES (?, 'backup:restore', ?)`
+          )
+          .run(session.userId, JSON.stringify({ from: backupFilePath, by: session.name }))
+        restored.close()
+      } catch {
+        /* audit is best-effort; never block the restore */
+      }
 
       // Reopen cleanly against the restored file on the next launch.
       setTimeout(() => {

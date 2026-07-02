@@ -11,6 +11,9 @@ import { registerPoolInventoryHandlers } from '../src/main/ipc/inventory-pool.js
 import { registerRestaurantMenuHandlers } from '../src/main/ipc/restaurant-menu.js'
 import { registerBookingHandlers } from '../src/main/ipc/bookings.js'
 import { registerBackupHandlers } from '../src/main/ipc/backup.js'
+import { registerReconciliationHandlers } from '../src/main/ipc/reconciliation.js'
+import { registerSettingsHandlers } from '../src/main/ipc/settings.js'
+import { registerAuditHandlers } from '../src/main/ipc/audit.js'
 
 let registered = false
 function registerAll() {
@@ -21,6 +24,9 @@ function registerAll() {
   registerRestaurantMenuHandlers()
   registerBookingHandlers()
   registerBackupHandlers()
+  registerReconciliationHandlers()
+  registerSettingsHandlers()
+  registerAuditHandlers()
   registered = true
 }
 

@@ -133,6 +133,24 @@ const MIGRATIONS = [
     name: 'v1: baseline additive backfill + booking_deposit CHECK',
     rebuildsReferencedTable: true,
     up: backfillBaseline
+  },
+  {
+    // 2-E: append-only tamper-evidence log for sensitive actions (restore,
+    // settings/staff/PIN changes, voids, reminders). IF NOT EXISTS so a restore
+    // that pre-creates it (to log the restore itself) stays compatible.
+    name: 'v2: audit_log',
+    rebuildsReferencedTable: false,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          actor_user_id INTEGER REFERENCES users(id),
+          action        TEXT NOT NULL,
+          detail        TEXT,
+          created_at    TEXT DEFAULT (datetime('now','localtime'))
+        );
+      `)
+    }
   }
 ]
 

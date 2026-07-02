@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { getDb, hasUsers } from '../db/index.js'
 import { getSession, setSession, clearSession } from '../session.js'
 import { requireOwner } from '../session.js'
+import { writeAudit } from '../audit.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -141,7 +142,7 @@ export function registerAuthHandlers() {
   ipcMain.handle(
     'auth:add-staff',
     wrap(async ({ name, pin }) => {
-      requireOwner()
+      const session = requireOwner()
       if (!name || !pin) throw new Error('Name and PIN required')
       if (!/^\d{4}$/.test(pin)) throw new Error('PIN must be 4 digits')
       const db = getDb()
@@ -150,6 +151,7 @@ export function registerAuthHandlers() {
       const result = db
         .prepare(`INSERT INTO users (name, role, pin_hash) VALUES (?, 'staff', ?)`)
         .run(name, pinHash)
+      writeAudit(session.userId, 'staff:add', { userId: result.lastInsertRowid, name })
       return { success: true, userId: result.lastInsertRowid }
     })
   )
@@ -170,8 +172,9 @@ export function registerAuthHandlers() {
   ipcMain.handle(
     'auth:deactivate-user',
     wrap(({ userId }) => {
-      requireOwner()
+      const session = requireOwner()
       getDb().prepare(`UPDATE users SET is_active = 0 WHERE id = ? AND role = 'staff'`).run(userId)
+      writeAudit(session.userId, 'staff:deactivate', { userId })
       return { success: true }
     })
   )
@@ -179,7 +182,7 @@ export function registerAuthHandlers() {
   ipcMain.handle(
     'auth:change-pin',
     wrap(async ({ userId, newPin }) => {
-      requireOwner()
+      const session = requireOwner()
       if (!/^\d{4}$/.test(newPin)) throw new Error('PIN must be 4 digits')
       const db = getDb()
       await assertPinUnique(db, newPin, userId)
@@ -188,6 +191,7 @@ export function registerAuthHandlers() {
         pinHash,
         userId
       )
+      writeAudit(session.userId, 'staff:change-pin', { userId })
       return { success: true }
     })
   )

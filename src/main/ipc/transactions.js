@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
 import { formatTime, productDisplayName, todayLocal } from './utils.js'
+import { writeAudit } from '../audit.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -173,14 +174,42 @@ export function registerTransactionHandlers() {
 
   ipcMain.handle(
     'transactions:void',
-    wrap(({ transactionId, reason }) => {
+    wrap(({ transactionId, reason, confirmReconciled = false }) => {
       const session = requireOwner()
-      getDb()
+      const db = getDb()
+      const txn = db
         .prepare(
-          `UPDATE transactions SET is_voided = 1, void_reason = ?, void_by = ?, void_at = datetime('now','localtime') WHERE id = ?`
+          `SELECT id, amount, is_voided, date(created_at) as day FROM transactions WHERE id = ?`
         )
-        .run(reason, session.userId, transactionId)
-      return { success: true }
+        .get(transactionId)
+      if (!txn) throw new Error('Transaction not found')
+      if (txn.is_voided) throw new Error('Transaction is already voided')
+
+      // 2-E: voiding a transaction on a day that was already cash-reconciled
+      // silently changes a day the owner already signed off on. Require an
+      // explicit confirmation and record that the void hit a reconciled day.
+      const reconciled = db
+        .prepare(`SELECT 1 FROM cash_reconciliations WHERE date(reconcile_date) = ? LIMIT 1`)
+        .get(txn.day)
+      if (reconciled && !confirmReconciled) {
+        return {
+          success: false,
+          requiresConfirmation: true,
+          reconciledDay: txn.day,
+          error: `This sale is on ${txn.day}, a day already reconciled. Confirm to void it anyway.`
+        }
+      }
+
+      db.prepare(
+        `UPDATE transactions SET is_voided = 1, void_reason = ?, void_by = ?, void_at = datetime('now','localtime') WHERE id = ?`
+      ).run(reason, session.userId, transactionId)
+      writeAudit(session.userId, 'transaction:void', {
+        transactionId,
+        amount: txn.amount,
+        reason: reason || null,
+        reconciledDay: reconciled ? txn.day : null
+      })
+      return { success: true, wasReconciled: !!reconciled }
     })
   )
 }

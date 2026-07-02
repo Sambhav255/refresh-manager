@@ -99,6 +99,9 @@ const api = {
   getTodayReconciliation: () => invoke('reconciliation:get-today'),
   listReconciliations: (data) => invoke('reconciliation:list', data),
 
+  // Audit trail (owner)
+  listAudit: (data) => invoke('audit:list', data),
+
   // Restaurant menu / POS
   listMenuItems: (data) => invoke('restaurant-menu:list', data),
   addMenuItem: (data) => invoke('restaurant-menu:add', data),

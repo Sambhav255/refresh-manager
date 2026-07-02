@@ -122,6 +122,8 @@ export const api = {
   listReconciliations: async (data) =>
     unwrap(await invoke('listReconciliations', data), { reconciliations: [] }),
 
+  listAudit: async (data) => unwrap(await invoke('listAudit', data), { entries: [] }),
+
   listMenuItems: async (data) => unwrap(await invoke('listMenuItems', data), { items: [] }),
   addMenuItem: (data) => invoke('addMenuItem', data),
   updateMenuItem: (data) => invoke('updateMenuItem', data),
