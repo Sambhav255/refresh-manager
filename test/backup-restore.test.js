@@ -1,11 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { mkdtempSync, writeFileSync } from 'fs'
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { __invoke } from 'electron'
+import { __invoke, __getUserDataDir } from 'electron'
 import { initDatabase, getDb } from '../src/main/db/index.js'
 import { performBackup } from '../src/main/ipc/backup.js'
 import { freshDb, seed, loginOwner, OWNER_PASSWORD } from './helpers.js'
+
+function setPassphrase(db, value) {
+  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('backup_passphrase', ?)`).run(
+    value
+  )
+}
 
 let db
 let ids
@@ -104,6 +110,55 @@ describe('P0-3 — backup restore is a safe close/replace/relaunch', () => {
       password: OWNER_PASSWORD
     })
     expect(res.success).toBe(true)
+  })
+
+  it('encrypted backup bundles photos and restores them (2-B/2-F)', async () => {
+    setPassphrase(db, 's3cret-pass')
+    const pdir = join(__getUserDataDir(), 'photos')
+    mkdirSync(pdir, { recursive: true })
+    writeFileSync(join(pdir, '1.jpg'), Buffer.from('PHOTO-DATA'))
+
+    addMarker('before-backup')
+    const backupDir = mkdtempSync(join(tmpdir(), 'refresh-enc-'))
+    const { filePath, encrypted } = performBackup({
+      destinationPath: backupDir,
+      skipOwnerCheck: true
+    })
+    expect(encrypted).toBe(true)
+    expect(filePath.endsWith('.rmbak')).toBe(true)
+
+    // Change data and delete the photo after the backup.
+    addMarker('after-backup')
+    rmSync(join(pdir, '1.jpg'))
+
+    const res = await __invoke('backup:restore', {
+      backupFilePath: filePath,
+      password: OWNER_PASSWORD
+    })
+    expect(res.success).toBe(true)
+    expect(res.encrypted).toBe(true)
+
+    initDatabase()
+    expect(countTxns(getDb())).toBe(1)
+    // The photo was restored from inside the encrypted archive.
+    expect(existsSync(join(pdir, '1.jpg'))).toBe(true)
+    expect(readFileSync(join(pdir, '1.jpg')).toString()).toBe('PHOTO-DATA')
+  })
+
+  it('encrypted restore with the wrong passphrase fails, live data intact (2-F)', async () => {
+    setPassphrase(db, 'right-pass')
+    addMarker('live')
+    const backupDir = mkdtempSync(join(tmpdir(), 'refresh-enc-'))
+    const { filePath } = performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
+
+    const res = await __invoke('backup:restore', {
+      backupFilePath: filePath,
+      password: OWNER_PASSWORD,
+      backupPassphrase: 'WRONG-PASS'
+    })
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/passphrase|decrypt|corrupt/i)
+    expect(countTxns(db)).toBe(1)
   })
 
   it('rejects a wrong owner password', async () => {
