@@ -22,7 +22,8 @@ const TYPE_LABELS = {
   day_pass: 'Day Passes',
   restaurant: 'Restaurant',
   pool_inventory: 'Pool Items',
-  booking_deposit: 'Booking Deposits'
+  booking_deposit: 'Booking Deposits',
+  refund: 'Refunds'
 }
 const TYPE_ORDER = [
   'membership',
@@ -30,7 +31,8 @@ const TYPE_ORDER = [
   'day_pass',
   'restaurant',
   'pool_inventory',
-  'booking_deposit'
+  'booking_deposit',
+  'refund'
 ]
 
 export function generateEODMessage(date) {

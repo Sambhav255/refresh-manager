@@ -59,6 +59,50 @@ function migrateTransactionTypeCheck(db) {
   `)
 }
 
+// 3-C: add 'refund' to the CHECK and a refunds_transaction_id link column. Same
+// rebuild recipe as above; guarded so it is a no-op once applied.
+function migrateRefundSupport(db) {
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'transactions'`)
+    .get()
+  const hasRefundType = row?.sql?.includes("'refund'")
+  const hasLinkColumn = db
+    .prepare(`PRAGMA table_info(transactions)`)
+    .all()
+    .some((c) => c.name === 'refunds_transaction_id')
+  if (hasRefundType && hasLinkColumn) return
+
+  db.exec(`
+    CREATE TABLE transactions_new (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_type TEXT NOT NULL CHECK(transaction_type IN ('membership','day_package','day_pass','pool_inventory','restaurant','booking_deposit','refund')),
+      source           TEXT NOT NULL DEFAULT 'pool' CHECK(source IN ('pool','restaurant')),
+      customer_name    TEXT NOT NULL,
+      phone            TEXT,
+      product_id       INTEGER REFERENCES products(id),
+      member_id        INTEGER REFERENCES members(id),
+      amount           REAL NOT NULL,
+      payment_method   TEXT NOT NULL CHECK(payment_method IN ('cash','qr')),
+      staff_id         INTEGER NOT NULL REFERENCES users(id),
+      notes            TEXT,
+      is_voided        INTEGER DEFAULT 0,
+      void_reason      TEXT,
+      void_by          INTEGER REFERENCES users(id),
+      void_at          TEXT,
+      refunds_transaction_id INTEGER REFERENCES transactions(id),
+      created_at       TEXT DEFAULT (datetime('now','localtime'))
+    );
+    INSERT INTO transactions_new
+      (id, transaction_type, source, customer_name, phone, product_id, member_id, amount,
+       payment_method, staff_id, notes, is_voided, void_reason, void_by, void_at, created_at)
+      SELECT id, transaction_type, source, customer_name, phone, product_id, member_id, amount,
+             payment_method, staff_id, notes, is_voided, void_reason, void_by, void_at, created_at
+      FROM transactions;
+    DROP TABLE transactions;
+    ALTER TABLE transactions_new RENAME TO transactions;
+  `)
+}
+
 function backfillBaseline(db) {
   if (!hasColumn(db, 'memberships', 'reminder_sent_at')) {
     db.exec(`ALTER TABLE memberships ADD COLUMN reminder_sent_at TEXT`)
@@ -171,6 +215,14 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_check_ins_at ON check_ins(checked_in_at);
       `)
     }
+  },
+  {
+    // 3-C: add 'refund' to the transaction_type CHECK and a refunds_transaction_id
+    // link column. Guarded/idempotent so a fresh DB (schema.js already current)
+    // does not rebuild.
+    name: 'v4: refund transaction type + link column',
+    rebuildsReferencedTable: true,
+    up: migrateRefundSupport
   }
 ]
 

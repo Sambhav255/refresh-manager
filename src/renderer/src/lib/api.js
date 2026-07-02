@@ -48,6 +48,7 @@ export const api = {
       count: 0
     }),
   voidTransaction: (data) => invoke('voidTransaction', data),
+  refundTransaction: (data) => invoke('refundTransaction', data),
 
   createMember: (data) => invoke('createMember', data),
   searchMembers: async (data) => unwrap(await invoke('searchMembers', data), { members: [] }),

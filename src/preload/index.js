@@ -20,6 +20,7 @@ const api = {
   listTransactions: (data) => invoke('transactions:list', data),
   todaySummary: (data) => invoke('transactions:today-summary', data),
   voidTransaction: (data) => invoke('transactions:void', data),
+  refundTransaction: (data) => invoke('transactions:refund', data),
 
   // Members
   createMember: (data) => invoke('members:create', data),

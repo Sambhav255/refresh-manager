@@ -212,4 +212,103 @@ export function registerTransactionHandlers() {
       return { success: true, wasReconciled: !!reconciled }
     })
   )
+
+  // 3-C: refund (partial or full). Creates a linked negative 'refund'
+  // transaction so the ledger stays append-only and auditable (unlike a void,
+  // which is for same-shift mistakes). On a FULL refund of an inventory-linked
+  // sale, the stock that moved is restored atomically. Owner-gated.
+  ipcMain.handle(
+    'transactions:refund',
+    wrap(({ transactionId, amount, reason }) => {
+      const session = requireOwner()
+      const db = getDb()
+      const original = db.prepare(`SELECT * FROM transactions WHERE id = ?`).get(transactionId)
+      if (!original) throw new Error('Transaction not found')
+      if (original.is_voided) throw new Error('Cannot refund a voided transaction')
+      if (original.transaction_type === 'refund') throw new Error('Cannot refund a refund')
+      if (original.amount <= 0) throw new Error('Nothing to refund on this transaction')
+
+      const refundedSoFar =
+        -db
+          .prepare(
+            `SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE refunds_transaction_id = ?`
+          )
+          .get(transactionId).s || 0
+      const remaining = original.amount - refundedSoFar
+      const refundAmount = amount == null ? remaining : Number(amount)
+      if (!(refundAmount > 0)) throw new Error('Refund amount must be positive')
+      if (refundAmount > remaining + 1e-9) {
+        throw new Error(`Refund exceeds remaining refundable amount (Rs. ${remaining})`)
+      }
+      const isFull = Math.abs(refundedSoFar + refundAmount - original.amount) < 1e-9
+
+      const run = db.transaction(() => {
+        const refund = db
+          .prepare(
+            `INSERT INTO transactions
+             (transaction_type, source, customer_name, phone, product_id, member_id, amount,
+              payment_method, staff_id, notes, refunds_transaction_id)
+             VALUES ('refund', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            original.source,
+            original.customer_name,
+            original.phone,
+            original.product_id,
+            original.member_id,
+            -refundAmount,
+            original.payment_method,
+            session.userId,
+            `Refund of #${original.id}${reason ? `: ${reason}` : ''}`,
+            original.id
+          )
+        const refundId = refund.lastInsertRowid
+
+        // Restore inventory only on a full refund (partial money refunds don't
+        // map cleanly to whole units of stock).
+        if (isFull) {
+          for (const table of [
+            'pool_inventory_transactions',
+            'restaurant_inventory_transactions'
+          ]) {
+            const items =
+              table === 'pool_inventory_transactions'
+                ? 'pool_inventory_items'
+                : 'restaurant_inventory_items'
+            const outs = db
+              .prepare(
+                `SELECT item_id, quantity FROM ${table} WHERE transaction_id = ? AND txn_type = 'out'`
+              )
+              .all(original.id)
+            for (const o of outs) {
+              db.prepare(
+                `INSERT INTO ${table} (item_id, txn_type, quantity, reason, transaction_id, staff_id)
+                 VALUES (?, 'in', ?, 'Refund reversal', ?, ?)`
+              ).run(o.item_id, o.quantity, refundId, session.userId)
+              db.prepare(`UPDATE ${items} SET current_stock = current_stock + ? WHERE id = ?`).run(
+                o.quantity,
+                o.item_id
+              )
+            }
+          }
+        }
+        return refundId
+      })
+
+      const refundTransactionId = run()
+      writeAudit(session.userId, 'transaction:refund', {
+        originalId: original.id,
+        amount: refundAmount,
+        full: isFull,
+        reason: reason || null
+      })
+      return {
+        success: true,
+        refundTransactionId,
+        refundAmount,
+        full: isFull,
+        remaining: remaining - refundAmount
+      }
+    })
+  )
 }
