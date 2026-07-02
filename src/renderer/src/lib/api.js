@@ -54,6 +54,8 @@ export const api = {
   listAllMembers: async () => unwrap(await invoke('listAllMembers'), { members: [] }),
   expiringSoon: async (data) => unwrap(await invoke('expiringSoon', data), { members: [] }),
   addMembership: (data) => invoke('addMembership', data),
+  pauseMembership: (data) => invoke('pauseMembership', data),
+  resumeMembership: (data) => invoke('resumeMembership', data),
 
   listPoolInventory: async (data) => unwrap(await invoke('listPoolInventory', data), { items: [] }),
   poolLowStock: async () => unwrap(await invoke('poolLowStock'), { items: [] }),

@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
+import { writeAudit } from '../audit.js'
 import {
   addDays,
   formatShortDate,
@@ -9,6 +10,10 @@ import {
   productDisplayName,
   todayLocal
 } from './utils.js'
+
+function daysBetween(fromDate, toDate) {
+  return Math.max(0, Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86400000))
+}
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -280,6 +285,48 @@ export function registerMemberHandlers() {
         return mapMember(row, active, warningDays)
       })
       return { members }
+    })
+  )
+
+  // 3-B: freeze a membership (travel/injury). The expiry job ignores paused
+  // rows (it only touches status='active'), so a frozen membership is never
+  // auto-expired.
+  ipcMain.handle(
+    'members:pause-membership',
+    wrap(({ membershipId, reason }) => {
+      const session = requireOwner()
+      const db = getDb()
+      const ms = db.prepare(`SELECT id, status FROM memberships WHERE id = ?`).get(membershipId)
+      if (!ms) throw new Error('Membership not found')
+      if (ms.status !== 'active') throw new Error('Only an active membership can be paused')
+      db.prepare(
+        `UPDATE memberships SET status = 'paused', pause_start = ?, pause_reason = ? WHERE id = ?`
+      ).run(todayLocal(), reason || null, membershipId)
+      writeAudit(session.userId, 'membership:pause', { membershipId, reason: reason || null })
+      return { success: true }
+    })
+  )
+
+  // 3-B: resume a frozen membership and push end_date out by the paused span so
+  // the member isn't charged for days they couldn't use.
+  ipcMain.handle(
+    'members:resume-membership',
+    wrap(({ membershipId }) => {
+      const session = requireOwner()
+      const db = getDb()
+      const ms = db
+        .prepare(`SELECT id, status, end_date, pause_start FROM memberships WHERE id = ?`)
+        .get(membershipId)
+      if (!ms) throw new Error('Membership not found')
+      if (ms.status !== 'paused') throw new Error('Membership is not paused')
+      const today = todayLocal()
+      const pausedDays = ms.pause_start ? daysBetween(ms.pause_start, today) : 0
+      const newEnd = addDays(ms.end_date, pausedDays)
+      db.prepare(
+        `UPDATE memberships SET status = 'active', pause_end = ?, end_date = ? WHERE id = ?`
+      ).run(today, newEnd, membershipId)
+      writeAudit(session.userId, 'membership:resume', { membershipId, pausedDays, newEnd })
+      return { success: true, pausedDays, endDate: newEnd }
     })
   )
 }

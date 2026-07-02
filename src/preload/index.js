@@ -27,6 +27,8 @@ const api = {
   getMember: (data) => invoke('members:get', data),
   addMembership: (data) => invoke('members:add-membership', data),
   renewMembership: (data) => invoke('members:renew', data),
+  pauseMembership: (data) => invoke('members:pause-membership', data),
+  resumeMembership: (data) => invoke('members:resume-membership', data),
   expiringSoon: (data) => invoke('members:expiring-soon', data),
   listAllMembers: () => invoke('members:list-all'),
 
