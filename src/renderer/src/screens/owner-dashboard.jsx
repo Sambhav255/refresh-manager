@@ -105,13 +105,24 @@ export function OwnerDashboard() {
       t: expiring.length + ' memberships expiring',
       d: 'Within next 5 days'
     })
+  // 6-C: flag a stale backup (no success in >36h) so it's noticed early.
+  const lastBk = backupStatus?.lastBackupAt
+  const bkStale =
+    !lastBk || Date.now() - Date.parse(String(lastBk).replace(' ', 'T')) > 36 * 3600 * 1000
   if (backupStatus?.status === 'failed')
     alerts.push({ c: 'red', icon: 'folder', t: 'Backup failed', d: 'Check backup settings' })
-  else if (backupStatus?.lastBackupAt)
+  else if (bkStale)
+    alerts.push({
+      c: 'red',
+      icon: 'folder',
+      t: 'Backup is stale',
+      d: lastBk ? 'Last success: ' + lastBk : 'No successful backup yet — set one up'
+    })
+  else
     alerts.push({
       c: 'green',
       icon: 'folder',
-      t: 'Last backup: ' + backupStatus.lastBackupAt,
+      t: 'Last backup: ' + lastBk,
       d: backupStatus.status === 'success' ? '✓ Success' : backupStatus.status || ''
     })
   if (lowStock.length) {
