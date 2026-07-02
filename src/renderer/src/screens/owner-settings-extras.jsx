@@ -53,7 +53,12 @@ export function WhatsAppSettings({ back }) {
 }
 
 export function BusinessInfo({ back }) {
-  const [form, setForm] = useState({ business_name: '', business_phone: '', business_address: '' })
+  const [form, setForm] = useState({
+    business_name: '',
+    business_phone: '',
+    business_address: '',
+    receipt_width: '80'
+  })
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -63,7 +68,8 @@ export function BusinessInfo({ back }) {
       setForm({
         business_name: s.business_name || '',
         business_phone: s.business_phone || '',
-        business_address: s.business_address || ''
+        business_address: s.business_address || '',
+        receipt_width: s.receipt_width || '80'
       })
       setLoading(false)
     })
@@ -106,6 +112,22 @@ export function BusinessInfo({ back }) {
             />
           </div>
         ))}
+        <div className="field">
+          <label>Receipt / ticket size</label>
+          <select
+            className="input"
+            value={form.receipt_width}
+            onChange={(e) => setForm({ ...form, receipt_width: e.target.value })}
+          >
+            <option value="80">80mm thermal roll</option>
+            <option value="58">58mm thermal roll</option>
+            <option value="a4">A4 / Letter sheet</option>
+          </select>
+          <div className="sub" style={{ marginTop: 4, fontSize: 11.5 }}>
+            Match your reception printer. Test a print after changing — thermal widths are
+            printer-dependent.
+          </div>
+        </div>
         <button className="btn btn-primary" onClick={save}>
           {saved ? 'Saved!' : 'Save'}
         </button>

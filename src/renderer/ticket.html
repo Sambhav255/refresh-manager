@@ -77,6 +77,32 @@
         margin-top: 14px;
         font-family: monospace;
       }
+      /* 3-D: thermal roll widths. Body class is set from the ?w= param. */
+      body.w58 .ticket,
+      body.w80 .ticket {
+        border: none;
+        padding: 8px 6px;
+      }
+      body.w58 .ticket {
+        width: 54mm;
+        max-width: 54mm;
+      }
+      body.w80 .ticket {
+        width: 76mm;
+        max-width: 76mm;
+      }
+      body.w58 .logo,
+      body.w80 .logo {
+        font-size: 14px;
+      }
+      body.w58 .ticket-num,
+      body.w80 .ticket-num {
+        font-size: 30px;
+        letter-spacing: 2px;
+      }
+      @page {
+        margin: 0;
+      }
       @media print {
         body {
           padding: 0;
@@ -84,6 +110,12 @@
         .ticket {
           border: none;
           width: 105mm;
+        }
+        body.w58 .ticket {
+          width: 54mm;
+        }
+        body.w80 .ticket {
+          width: 76mm;
         }
       }
     </style>
@@ -112,6 +144,9 @@
     </div>
     <script>
       const params = new URLSearchParams(window.location.search)
+      const w = params.get('w')
+      if (w === '58') document.body.classList.add('w58')
+      else if (w === '80') document.body.classList.add('w80')
       const set = (id, val) => {
         const el = document.getElementById(id)
         if (el) el.textContent = val || '—'
