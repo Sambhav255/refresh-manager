@@ -13,30 +13,64 @@ function wrap(handler) {
   }
 }
 
-function generateEODMessage(date) {
+// 2-H: friendly labels + a stable display order. Any transaction_type not
+// listed here still gets a line (using its raw name), so the itemised lines
+// always sum to Total — even for types added in the future.
+const TYPE_LABELS = {
+  membership: 'Memberships',
+  day_package: 'Day Packages',
+  day_pass: 'Day Passes',
+  restaurant: 'Restaurant',
+  pool_inventory: 'Pool Items',
+  booking_deposit: 'Booking Deposits'
+}
+const TYPE_ORDER = [
+  'membership',
+  'day_package',
+  'day_pass',
+  'restaurant',
+  'pool_inventory',
+  'booking_deposit'
+]
+
+export function generateEODMessage(date) {
   const db = getDb()
   const dateStr = date ? formatShortDate(date) : formatShortDate(todayLocal())
   const queryDate = date || todayLocal()
 
-  const summary = db
+  const totals = db
     .prepare(
       `SELECT
         SUM(amount) as total,
         SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END) as cash,
         SUM(CASE WHEN payment_method = 'qr' THEN amount ELSE 0 END) as qr,
-        COUNT(*) as count,
-        SUM(CASE WHEN transaction_type = 'membership' THEN amount ELSE 0 END) as membership_rev,
-        SUM(CASE WHEN transaction_type = 'day_package' THEN amount ELSE 0 END) as package_rev,
-        SUM(CASE WHEN transaction_type = 'day_pass' THEN amount ELSE 0 END) as pass_rev,
-        SUM(CASE WHEN transaction_type = 'restaurant' THEN amount ELSE 0 END) as restaurant_rev,
-        SUM(CASE WHEN transaction_type = 'membership' THEN 1 ELSE 0 END) as membership_count,
-        SUM(CASE WHEN transaction_type = 'day_package' THEN 1 ELSE 0 END) as package_count,
-        SUM(CASE WHEN transaction_type = 'day_pass' THEN 1 ELSE 0 END) as pass_count,
-        SUM(CASE WHEN transaction_type = 'restaurant' THEN 1 ELSE 0 END) as restaurant_count
+        COUNT(*) as count
       FROM transactions
       WHERE date(created_at) = ? AND is_voided = 0`
     )
     .get(queryDate)
+
+  // 2-H: build the breakdown from the ACTUAL type groups present, so the lines
+  // always reconcile to Total (no hardcoded set that silently drops types).
+  const groups = db
+    .prepare(
+      `SELECT transaction_type, SUM(amount) as rev, COUNT(*) as count
+       FROM transactions
+       WHERE date(created_at) = ? AND is_voided = 0
+       GROUP BY transaction_type`
+    )
+    .all(queryDate)
+  const byType = new Map(groups.map((g) => [g.transaction_type, g]))
+
+  const orderedTypes = [
+    ...TYPE_ORDER.filter((t) => byType.has(t)),
+    ...groups.map((g) => g.transaction_type).filter((t) => !TYPE_ORDER.includes(t))
+  ]
+  const lines = orderedTypes.map((t) => {
+    const g = byType.get(t)
+    const label = TYPE_LABELS[t] || t
+    return `  • ${label}: ${g.count} — Rs. ${g.rev || 0}`
+  })
 
   const staffRow = db
     .prepare(
@@ -61,25 +95,10 @@ function generateEODMessage(date) {
     reconRow = null
   }
 
-  const total = summary.total || 0
-  const cash = summary.cash || 0
-  const qr = summary.qr || 0
-  const count = summary.count || 0
-  const membershipRev = summary.membership_rev || 0
-  const packageRev = summary.package_rev || 0
-  const passRev = summary.pass_rev || 0
-  const restaurantRev = summary.restaurant_rev || 0
-  const membershipCount = summary.membership_count || 0
-  const packageCount = summary.package_count || 0
-  const passCount = summary.pass_count || 0
-  const restaurantCount = summary.restaurant_count || 0
-
-  // "Other" bucket captures everything not itemised above, so the lines always
-  // reconcile to Total even if new transaction types appear later.
-  const otherRev = total - membershipRev - packageRev - passRev - restaurantRev
-  const otherCount = count - membershipCount - packageCount - passCount - restaurantCount
-
-  const otherLine = otherRev !== 0 ? `\n  • Other: ${otherCount} — Rs. ${otherRev}` : ''
+  const total = totals.total || 0
+  const cash = totals.cash || 0
+  const qr = totals.qr || 0
+  const count = totals.count || 0
 
   let reconLine = ''
   if (reconRow && reconRow.discrepancy != null) {
@@ -87,6 +106,8 @@ function generateEODMessage(date) {
     const label = discrepancy >= 0 ? 'over' : 'short'
     reconLine = `\n\n⚖️ Cash reconciliation: Rs. ${discrepancy} (${label})`
   }
+
+  const breakdown = lines.length ? lines.join('\n') : '  • (no sales)'
 
   return `🏊 Refresh Recreation Center
 📅 Daily Summary — ${dateStr}
@@ -97,10 +118,7 @@ Total: Rs. ${total}
   • QR: Rs. ${qr}
 
 📋 TRANSACTIONS (${count} total)
-  • Memberships: ${membershipCount} — Rs. ${membershipRev}
-  • Day Packages: ${packageCount} — Rs. ${packageRev}
-  • Day Passes: ${passCount} — Rs. ${passRev}
-  • Restaurant: ${restaurantCount} — Rs. ${restaurantRev}${otherLine}${reconLine}
+${breakdown}${reconLine}
 
 👤 Staff on duty: ${staffRow?.name || 'N/A'}
 
