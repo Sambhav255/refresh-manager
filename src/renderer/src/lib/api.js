@@ -124,6 +124,12 @@ export const api = {
 
   listAudit: async (data) => unwrap(await invoke('listAudit', data), { entries: [] }),
 
+  checkIn: (data) => invoke('checkIn', data),
+  getTodayCheckins: async () => unwrap(await invoke('getTodayCheckins'), { count: 0, recent: [] }),
+  getFootfall: async (data) =>
+    unwrap(await invoke('getFootfall', data), { series: [], total: 0, dailyAverage: 0 }),
+  getNotSeen: async (data) => unwrap(await invoke('getNotSeen', data), { members: [] }),
+
   listMenuItems: async (data) => unwrap(await invoke('listMenuItems', data), { items: [] }),
   addMenuItem: (data) => invoke('addMenuItem', data),
   updateMenuItem: (data) => invoke('updateMenuItem', data),

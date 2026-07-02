@@ -102,6 +102,12 @@ const api = {
   // Audit trail (owner)
   listAudit: (data) => invoke('audit:list', data),
 
+  // Check-ins / footfall
+  checkIn: (data) => invoke('checkins:create', data),
+  getTodayCheckins: () => invoke('checkins:today'),
+  getFootfall: (data) => invoke('checkins:footfall', data),
+  getNotSeen: (data) => invoke('checkins:not-seen', data),
+
   // Restaurant menu / POS
   listMenuItems: (data) => invoke('restaurant-menu:list', data),
   addMenuItem: (data) => invoke('restaurant-menu:add', data),

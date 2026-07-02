@@ -6,6 +6,12 @@ export function MemberSearch() {
   const [q, setQ] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
+  const [checkedIn, setCheckedIn] = useState({})
+
+  const doCheckIn = async (m) => {
+    const res = await api.checkIn({ memberId: m.id, source: 'member' })
+    if (res?.success !== false) setCheckedIn((prev) => ({ ...prev, [m.id]: true }))
+  }
 
   useEffect(() => {
     if (!q.trim()) {
@@ -92,6 +98,20 @@ export function MemberSearch() {
                 >
                   Expires {expiry}
                 </span>
+                <button
+                  className="btn btn-ghost"
+                  style={{ padding: '4px 10px', fontSize: 11.5 }}
+                  disabled={checkedIn[m.id]}
+                  onClick={() => doCheckIn(m)}
+                >
+                  {checkedIn[m.id] ? (
+                    <>
+                      <Icon name="check" size={13} /> Checked in
+                    </>
+                  ) : (
+                    'Check in'
+                  )}
+                </button>
               </div>
             </div>
           )

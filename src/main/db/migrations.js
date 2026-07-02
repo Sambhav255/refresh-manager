@@ -151,6 +151,26 @@ const MIGRATIONS = [
         );
       `)
     }
+  },
+  {
+    // 3-A: attendance logging — the app records sales, not visits, so footfall
+    // and utilisation KPIs are otherwise impossible. member_id is nullable so a
+    // day-pass/walk-in can still be counted.
+    name: 'v3: check_ins',
+    rebuildsReferencedTable: false,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS check_ins (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          member_id     INTEGER REFERENCES members(id),
+          checked_in_at TEXT DEFAULT (datetime('now','localtime')),
+          staff_id      INTEGER REFERENCES users(id),
+          source        TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_check_ins_member ON check_ins(member_id, checked_in_at);
+        CREATE INDEX IF NOT EXISTS idx_check_ins_at ON check_ins(checked_in_at);
+      `)
+    }
   }
 ]
 

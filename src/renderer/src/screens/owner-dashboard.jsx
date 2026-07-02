@@ -13,6 +13,7 @@ export function OwnerDashboard() {
   const [expiring, setExpiring] = useState([])
   const [reminders, setReminders] = useState([])
   const [backupStatus, setBackupStatus] = useState(null)
+  const [footfall, setFootfall] = useState(0)
   const [loading, setLoading] = useState(true)
   const [sendingReminders, setSendingReminders] = useState(false)
   const today = todayLocal()
@@ -27,8 +28,9 @@ export function OwnerDashboard() {
       api.poolLowStock(),
       api.expiringSoon({ days: 5 }),
       api.getExpiringReminders({ days: 5 }),
-      api.getBackupStatus()
-    ]).then(([p, r, c, t, b, l, e, rem, bk]) => {
+      api.getBackupStatus(),
+      api.getTodayCheckins()
+    ]).then(([p, r, c, t, b, l, e, rem, bk, ci]) => {
       setPool(p)
       setRestaurant(r)
       setCombined(c)
@@ -38,6 +40,7 @@ export function OwnerDashboard() {
       setExpiring(e.members || [])
       setReminders(rem.members || [])
       setBackupStatus(bk)
+      setFootfall(ci.count || 0)
       setLoading(false)
     })
   }, [today])
@@ -76,6 +79,12 @@ export function OwnerDashboard() {
       label: 'QR today',
       value: fmt(combined?.qr),
       sub: (combined?.count || 0) + ' total txns',
+      tone: 'muted'
+    },
+    {
+      label: 'Footfall today',
+      value: String(footfall),
+      sub: 'member check-ins',
       tone: 'muted'
     }
   ]
