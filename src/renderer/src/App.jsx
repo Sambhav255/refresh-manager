@@ -558,12 +558,13 @@ export default function App() {
   useEffect(() => {
     if (!session) return
     resetIdleTimer()
+    // 3-F: reset on pointer and touch activity too, not just keyboard — reception
+    // often works mouse/touch-only and shouldn't be logged out mid-task.
     const onActivity = () => resetIdleTimer()
-    window.addEventListener('mousemove', onActivity)
-    window.addEventListener('keydown', onActivity)
+    const events = ['mousemove', 'keydown', 'click', 'touchstart']
+    events.forEach((e) => window.addEventListener(e, onActivity))
     return () => {
-      window.removeEventListener('mousemove', onActivity)
-      window.removeEventListener('keydown', onActivity)
+      events.forEach((e) => window.removeEventListener(e, onActivity))
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
     }
   }, [session, resetIdleTimer])
