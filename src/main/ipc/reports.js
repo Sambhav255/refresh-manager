@@ -147,6 +147,43 @@ function fetchByProduct(db, dateFrom, dateTo) {
     }))
 }
 
+// 4-A: metrics used for period-over-period comparison.
+function newMemberCount(db, dateFrom, dateTo) {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(DISTINCT ms.member_id) as count FROM memberships ms
+         WHERE ms.start_date >= ? AND ms.start_date <= ?
+           AND NOT EXISTS (SELECT 1 FROM memberships prev WHERE prev.member_id = ms.member_id AND prev.id < ms.id)`
+      )
+      .get(dateFrom, dateTo)?.count || 0
+  )
+}
+function revenueTotal(db, dateFrom, dateTo) {
+  return (
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(amount), 0) as total FROM transactions
+         WHERE is_voided = 0 AND date(created_at) >= ? AND date(created_at) <= ?`
+      )
+      .get(dateFrom, dateTo)?.total || 0
+  )
+}
+function footfallInRange(db, dateFrom, dateTo) {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM check_ins WHERE date(checked_in_at) >= ? AND date(checked_in_at) <= ?`
+      )
+      .get(dateFrom, dateTo)?.c || 0
+  )
+}
+function prevMonthRange(year, month) {
+  const py = month === 1 ? year - 1 : year
+  const pm = month === 1 ? 12 : month - 1
+  return monthRange(py, pm)
+}
+
 function styleHeaderRow(row) {
   row.eachCell((cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND_BLUE } }
@@ -538,12 +575,30 @@ export function registerReportHandlers() {
           )
           .get(dateFrom, dateTo)?.count || 0
 
+      // 4-A: previous-period comparison so trends are visible.
+      const footfall = footfallInRange(db, dateFrom, dateTo)
+      const prev = prevMonthRange(y, m)
+      const previous = {
+        total: revenueTotal(db, prev.dateFrom, prev.dateTo),
+        newMembers: newMemberCount(db, prev.dateFrom, prev.dateTo),
+        footfall: footfallInRange(db, prev.dateFrom, prev.dateTo)
+      }
+      const pct = (cur, was) => (was > 0 ? Math.round(((cur - was) / was) * 100) : null)
+      const deltas = {
+        totalPct: pct(summary.total, previous.total),
+        newMembersPct: pct(newMembers, previous.newMembers),
+        footfallPct: pct(footfall, previous.footfall)
+      }
+
       return {
         summary,
         byWeek,
         byProduct,
         newMembers,
         renewals,
+        footfall,
+        previous,
+        deltas,
         year: y,
         month: m,
         dateFrom,
@@ -593,6 +648,46 @@ export function registerReportHandlers() {
         .all(dateFrom, dateTo)
       const retentionRate = due > 0 ? Math.round((renewed / due) * 100) : 0
       return { due, renewed, retentionRate, churned, year: y, month: m, dateFrom, dateTo }
+    })
+  )
+
+  // 4-B: cohort retention — of the members who FIRST joined in month M, how many
+  // still hold an active membership 1/2/3 months later.
+  ipcMain.handle(
+    'reports:cohort-retention',
+    wrap(({ year, month } = {}) => {
+      requireOwner()
+      const now = new Date()
+      const y = year ?? now.getFullYear()
+      const m = month ?? now.getMonth() + 1
+      const { dateFrom, dateTo } = monthRange(y, m)
+      const db = getDb()
+      const cohort = db
+        .prepare(
+          `SELECT ms.member_id, MIN(ms.start_date) as first_start
+           FROM memberships ms
+           GROUP BY ms.member_id
+           HAVING first_start >= ? AND first_start <= ?`
+        )
+        .all(dateFrom, dateTo)
+      const cohortSize = cohort.length
+      const spans = db.prepare(
+        `SELECT 1 FROM memberships WHERE member_id = ? AND start_date <= ? AND end_date >= ? LIMIT 1`
+      )
+      const retention = [1, 2, 3].map((k) => {
+        const d = new Date(y, m - 1 + k, 1)
+        const checkDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+        let active = 0
+        for (const c of cohort) {
+          if (spans.get(c.member_id, checkDate, checkDate)) active++
+        }
+        return {
+          monthOffset: k,
+          active,
+          rate: cohortSize > 0 ? Math.round((active / cohortSize) * 100) : 0
+        }
+      })
+      return { cohortSize, retention, year: y, month: m }
     })
   )
 

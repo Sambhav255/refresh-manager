@@ -71,6 +71,7 @@ const api = {
   customReport: (data) => invoke('reports:custom', data),
   exportExcel: (data) => invoke('reports:export-excel', data),
   retentionReport: (data) => invoke('reports:retention', data),
+  cohortRetention: (data) => invoke('reports:cohort-retention', data),
   inventoryTurnoverReport: (data) => invoke('reports:inventory-turnover', data),
   bookingReport: (data) => invoke('reports:bookings', data),
   staffActivityReport: (data) => invoke('reports:staff-activity', data),

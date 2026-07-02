@@ -85,6 +85,8 @@ export const api = {
     unwrap(await invoke('customReport', data), { summary: {}, transactions: [] }),
   retentionReport: async (data) =>
     unwrap(await invoke('retentionReport', data), { due: 0, renewed: 0, churned: [] }),
+  cohortRetention: async (data) =>
+    unwrap(await invoke('cohortRetention', data), { cohortSize: 0, retention: [] }),
   inventoryTurnoverReport: async (data) =>
     unwrap(await invoke('inventoryTurnoverReport', data), {
       pool: [],

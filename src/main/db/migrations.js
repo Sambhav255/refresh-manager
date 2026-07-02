@@ -223,6 +223,24 @@ const MIGRATIONS = [
     name: 'v4: refund transaction type + link column',
     rebuildsReferencedTable: true,
     up: migrateRefundSupport
+  },
+  {
+    // 4-C: secondary indexes for the hot report/query paths. Created after the
+    // v4 transactions rebuild so they survive it.
+    name: 'v5: report indexes',
+    rebuildsReferencedTable: false,
+    up: (db) => {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_txn_created ON transactions(created_at);
+        CREATE INDEX IF NOT EXISTS idx_txn_member ON transactions(member_id);
+        CREATE INDEX IF NOT EXISTS idx_txn_staff ON transactions(staff_id);
+        CREATE INDEX IF NOT EXISTS idx_txn_product ON transactions(product_id);
+        CREATE INDEX IF NOT EXISTS idx_txn_type ON transactions(transaction_type);
+        CREATE INDEX IF NOT EXISTS idx_txn_refunds ON transactions(refunds_transaction_id);
+        CREATE INDEX IF NOT EXISTS idx_ms_member ON memberships(member_id);
+        CREATE INDEX IF NOT EXISTS idx_ms_status_end ON memberships(status, end_date);
+      `)
+    }
   }
 ]
 

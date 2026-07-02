@@ -16,6 +16,7 @@ import { registerSettingsHandlers } from '../src/main/ipc/settings.js'
 import { registerAuditHandlers } from '../src/main/ipc/audit.js'
 import { registerCheckinHandlers } from '../src/main/ipc/checkins.js'
 import { registerReminderHandlers } from '../src/main/ipc/reminders.js'
+import { registerReportHandlers } from '../src/main/ipc/reports.js'
 
 let registered = false
 function registerAll() {
@@ -31,6 +32,7 @@ function registerAll() {
   registerAuditHandlers()
   registerCheckinHandlers()
   registerReminderHandlers()
+  registerReportHandlers()
   registered = true
 }
 
