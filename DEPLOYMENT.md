@@ -62,3 +62,79 @@ Customer arrives: Search Member → confirm Active status → let in.
 End of shift: End of Day tab → review totals → Cash reconciliation → Send to owner via WhatsApp.
 
 Restaurant order: Restaurant POS tile → add items → checkout.
+
+---
+
+# New in the hardening release (configure these)
+
+### Backup encryption passphrase (protects customer data)
+
+Settings → Backup settings → **Backup encryption passphrase**. Set a passphrase you
+will not forget. With it set, every backup becomes a single encrypted `.rmbak`
+file that **bundles the database and all member photos** (AES-256). Without a
+passphrase, backups are a plain `.db` file with no photos and no protection — fine
+for testing, not for a USB stick or a Google-Drive-synced folder that leaves the
+premises.
+
+> **Write the passphrase down and store it separately from the backups.** It is
+> required to restore, and it is not recoverable — a lost passphrase means the
+> encrypted backups cannot be opened. It is never displayed or exported by the app.
+
+### Receipt / ticket size
+
+Settings → Business info → **Receipt / ticket size**: choose 80mm, 58mm, or A4 to
+match your printer, then print a test ticket. Thermal widths are printer-dependent
+— verify the layout isn't clipped and there's no runaway blank feed; if a roll
+printer feeds blank paper after the receipt, that is tunable in `tickets.js`.
+
+### Attendance / check-ins
+
+Staff can tap **Check in** on a member search result. The owner dashboard shows
+**Footfall today**; reports expose footfall over time and a "not seen in N days"
+churn-risk list for renewal outreach.
+
+---
+
+# Operations & maintenance
+
+## Upgrading to a new version (never lose data)
+
+The database and photos live in the Windows user-data folder
+(`%APPDATA%/refresh-manager/`), **not** inside the app install folder, so
+installing a new `.exe` over the old one keeps all data.
+
+On first launch of a new version, schema migrations run automatically and are
+**versioned (`PRAGMA user_version`), ordered, transactional, and idempotent** — a
+failed migration rolls back and the old data is untouched. The migration test
+suite proves a populated v1.0.0-shaped database upgrades to the current schema
+with foreign-key integrity intact.
+
+**Upgrade steps:** (1) take a backup and confirm it reports success; (2) install
+the new `.exe`; (3) launch — migrations apply on open; (4) spot-check that recent
+transactions, members, and photos are present.
+
+## Windows signing / SmartScreen
+
+The `.exe` is unsigned, so Windows SmartScreen may warn on first run. For a single
+known reception PC this is acceptable: click **More info → Run anyway**. If the app
+is ever distributed more widely, buy an OV/EV code-signing certificate and sign in
+`electron-builder.yml` to remove the warning.
+
+## Backup monitoring & quarterly restore drill
+
+- The owner dashboard flags a **stale backup** (no successful backup in over a day)
+  so problems are noticed before they compound.
+- **Quarterly restore drill (do not skip):** on a spare machine, install the app,
+  copy a recent backup over, and restore it (Settings → Backup → Restore, owner
+  password + backup passphrase). Confirm members, transactions, and photos come
+  back. A backup you have never restored is not a backup you can trust. Restores
+  are integrity-checked before they touch live data and are recorded in the audit
+  log.
+
+## Developer note — native module ABI
+
+`better-sqlite3` is a native addon and Electron (ABI 140) and Node (ABI 127) differ.
+The npm scripts handle this automatically: `npm test` rebuilds it for Node
+(`pretest`), and `npm run dev` / `npm start` rebuild it for Electron
+(`predev`/`prestart`). If you ever hit a `NODE_MODULE_VERSION` error, run
+`npm run postinstall` (for the app) or `npm rebuild better-sqlite3` (for tests).

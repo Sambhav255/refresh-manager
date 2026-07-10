@@ -3,7 +3,7 @@ import { api } from '../lib/api'
 import { fmt } from '../lib/format'
 import { Icon, SectionHead } from '../components/ui'
 
-export function OwnerInventory({ session }) {
+export function OwnerInventory() {
   const [inv, setInv] = useState([])
   const [lowStock, setLowStock] = useState([])
   const [showAdd, setShowAdd] = useState(false)
@@ -16,6 +16,7 @@ export function OwnerInventory({ session }) {
   })
   const [restockId, setRestockId] = useState(null)
   const [restockQty, setRestockQty] = useState('')
+  const [error, setError] = useState('')
 
   const load = () => {
     api.listPoolInventory().then((r) => setInv(r.items || []))
@@ -27,7 +28,12 @@ export function OwnerInventory({ session }) {
   }, [])
 
   const handleAdd = async () => {
-    await api.addPoolItem(form)
+    setError('')
+    const r = await api.addPoolItem(form)
+    if (r?.success === false) {
+      setError(r.error || 'Could not add item')
+      return
+    }
     setShowAdd(false)
     setForm({ name: '', category: '', variant: '', reorderLevel: 5, sellingPrice: 0 })
     load()
@@ -35,11 +41,12 @@ export function OwnerInventory({ session }) {
 
   const handleRestock = async () => {
     if (!restockId || !restockQty) return
-    await api.restockPoolItem({
-      itemId: restockId,
-      quantity: Number(restockQty),
-      staffId: session?.userId
-    })
+    setError('')
+    const r = await api.restockPoolItem({ itemId: restockId, quantity: Number(restockQty) })
+    if (r?.success === false) {
+      setError(r.error || 'Restock failed')
+      return
+    }
     setRestockId(null)
     setRestockQty('')
     load()
@@ -52,6 +59,11 @@ export function OwnerInventory({ session }) {
           <Icon name="plus" size={15} /> Add item
         </button>
       </SectionHead>
+      {error && (
+        <div className="alert red" style={{ marginBottom: 12 }}>
+          <div className="a-desc">{error}</div>
+        </div>
+      )}
       {lowStock.length > 0 && (
         <div className="alert red" style={{ marginBottom: 14 }}>
           <Icon name="alert-triangle" size={17} />

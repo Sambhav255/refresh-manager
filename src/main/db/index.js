@@ -25,6 +25,24 @@ export function initDatabase() {
   return db
 }
 
+export function closeDatabase() {
+  if (db) {
+    db.close()
+    db = null
+  }
+}
+
+// P2-2: cheap liveness probe used to detect a DB file that has been deleted or
+// disconnected while the app is running. Returns true only if the connection is
+// open and answers a trivial query.
+export function isDatabaseHealthy() {
+  try {
+    return !!db && db.pragma('quick_check', { simple: true }) === 'ok'
+  } catch {
+    return false
+  }
+}
+
 export function hasUsers() {
   const row = getDb().prepare('SELECT COUNT(*) as count FROM users').get()
   return row.count > 0

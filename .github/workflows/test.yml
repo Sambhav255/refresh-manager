@@ -1,0 +1,35 @@
+name: Lint & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Lint is a merge gate (0 errors; pre-existing patterns are warnings).
+      - name: Lint
+        run: npm run lint
+
+      # better-sqlite3 is rebuilt for Electron by the postinstall hook; the
+      # Vitest suite runs under plain Node. The `pretest` script rebuilds it for
+      # the Node ABI automatically before the suite runs.
+      - name: Test
+        run: npm test
+
+      # Build smoke: catches packaging/bundling breakage.
+      - name: Build
+        run: npm run build

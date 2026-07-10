@@ -20,6 +20,28 @@ function getSetting(key, fallback = '') {
   return row?.value || fallback
 }
 
+// 3-D: reception desks commonly use 58mm / 80mm thermal roll printers. Build
+// the print options and the ticket page width from settings. Untested against
+// physical hardware — verify on the actual printer and tune height if a roll
+// printer feeds blank paper after the receipt.
+function receiptPrintOptions() {
+  const width = getSetting('receipt_width', '80') // '58' | '80' | 'a4'
+  const deviceName = getSetting('receipt_printer', '') // empty ⇒ default printer
+  const silent = getSetting('receipt_silent', 'true') !== 'false'
+  const opts = { silent, printBackground: true }
+  if (deviceName) opts.deviceName = deviceName
+  if (width === 'a4') {
+    opts.pageSize = 'A4'
+  } else {
+    const mm = width === '58' ? 58 : 80
+    opts.margins = { marginType: 'none' }
+    // microns; height generous so long tickets aren't clipped (roll printers
+    // cut at content). Tune per printer if needed.
+    opts.pageSize = { width: Math.round(mm * 1000), height: Math.round(297 * 1000) }
+  }
+  return { opts, width }
+}
+
 export function registerTicketHandlers() {
   ipcMain.handle(
     'tickets:print',
@@ -32,6 +54,7 @@ export function registerTicketHandlers() {
       const datePart = dt.includes('T') ? dt.slice(0, 10) : dt.slice(0, 10)
       const timePart = formatTime(dt.replace('T', ' ').slice(0, 19))
 
+      const { opts, width } = receiptPrintOptions()
       const params = new URLSearchParams({
         id: String(transactionId || ''),
         customerName: customerName || '',
@@ -39,6 +62,7 @@ export function registerTicketHandlers() {
         date: formatShortDate(datePart),
         time: timePart,
         payment,
+        w: width,
         address: getSetting('business_address', 'Nayabasti, Boudha, Kathmandu'),
         phone: getSetting('business_phone', '+977 9801010422')
       })
@@ -59,20 +83,17 @@ export function registerTicketHandlers() {
       })
 
       return new Promise((resolve) => {
-        ticketWindow.webContents.print(
-          { silent: true, printBackground: true },
-          (success, failureReason) => {
-            ticketWindow.close()
-            if (success) {
-              resolve({ success: true })
-            } else {
-              resolve({
-                success: false,
-                error: failureReason || 'No printer connected. Check printer in Settings.'
-              })
-            }
+        ticketWindow.webContents.print(opts, (success, failureReason) => {
+          ticketWindow.close()
+          if (success) {
+            resolve({ success: true })
+          } else {
+            resolve({
+              success: false,
+              error: failureReason || 'No printer connected. Check printer in Settings.'
+            })
           }
-        )
+        })
       })
     })
   )

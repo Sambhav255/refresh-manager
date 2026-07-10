@@ -13,6 +13,8 @@ export function OwnerDashboard() {
   const [expiring, setExpiring] = useState([])
   const [reminders, setReminders] = useState([])
   const [backupStatus, setBackupStatus] = useState(null)
+  const [backupStale, setBackupStale] = useState(false)
+  const [footfall, setFootfall] = useState(0)
   const [loading, setLoading] = useState(true)
   const [sendingReminders, setSendingReminders] = useState(false)
   const today = todayLocal()
@@ -27,8 +29,9 @@ export function OwnerDashboard() {
       api.poolLowStock(),
       api.expiringSoon({ days: 5 }),
       api.getExpiringReminders({ days: 5 }),
-      api.getBackupStatus()
-    ]).then(([p, r, c, t, b, l, e, rem, bk]) => {
+      api.getBackupStatus(),
+      api.getTodayCheckins()
+    ]).then(([p, r, c, t, b, l, e, rem, bk, ci]) => {
       setPool(p)
       setRestaurant(r)
       setCombined(c)
@@ -38,16 +41,25 @@ export function OwnerDashboard() {
       setExpiring(e.members || [])
       setReminders(rem.members || [])
       setBackupStatus(bk)
+      // 6-C: compute staleness once at load (avoids an impure Date.now in render).
+      const lastBk = bk?.lastBackupAt
+      setBackupStale(
+        !lastBk || Date.now() - Date.parse(String(lastBk).replace(' ', 'T')) > 36 * 3600 * 1000
+      )
+      setFootfall(ci.count || 0)
       setLoading(false)
     })
   }, [today])
 
-  const sendAllReminders = async () => {
+  // P1-5: guided one-at-a-time flow — open (and mark sent) only the next
+  // pending member's WhatsApp chat, never a burst of tabs.
+  const sendNextReminder = async () => {
+    if (!reminders.length) return
     setSendingReminders(true)
-    await api.sendAllReminders({ days: 5 })
-    setSendingReminders(false)
+    await api.sendReminder({ membershipId: reminders[0].membershipId })
     const rem = await api.getExpiringReminders({ days: 5 })
     setReminders(rem.members || [])
+    setSendingReminders(false)
   }
 
   const kpis = [
@@ -74,6 +86,12 @@ export function OwnerDashboard() {
       value: fmt(combined?.qr),
       sub: (combined?.count || 0) + ' total txns',
       tone: 'muted'
+    },
+    {
+      label: 'Footfall today',
+      value: String(footfall),
+      sub: 'member check-ins',
+      tone: 'muted'
     }
   ]
 
@@ -93,13 +111,22 @@ export function OwnerDashboard() {
       t: expiring.length + ' memberships expiring',
       d: 'Within next 5 days'
     })
+  // 6-C: flag a stale backup (no success in >36h) so it's noticed early.
+  const lastBk = backupStatus?.lastBackupAt
   if (backupStatus?.status === 'failed')
     alerts.push({ c: 'red', icon: 'folder', t: 'Backup failed', d: 'Check backup settings' })
-  else if (backupStatus?.lastBackupAt)
+  else if (backupStale)
+    alerts.push({
+      c: 'red',
+      icon: 'folder',
+      t: 'Backup is stale',
+      d: lastBk ? 'Last success: ' + lastBk : 'No successful backup yet — set one up'
+    })
+  else
     alerts.push({
       c: 'green',
       icon: 'folder',
-      t: 'Last backup: ' + backupStatus.lastBackupAt,
+      t: 'Last backup: ' + lastBk,
       d: backupStatus.status === 'success' ? '✓ Success' : backupStatus.status || ''
     })
   if (lowStock.length) {
@@ -214,10 +241,12 @@ export function OwnerDashboard() {
                       className="btn btn-ghost"
                       style={{ marginTop: 8, padding: '5px 10px', fontSize: 12 }}
                       disabled={sendingReminders}
-                      onClick={sendAllReminders}
+                      onClick={sendNextReminder}
                     >
                       <Icon name="message-circle" size={14} />
-                      {sendingReminders ? 'Sending…' : 'Send all reminders'}
+                      {sendingReminders
+                        ? 'Opening…'
+                        : `Send next reminder (${reminders.length} left)`}
                     </button>
                   )}
                 </div>

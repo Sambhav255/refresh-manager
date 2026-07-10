@@ -1,11 +1,25 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import cron from 'node-cron'
-import { initDatabase, getDb } from './db/index.js'
+import { initDatabase, getDb, isDatabaseHealthy } from './db/index.js'
 import { registerAllHandlers } from './ipc/index.js'
 import { performBackup } from './ipc/backup.js'
+import { expireLapsedMemberships } from './ipc/maintenance.js'
 import { clearSession } from './session.js'
+
+let dbLossReported = false
+
+// P2-2: if the database file is deleted or its disk/USB disconnects at runtime,
+// surface a clear dialog instead of dying silently or freezing.
+function reportDatabaseLoss() {
+  if (dbLossReported) return
+  dbLossReported = true
+  dialog.showErrorBox(
+    'Database connection lost',
+    'Refresh Manager cannot reach its database file. Check that the drive it is stored on is connected, then restart the app.'
+  )
+}
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -30,7 +44,9 @@ function createWindow() {
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      // Chromium OS sandbox stays ON (Electron default): the preload uses only
+      // contextBridge/ipcRenderer, which are sandbox-compatible.
+      sandbox: true
     }
   })
 
@@ -40,6 +56,11 @@ function createWindow() {
 
   mainWindow.webContents.on('did-finish-load', () => {
     clearSession()
+  })
+
+  // P2-2: lightweight liveness probe when the window regains focus.
+  mainWindow.on('focus', () => {
+    if (!isDatabaseHealthy()) reportDatabaseLoss()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -86,6 +107,12 @@ function startBackupScheduler() {
   }
 }
 
+// P1-1: expire lapsed memberships at startup and again just after midnight.
+function startMaintenanceScheduler() {
+  expireLapsedMemberships()
+  cron.schedule('5 0 * * *', expireLapsedMemberships)
+}
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.refreshrecreation.manager')
 
@@ -96,6 +123,7 @@ app.whenReady().then(() => {
   initDatabase()
   registerAllHandlers()
   startBackupScheduler()
+  startMaintenanceScheduler()
 
   ipcMain.on('ping', () => console.log('pong'))
 
@@ -111,3 +139,15 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+// P2-2: never die silently. If an unexpected error escapes (often a lost DB
+// handle), tell the user how to recover instead of leaving a frozen window.
+function handleFatal(err) {
+  console.error('Uncaught error in main process:', err)
+  if (!isDatabaseHealthy()) {
+    reportDatabaseLoss()
+  }
+}
+
+process.on('uncaughtException', handleFatal)
+process.on('unhandledRejection', handleFatal)

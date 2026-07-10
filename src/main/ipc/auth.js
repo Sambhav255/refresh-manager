@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { getDb, hasUsers } from '../db/index.js'
 import { getSession, setSession, clearSession } from '../session.js'
 import { requireOwner } from '../session.js'
+import { writeAudit } from '../audit.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -10,6 +11,34 @@ function wrap(handler) {
       return await handler(payload || {})
     } catch (err) {
       return { success: false, error: err.message }
+    }
+  }
+}
+
+// In-memory PIN throttling (main process only, no schema change).
+const MAX_PIN_ATTEMPTS = 5
+const PIN_COOLDOWN_MS = 30000
+let failedPinAttempts = 0
+let lockedUntil = 0
+
+// The owner password is the highest-value credential (gates restore, refunds,
+// staff management) — throttle it too, with a stricter cooldown than PINs.
+const MAX_PASSWORD_ATTEMPTS = 5
+const PASSWORD_COOLDOWN_MS = 60000
+let failedPasswordAttempts = 0
+let passwordLockedUntil = 0
+
+// Reject a new PIN if it collides with any existing active staff PIN.
+// excludeUserId lets a staff member keep/re-set their own PIN without
+// colliding with themselves.
+async function assertPinUnique(db, pin, excludeUserId = null) {
+  const rows = db
+    .prepare(`SELECT id, pin_hash FROM users WHERE role = 'staff' AND is_active = 1`)
+    .all()
+  for (const row of rows) {
+    if (excludeUserId != null && Number(row.id) === Number(excludeUserId)) continue
+    if (row.pin_hash && (await bcrypt.compare(pin, row.pin_hash))) {
+      throw new Error('That PIN is already in use.')
     }
   }
 }
@@ -31,6 +60,7 @@ export function registerAuthHandlers() {
       if (!/^\d{4}$/.test(staffPin)) throw new Error('Staff PIN must be 4 digits')
 
       const db = getDb()
+      await assertPinUnique(db, staffPin)
       const ownerHash = await bcrypt.hash(password, 10)
       const pinHash = await bcrypt.hash(staffPin, 10)
 
@@ -60,6 +90,9 @@ export function registerAuthHandlers() {
       const db = getDb()
 
       if (pin) {
+        if (Date.now() < lockedUntil) {
+          throw new Error('Too many attempts. Please try again in a few seconds.')
+        }
         const staff = db
           .prepare(
             `SELECT id, name, role, pin_hash FROM users WHERE role = 'staff' AND is_active = 1`
@@ -67,23 +100,40 @@ export function registerAuthHandlers() {
           .all()
         for (const user of staff) {
           if (user.pin_hash && (await bcrypt.compare(pin, user.pin_hash))) {
+            failedPinAttempts = 0
+            lockedUntil = 0
             const session = { userId: user.id, name: user.name, role: user.role }
             setSession(session)
             return { success: true, user: session }
           }
         }
+        failedPinAttempts += 1
+        if (failedPinAttempts >= MAX_PIN_ATTEMPTS) {
+          lockedUntil = Date.now() + PIN_COOLDOWN_MS
+          failedPinAttempts = 0
+        }
         throw new Error('Incorrect PIN')
       }
 
       if (username && password) {
+        if (Date.now() < passwordLockedUntil) {
+          throw new Error('Too many attempts. Please try again in a minute.')
+        }
         const owner = db
           .prepare(
             `SELECT id, name, role, password_hash FROM users WHERE role = 'owner' AND is_active = 1 AND name = ?`
           )
           .get(username)
         if (!owner || !(await bcrypt.compare(password, owner.password_hash))) {
+          failedPasswordAttempts += 1
+          if (failedPasswordAttempts >= MAX_PASSWORD_ATTEMPTS) {
+            passwordLockedUntil = Date.now() + PASSWORD_COOLDOWN_MS
+            failedPasswordAttempts = 0
+          }
           throw new Error('Incorrect password')
         }
+        failedPasswordAttempts = 0
+        passwordLockedUntil = 0
         const session = { userId: owner.id, name: owner.name, role: owner.role }
         setSession(session)
         return { success: true, user: session }
@@ -109,13 +159,16 @@ export function registerAuthHandlers() {
   ipcMain.handle(
     'auth:add-staff',
     wrap(async ({ name, pin }) => {
-      requireOwner()
+      const session = requireOwner()
       if (!name || !pin) throw new Error('Name and PIN required')
       if (!/^\d{4}$/.test(pin)) throw new Error('PIN must be 4 digits')
+      const db = getDb()
+      await assertPinUnique(db, pin)
       const pinHash = await bcrypt.hash(pin, 10)
-      const result = getDb()
+      const result = db
         .prepare(`INSERT INTO users (name, role, pin_hash) VALUES (?, 'staff', ?)`)
         .run(name, pinHash)
+      writeAudit(session.userId, 'staff:add', { userId: result.lastInsertRowid, name })
       return { success: true, userId: result.lastInsertRowid }
     })
   )
@@ -136,8 +189,9 @@ export function registerAuthHandlers() {
   ipcMain.handle(
     'auth:deactivate-user',
     wrap(({ userId }) => {
-      requireOwner()
+      const session = requireOwner()
       getDb().prepare(`UPDATE users SET is_active = 0 WHERE id = ? AND role = 'staff'`).run(userId)
+      writeAudit(session.userId, 'staff:deactivate', { userId })
       return { success: true }
     })
   )
@@ -145,12 +199,16 @@ export function registerAuthHandlers() {
   ipcMain.handle(
     'auth:change-pin',
     wrap(async ({ userId, newPin }) => {
-      requireOwner()
+      const session = requireOwner()
       if (!/^\d{4}$/.test(newPin)) throw new Error('PIN must be 4 digits')
+      const db = getDb()
+      await assertPinUnique(db, newPin, userId)
       const pinHash = await bcrypt.hash(newPin, 10)
-      getDb()
-        .prepare(`UPDATE users SET pin_hash = ? WHERE id = ? AND role = 'staff'`)
-        .run(pinHash, userId)
+      db.prepare(`UPDATE users SET pin_hash = ? WHERE id = ? AND role = 'staff'`).run(
+        pinHash,
+        userId
+      )
+      writeAudit(session.userId, 'staff:change-pin', { userId })
       return { success: true }
     })
   )

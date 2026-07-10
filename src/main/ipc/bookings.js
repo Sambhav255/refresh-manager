@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
+import { writeAudit } from '../audit.js'
 import { addDays, formatShortDate, todayLocal } from './utils.js'
 
 function wrap(handler) {
@@ -10,6 +11,63 @@ function wrap(handler) {
     } catch (err) {
       return { success: false, error: err.message }
     }
+  }
+}
+
+// P2-3: keep a booking's deposit in sync with a real money transaction so the
+// cash it represents flows into daily revenue, reports, and the EOD total.
+// Idempotent: reconciles the linked transaction against the booking's current
+// deposit, creating / updating / voiding it as needed (no double-counting).
+function syncDepositTransaction(db, bookingId, staffId) {
+  const b = db
+    .prepare(
+      `SELECT booking_name, contact_person, deposit_paid, deposit_method, deposit_transaction_id
+       FROM bookings WHERE id = ?`
+    )
+    .get(bookingId)
+  if (!b) return
+  const deposit = Number(b.deposit_paid) || 0
+  const pay = b.deposit_method?.toLowerCase() === 'qr' ? 'qr' : 'cash'
+  const customer = b.contact_person || b.booking_name
+
+  // A linked deposit transaction that has since been REFUNDED, or voided by the
+  // owner for cause (void_by set), must never be silently reinstated or
+  // overwritten by a booking edit — that would resurrect reversed money into
+  // the totals with no offsetting entry. A void done by this sync itself when
+  // the deposit was zeroed (void_by IS NULL) stays resurrectable, so the
+  // legitimate zero-then-re-add flow keeps working.
+  if (b.deposit_transaction_id) {
+    const linked = db
+      .prepare(
+        `SELECT is_voided, void_by,
+                (SELECT 1 FROM transactions r WHERE r.refunds_transaction_id = transactions.id AND r.is_voided = 0 LIMIT 1) as refunded
+         FROM transactions WHERE id = ?`
+      )
+      .get(b.deposit_transaction_id)
+    if (linked && (linked.refunded || (linked.is_voided && linked.void_by != null))) return
+  }
+
+  if (deposit > 0) {
+    if (b.deposit_transaction_id) {
+      db.prepare(
+        `UPDATE transactions SET amount = ?, payment_method = ?, customer_name = ?, is_voided = 0 WHERE id = ?`
+      ).run(deposit, pay, customer, b.deposit_transaction_id)
+    } else {
+      const txn = db
+        .prepare(
+          `INSERT INTO transactions
+           (transaction_type, source, customer_name, amount, payment_method, staff_id, notes)
+           VALUES ('booking_deposit', 'pool', ?, ?, ?, ?, ?)`
+        )
+        .run(customer, deposit, pay, staffId, `Booking deposit: ${b.booking_name}`)
+      db.prepare(`UPDATE bookings SET deposit_transaction_id = ? WHERE id = ?`).run(
+        txn.lastInsertRowid,
+        bookingId
+      )
+    }
+  } else if (b.deposit_transaction_id) {
+    // Deposit removed/zeroed — drop it out of the totals without deleting history.
+    db.prepare(`UPDATE transactions SET is_voided = 1 WHERE id = ?`).run(b.deposit_transaction_id)
   }
 }
 
@@ -107,30 +165,36 @@ export function registerBookingHandlers() {
         notes,
         createdBy
       }) => {
-        requireOwner()
+        const session = requireOwner()
         if (!bookingName || !bookingDate) throw new Error('Booking name and date are required')
-        const result = getDb()
-          .prepare(
-            `INSERT INTO bookings
-             (booking_name, contact_person, contact_phone, booking_date, time_slot, num_people,
-              facilities_booked, deposit_paid, deposit_method, total_expected, notes, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .run(
-            bookingName,
-            contactPerson || null,
-            contactPhone || null,
-            bookingDate,
-            timeSlot || null,
-            numPeople ?? null,
-            facilitiesBooked || null,
-            depositPaid ?? 0,
-            depositMethod || null,
-            totalExpected ?? 0,
-            notes || null,
-            createdBy || null
-          )
-        return { success: true, bookingId: result.lastInsertRowid }
+        const db = getDb()
+        const bookingId = db.transaction(() => {
+          const result = db
+            .prepare(
+              `INSERT INTO bookings
+               (booking_name, contact_person, contact_phone, booking_date, time_slot, num_people,
+                facilities_booked, deposit_paid, deposit_method, total_expected, notes, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .run(
+              bookingName,
+              contactPerson || null,
+              contactPhone || null,
+              bookingDate,
+              timeSlot || null,
+              numPeople ?? null,
+              facilitiesBooked || null,
+              depositPaid ?? 0,
+              depositMethod || null,
+              totalExpected ?? 0,
+              notes || null,
+              createdBy || session.userId
+            )
+          const id = result.lastInsertRowid
+          syncDepositTransaction(db, id, session.userId)
+          return id
+        })()
+        return { success: true, bookingId }
       }
     )
   )
@@ -138,7 +202,7 @@ export function registerBookingHandlers() {
   ipcMain.handle(
     'bookings:update',
     wrap(({ bookingId, fields }) => {
-      requireOwner()
+      const session = requireOwner()
       const allowed = [
         'booking_name',
         'contact_person',
@@ -165,9 +229,12 @@ export function registerBookingHandlers() {
       if (!sets.length) return { success: true }
       sets.push(`updated_at = datetime('now','localtime')`)
       vals.push(bookingId)
-      getDb()
-        .prepare(`UPDATE bookings SET ${sets.join(', ')} WHERE id = ?`)
-        .run(...vals)
+      const db = getDb()
+      db.transaction(() => {
+        db.prepare(`UPDATE bookings SET ${sets.join(', ')} WHERE id = ?`).run(...vals)
+        // P2-3: reconcile the linked deposit transaction with the new state.
+        syncDepositTransaction(db, bookingId, session.userId)
+      })()
       return { success: true }
     })
   )
@@ -175,7 +242,7 @@ export function registerBookingHandlers() {
   ipcMain.handle(
     'bookings:update-status',
     wrap(({ bookingId, status }) => {
-      requireStaffOrOwner()
+      const session = requireStaffOrOwner()
       const allowed = ['pending', 'confirmed', 'completed', 'cancelled']
       if (!allowed.includes(status)) throw new Error('Invalid status')
       getDb()
@@ -183,6 +250,8 @@ export function registerBookingHandlers() {
           `UPDATE bookings SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?`
         )
         .run(status, bookingId)
+      // Staff-reachable state change with reporting impact — keep it traceable.
+      writeAudit(session.userId, 'booking:status', { bookingId, status })
       return { success: true }
     })
   )

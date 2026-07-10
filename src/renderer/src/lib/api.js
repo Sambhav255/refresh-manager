@@ -48,17 +48,21 @@ export const api = {
       count: 0
     }),
   voidTransaction: (data) => invoke('voidTransaction', data),
+  refundTransaction: (data) => invoke('refundTransaction', data),
 
   createMember: (data) => invoke('createMember', data),
   searchMembers: async (data) => unwrap(await invoke('searchMembers', data), { members: [] }),
   listAllMembers: async () => unwrap(await invoke('listAllMembers'), { members: [] }),
   expiringSoon: async (data) => unwrap(await invoke('expiringSoon', data), { members: [] }),
   addMembership: (data) => invoke('addMembership', data),
+  pauseMembership: (data) => invoke('pauseMembership', data),
+  resumeMembership: (data) => invoke('resumeMembership', data),
 
   listPoolInventory: async (data) => unwrap(await invoke('listPoolInventory', data), { items: [] }),
   poolLowStock: async () => unwrap(await invoke('poolLowStock'), { items: [] }),
   addPoolItem: (data) => invoke('addPoolItem', data),
   restockPoolItem: (data) => invoke('restockPoolItem', data),
+  sellPoolItem: (data) => invoke('sellPoolItem', data),
 
   listRestaurantInventory: async (data) =>
     unwrap(await invoke('listRestaurantInventory', data), { items: [] }),
@@ -81,6 +85,8 @@ export const api = {
     unwrap(await invoke('customReport', data), { summary: {}, transactions: [] }),
   retentionReport: async (data) =>
     unwrap(await invoke('retentionReport', data), { due: 0, renewed: 0, churned: [] }),
+  cohortRetention: async (data) =>
+    unwrap(await invoke('cohortRetention', data), { cohortSize: 0, retention: [] }),
   inventoryTurnoverReport: async (data) =>
     unwrap(await invoke('inventoryTurnoverReport', data), {
       pool: [],
@@ -110,6 +116,9 @@ export const api = {
     unwrap(await invoke('getExpiringReminders', data), { members: [] }),
   sendReminder: (data) => invoke('sendReminder', data),
   sendAllReminders: (data) => invoke('sendAllReminders', data),
+  clearReminder: (data) => invoke('clearReminder', data),
+  getReminderHistory: async (data) =>
+    unwrap(await invoke('getReminderHistory', data), { history: [] }),
 
   savePhoto: (data) => invoke('savePhoto', data),
   getPhotoPath: async (data) => unwrap(await invoke('getPhotoPath', data), { photoPath: null }),
@@ -119,6 +128,14 @@ export const api = {
     unwrap(await invoke('getTodayReconciliation'), { reconciliation: null }),
   listReconciliations: async (data) =>
     unwrap(await invoke('listReconciliations', data), { reconciliations: [] }),
+
+  listAudit: async (data) => unwrap(await invoke('listAudit', data), { entries: [] }),
+
+  checkIn: (data) => invoke('checkIn', data),
+  getTodayCheckins: async () => unwrap(await invoke('getTodayCheckins'), { count: 0, recent: [] }),
+  getFootfall: async (data) =>
+    unwrap(await invoke('getFootfall', data), { series: [], total: 0, dailyAverage: 0 }),
+  getNotSeen: async (data) => unwrap(await invoke('getNotSeen', data), { members: [] }),
 
   listMenuItems: async (data) => unwrap(await invoke('listMenuItems', data), { items: [] }),
   addMenuItem: (data) => invoke('addMenuItem', data),

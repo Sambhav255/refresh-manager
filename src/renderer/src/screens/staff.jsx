@@ -83,6 +83,14 @@ export function StaffHome({ go }) {
       bg: '#fef3c7',
       t: 'Restaurant POS',
       s: 'Menu orders & checkout'
+    },
+    {
+      k: 'sellitem',
+      icon: 'shopping-bag',
+      c: '#0F6E56',
+      bg: '#d6f0e7',
+      t: 'Sell Item',
+      s: 'Goggles, caps & pool items'
     }
   ]
 
@@ -127,3 +135,4 @@ export { TodaysLog } from './staff-log'
 export { EndOfDay } from './staff-eod'
 export { StaffBookings } from './staff-bookings'
 export { StaffRestaurantPos } from './staff-restaurant-pos'
+export { SellItem } from './staff-sell-item'

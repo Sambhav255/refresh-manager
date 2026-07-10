@@ -13,28 +13,66 @@ function wrap(handler) {
   }
 }
 
-function generateEODMessage(date) {
+// 2-H: friendly labels + a stable display order. Any transaction_type not
+// listed here still gets a line (using its raw name), so the itemised lines
+// always sum to Total — even for types added in the future.
+const TYPE_LABELS = {
+  membership: 'Memberships',
+  day_package: 'Day Packages',
+  day_pass: 'Day Passes',
+  restaurant: 'Restaurant',
+  pool_inventory: 'Pool Items',
+  booking_deposit: 'Booking Deposits',
+  refund: 'Refunds'
+}
+const TYPE_ORDER = [
+  'membership',
+  'day_package',
+  'day_pass',
+  'restaurant',
+  'pool_inventory',
+  'booking_deposit',
+  'refund'
+]
+
+export function generateEODMessage(date) {
   const db = getDb()
   const dateStr = date ? formatShortDate(date) : formatShortDate(todayLocal())
   const queryDate = date || todayLocal()
 
-  const summary = db
+  const totals = db
     .prepare(
       `SELECT
         SUM(amount) as total,
         SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END) as cash,
         SUM(CASE WHEN payment_method = 'qr' THEN amount ELSE 0 END) as qr,
-        COUNT(*) as count,
-        SUM(CASE WHEN transaction_type = 'membership' THEN amount ELSE 0 END) as membership_rev,
-        SUM(CASE WHEN transaction_type = 'day_package' THEN amount ELSE 0 END) as package_rev,
-        SUM(CASE WHEN transaction_type = 'day_pass' THEN amount ELSE 0 END) as pass_rev,
-        SUM(CASE WHEN transaction_type = 'membership' THEN 1 ELSE 0 END) as membership_count,
-        SUM(CASE WHEN transaction_type = 'day_package' THEN 1 ELSE 0 END) as package_count,
-        SUM(CASE WHEN transaction_type = 'day_pass' THEN 1 ELSE 0 END) as pass_count
+        COUNT(*) as count
       FROM transactions
       WHERE date(created_at) = ? AND is_voided = 0`
     )
     .get(queryDate)
+
+  // 2-H: build the breakdown from the ACTUAL type groups present, so the lines
+  // always reconcile to Total (no hardcoded set that silently drops types).
+  const groups = db
+    .prepare(
+      `SELECT transaction_type, SUM(amount) as rev, COUNT(*) as count
+       FROM transactions
+       WHERE date(created_at) = ? AND is_voided = 0
+       GROUP BY transaction_type`
+    )
+    .all(queryDate)
+  const byType = new Map(groups.map((g) => [g.transaction_type, g]))
+
+  const orderedTypes = [
+    ...TYPE_ORDER.filter((t) => byType.has(t)),
+    ...groups.map((g) => g.transaction_type).filter((t) => !TYPE_ORDER.includes(t))
+  ]
+  const lines = orderedTypes.map((t) => {
+    const g = byType.get(t)
+    const label = TYPE_LABELS[t] || t
+    return `  • ${label}: ${g.count} — Rs. ${g.rev || 0}`
+  })
 
   const staffRow = db
     .prepare(
@@ -45,18 +83,44 @@ function generateEODMessage(date) {
     )
     .get(queryDate)
 
+  // Cash reconciliation is optional — keep graceful if the table or row is absent.
+  let reconRow = null
+  try {
+    reconRow = db
+      .prepare(
+        `SELECT discrepancy FROM cash_reconciliations
+         WHERE reconcile_date = ?
+         ORDER BY created_at DESC LIMIT 1`
+      )
+      .get(queryDate)
+  } catch {
+    reconRow = null
+  }
+
+  const total = totals.total || 0
+  const cash = totals.cash || 0
+  const qr = totals.qr || 0
+  const count = totals.count || 0
+
+  let reconLine = ''
+  if (reconRow && reconRow.discrepancy != null) {
+    const discrepancy = reconRow.discrepancy
+    const label = discrepancy >= 0 ? 'over' : 'short'
+    reconLine = `\n\n⚖️ Cash reconciliation: Rs. ${discrepancy} (${label})`
+  }
+
+  const breakdown = lines.length ? lines.join('\n') : '  • (no sales)'
+
   return `🏊 Refresh Recreation Center
 📅 Daily Summary — ${dateStr}
 
 💰 REVENUE
-Total: Rs. ${summary.total || 0}
-  • Cash: Rs. ${summary.cash || 0}
-  • QR: Rs. ${summary.qr || 0}
+Total: Rs. ${total}
+  • Cash: Rs. ${cash}
+  • QR: Rs. ${qr}
 
-📋 TRANSACTIONS (${summary.count || 0} total)
-  • Memberships: ${summary.membership_count || 0} — Rs. ${summary.membership_rev || 0}
-  • Day Packages: ${summary.package_count || 0} — Rs. ${summary.package_rev || 0}
-  • Day Passes: ${summary.pass_count || 0} — Rs. ${summary.pass_rev || 0}
+📋 TRANSACTIONS (${count} total)
+${breakdown}${reconLine}
 
 👤 Staff on duty: ${staffRow?.name || 'N/A'}
 

@@ -14,6 +14,8 @@ import { registerReminderHandlers } from './reminders.js'
 import { registerPhotoHandlers } from './photos.js'
 import { registerReconciliationHandlers } from './reconciliation.js'
 import { registerRestaurantMenuHandlers } from './restaurant-menu.js'
+import { registerAuditHandlers } from './audit.js'
+import { registerCheckinHandlers } from './checkins.js'
 
 export function registerAllHandlers() {
   registerAuthHandlers()
@@ -32,4 +34,6 @@ export function registerAllHandlers() {
   registerPhotoHandlers()
   registerReconciliationHandlers()
   registerRestaurantMenuHandlers()
+  registerAuditHandlers()
+  registerCheckinHandlers()
 }

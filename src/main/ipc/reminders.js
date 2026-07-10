@@ -1,6 +1,7 @@
 import { ipcMain, shell } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner } from '../session.js'
+import { writeAudit } from '../audit.js'
 import { formatShortDate, productDisplayName, todayLocal, addDays } from './utils.js'
 
 function wrap(handler) {
@@ -84,7 +85,7 @@ export function registerReminderHandlers() {
   ipcMain.handle(
     'reminders:send-one',
     wrap(({ membershipId }) => {
-      requireOwner()
+      const session = requireOwner()
       const db = getDb()
       const row = db
         .prepare(
@@ -112,27 +113,73 @@ export function registerReminderHandlers() {
       db.prepare(
         `UPDATE memberships SET reminder_sent_at = datetime('now','localtime') WHERE id = ?`
       ).run(membershipId)
+      // 3-E: record the outreach so the owner has a history and can re-send.
+      writeAudit(session.userId, 'reminder:send', {
+        membershipId,
+        member: row.name,
+        phone: row.phone
+      })
       return { success: true }
     })
   )
 
   ipcMain.handle(
     'reminders:send-all',
+    // P1-5: no longer bursts open a tab per member and pre-marks everyone as
+    // "sent". Instead it returns the pending list so the UI can walk them one at
+    // a time, each confirmed via `reminders:send-one`.
     wrap(({ days } = {}) => {
       requireOwner()
       const db = getDb()
       const members = fetchExpiring(db, days)
-      const template = getTemplate(db)
-      for (const member of members) {
-        const message = buildMessage(template, member)
-        const phone = normalizePhone(member.phone)
-        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
-        shell.openExternal(url)
-        db.prepare(
-          `UPDATE memberships SET reminder_sent_at = datetime('now','localtime') WHERE id = ?`
-        ).run(member.membershipId)
-      }
-      return { success: true, count: members.length }
+      return { success: true, members, count: members.length }
+    })
+  )
+
+  ipcMain.handle(
+    'reminders:clear',
+    // P1-5: allow re-sending — clears the "sent" flag so the member reappears
+    // in the pending list.
+    wrap(({ membershipId }) => {
+      const session = requireOwner()
+      if (!membershipId) throw new Error('membershipId required')
+      getDb()
+        .prepare(`UPDATE memberships SET reminder_sent_at = NULL WHERE id = ?`)
+        .run(membershipId)
+      writeAudit(session.userId, 'reminder:clear', { membershipId })
+      return { success: true }
+    })
+  )
+
+  // 3-E: reminder outreach history from the audit trail (owner).
+  ipcMain.handle(
+    'reminders:history',
+    wrap(({ limit = 100 } = {}) => {
+      requireOwner()
+      const rows = getDb()
+        .prepare(
+          `SELECT a.detail, a.created_at, u.name as actor_name
+           FROM audit_log a LEFT JOIN users u ON u.id = a.actor_user_id
+           WHERE a.action = 'reminder:send'
+           ORDER BY a.id DESC LIMIT ?`
+        )
+        .all(Math.min(Number(limit) || 100, 500))
+      const history = rows.map((r) => {
+        let d = {}
+        try {
+          d = JSON.parse(r.detail || '{}')
+        } catch {
+          d = {}
+        }
+        return {
+          member: d.member || null,
+          phone: d.phone || null,
+          membershipId: d.membershipId || null,
+          sentAt: r.created_at,
+          sentBy: r.actor_name || null
+        }
+      })
+      return { history }
     })
   )
 }

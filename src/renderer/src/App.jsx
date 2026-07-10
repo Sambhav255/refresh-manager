@@ -9,7 +9,8 @@ import {
   TodaysLog,
   EndOfDay,
   StaffBookings,
-  StaffRestaurantPos
+  StaffRestaurantPos,
+  SellItem
 } from './screens/staff'
 import {
   OwnerDashboard,
@@ -385,6 +386,7 @@ function StaffApp({ session, onLogout }) {
   else if (tab === 'bookings') screen = <StaffBookings key="bookings" back={() => setTab('home')} />
   else if (tab === 'restaurant')
     screen = <StaffRestaurantPos session={session} back={() => setTab('home')} />
+  else if (tab === 'sellitem') screen = <SellItem key="sellitem" back={() => setTab('home')} />
 
   useEffect(() => {
     const onKey = (e) => {
@@ -406,7 +408,8 @@ function StaffApp({ session, onLogout }) {
     k === tab ||
     (tab === 'inv' && k === 'home') ||
     (tab === 'bookings' && k === 'home') ||
-    (tab === 'restaurant' && k === 'home')
+    (tab === 'restaurant' && k === 'home') ||
+    (tab === 'sellitem' && k === 'home')
 
   return (
     <div className="app">
@@ -555,12 +558,13 @@ export default function App() {
   useEffect(() => {
     if (!session) return
     resetIdleTimer()
+    // 3-F: reset on pointer and touch activity too, not just keyboard — reception
+    // often works mouse/touch-only and shouldn't be logged out mid-task.
     const onActivity = () => resetIdleTimer()
-    window.addEventListener('mousemove', onActivity)
-    window.addEventListener('keydown', onActivity)
+    const events = ['mousemove', 'keydown', 'click', 'touchstart']
+    events.forEach((e) => window.addEventListener(e, onActivity))
     return () => {
-      window.removeEventListener('mousemove', onActivity)
-      window.removeEventListener('keydown', onActivity)
+      events.forEach((e) => window.removeEventListener(e, onActivity))
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
     }
   }, [session, resetIdleTimer])

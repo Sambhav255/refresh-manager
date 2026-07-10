@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload)
 
@@ -20,6 +19,7 @@ const api = {
   listTransactions: (data) => invoke('transactions:list', data),
   todaySummary: (data) => invoke('transactions:today-summary', data),
   voidTransaction: (data) => invoke('transactions:void', data),
+  refundTransaction: (data) => invoke('transactions:refund', data),
 
   // Members
   createMember: (data) => invoke('members:create', data),
@@ -27,6 +27,8 @@ const api = {
   getMember: (data) => invoke('members:get', data),
   addMembership: (data) => invoke('members:add-membership', data),
   renewMembership: (data) => invoke('members:renew', data),
+  pauseMembership: (data) => invoke('members:pause-membership', data),
+  resumeMembership: (data) => invoke('members:resume-membership', data),
   expiringSoon: (data) => invoke('members:expiring-soon', data),
   listAllMembers: () => invoke('members:list-all'),
 
@@ -40,7 +42,7 @@ const api = {
   // Pool inventory
   listPoolInventory: (data) => invoke('pool-inventory:list', data),
   restockPoolItem: (data) => invoke('pool-inventory:restock', data),
-  sellPoolItem: (data) => invoke('pool-inventory:sell', data),
+  sellPoolItem: (data) => invoke('pool-inventory:sell-item', data),
   adjustPoolItem: (data) => invoke('pool-inventory:adjust', data),
   addPoolItem: (data) => invoke('pool-inventory:add-item', data),
   updatePoolItem: (data) => invoke('pool-inventory:update', data),
@@ -68,6 +70,7 @@ const api = {
   customReport: (data) => invoke('reports:custom', data),
   exportExcel: (data) => invoke('reports:export-excel', data),
   retentionReport: (data) => invoke('reports:retention', data),
+  cohortRetention: (data) => invoke('reports:cohort-retention', data),
   inventoryTurnoverReport: (data) => invoke('reports:inventory-turnover', data),
   bookingReport: (data) => invoke('reports:bookings', data),
   staffActivityReport: (data) => invoke('reports:staff-activity', data),
@@ -88,6 +91,8 @@ const api = {
   getExpiringReminders: (data) => invoke('reminders:get-expiring', data),
   sendReminder: (data) => invoke('reminders:send-one', data),
   sendAllReminders: (data) => invoke('reminders:send-all', data),
+  clearReminder: (data) => invoke('reminders:clear', data),
+  getReminderHistory: (data) => invoke('reminders:history', data),
 
   // Photos
   savePhoto: (data) => invoke('photos:save', data),
@@ -97,6 +102,15 @@ const api = {
   createReconciliation: (data) => invoke('reconciliation:create', data),
   getTodayReconciliation: () => invoke('reconciliation:get-today'),
   listReconciliations: (data) => invoke('reconciliation:list', data),
+
+  // Audit trail (owner)
+  listAudit: (data) => invoke('audit:list', data),
+
+  // Check-ins / footfall
+  checkIn: (data) => invoke('checkins:create', data),
+  getTodayCheckins: () => invoke('checkins:today'),
+  getFootfall: (data) => invoke('checkins:footfall', data),
+  getNotSeen: (data) => invoke('checkins:not-seen', data),
 
   // Restaurant menu / POS
   listMenuItems: (data) => invoke('restaurant-menu:list', data),
@@ -110,14 +124,15 @@ const api = {
   printMembershipCard: (data) => invoke('tickets:print-membership-card', data)
 }
 
+// Least privilege: only the curated `api` object is exposed. The raw toolkit
+// bridge (window.electron / unrestricted ipcRenderer) is deliberately NOT
+// exposed — the renderer must go through the typed surface above.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  window.electron = electronAPI
   window.api = api
 }

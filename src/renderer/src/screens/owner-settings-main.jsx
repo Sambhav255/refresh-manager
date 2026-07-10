@@ -6,6 +6,7 @@ import { ManageStaff } from './owner-settings-staff'
 import { BackupSettings } from './owner-settings-backup'
 import { RestaurantMenuSettings } from './owner-settings-restaurant-menu'
 import { WhatsAppSettings, BusinessInfo, RenewalTemplateSettings } from './owner-settings-extras'
+import { AuditLog } from './owner-settings-audit'
 
 const SUB_SCREENS = {
   'Pricing manager': 'pricing',
@@ -14,7 +15,8 @@ const SUB_SCREENS = {
   'Backup settings': 'backup',
   'Restaurant menu': 'restaurant-menu',
   'Renewal reminders': 'reminders',
-  'Business info': 'business'
+  'Business info': 'business',
+  'Audit log': 'audit'
 }
 
 export function OwnerSettings() {
@@ -27,6 +29,7 @@ export function OwnerSettings() {
   if (sub === 'restaurant-menu') return <RestaurantMenuSettings back={() => setSub(null)} />
   if (sub === 'reminders') return <RenewalTemplateSettings back={() => setSub(null)} />
   if (sub === 'business') return <BusinessInfo back={() => setSub(null)} />
+  if (sub === 'audit') return <AuditLog back={() => setSub(null)} />
 
   const cards = [
     ...settings.filter((s) => s.title !== 'Product manager'),
@@ -35,7 +38,8 @@ export function OwnerSettings() {
       icon: 'message-circle',
       title: 'Renewal reminders',
       desc: 'WhatsApp template for expiring members'
-    }
+    },
+    { icon: 'shield', title: 'Audit log', desc: 'Voids, refunds, restores, changes' }
   ]
 
   return (

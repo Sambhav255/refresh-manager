@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
+import { writeAudit } from '../audit.js'
 import {
   addDays,
   formatShortDate,
@@ -9,6 +10,10 @@ import {
   productDisplayName,
   todayLocal
 } from './utils.js'
+
+function daysBetween(fromDate, toDate) {
+  return Math.max(0, Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86400000))
+}
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -112,10 +117,10 @@ export function registerMemberHandlers() {
             `SELECT ms.*, p.name as product_name, p.category, p.duration_days, p.sub_category
              FROM memberships ms
              JOIN products p ON p.id = ms.product_id
-             WHERE ms.member_id = ? AND ms.status = 'active'
+             WHERE ms.member_id = ? AND ms.status = 'active' AND ms.end_date >= ?
              ORDER BY ms.end_date DESC LIMIT 1`
           )
-          .get(row.id)
+          .get(row.id, todayLocal())
         return mapMember(row, active, getExpiryWarningDays(db))
       })
       return { members }
@@ -138,8 +143,10 @@ export function registerMemberHandlers() {
 
   ipcMain.handle(
     'members:add-membership',
-    wrap(({ memberId, productId, startDate, amount, paymentMethod, staffId, transactionId }) => {
-      requireStaffOrOwner()
+    // P0-1: staff_id from the session; amount is always the catalogue price.
+    wrap(({ memberId, productId, startDate, paymentMethod, transactionId }) => {
+      const session = requireStaffOrOwner()
+      const staffId = session.userId
       const db = getDb()
       const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
       if (!product) throw new Error('Product not found')
@@ -159,15 +166,7 @@ export function registerMemberHandlers() {
                (transaction_type, source, customer_name, phone, product_id, member_id, amount, payment_method, staff_id)
                VALUES ('membership', 'pool', ?, ?, ?, ?, ?, ?, ?)`
             )
-            .run(
-              member.name,
-              member.phone,
-              productId,
-              memberId,
-              amount ?? product.price,
-              pay,
-              staffId
-            )
+            .run(member.name, member.phone, productId, memberId, product.price, pay, staffId)
           txnId = txn.lastInsertRowid
         }
         const result = db
@@ -185,8 +184,10 @@ export function registerMemberHandlers() {
 
   ipcMain.handle(
     'members:renew',
-    wrap(({ membershipId, newStartDate, amount, paymentMethod, staffId, transactionId }) => {
-      requireStaffOrOwner()
+    // P0-1: staff_id from the session; amount is always the catalogue price.
+    wrap(({ membershipId, newStartDate, paymentMethod, transactionId }) => {
+      const session = requireStaffOrOwner()
+      const staffId = session.userId
       const db = getDb()
       const old = db
         .prepare(
@@ -219,7 +220,7 @@ export function registerMemberHandlers() {
               old.member_phone,
               old.product_id,
               old.member_id,
-              amount ?? old.price,
+              old.price,
               pay,
               staffId
             )
@@ -276,13 +277,65 @@ export function registerMemberHandlers() {
       const activeSql = `SELECT ms.*, p.name as product_name, p.category, p.duration_days, p.sub_category
              FROM memberships ms
              JOIN products p ON p.id = ms.product_id
-             WHERE ms.member_id = ? AND ms.status = 'active'
+             WHERE ms.member_id = ? AND ms.status = 'active' AND ms.end_date >= ?
              ORDER BY ms.end_date DESC LIMIT 1`
+      // 3-B: also surface a paused membership so the owner can resume it.
+      const pausedSql = `SELECT ms.*, p.name as product_name, p.category, p.duration_days, p.sub_category
+             FROM memberships ms
+             JOIN products p ON p.id = ms.product_id
+             WHERE ms.member_id = ? AND ms.status = 'paused'
+             ORDER BY ms.id DESC LIMIT 1`
+      const today = todayLocal()
       const members = rows.map((row) => {
-        const active = db.prepare(activeSql).get(row.id)
-        return mapMember(row, active, warningDays)
+        const active = db.prepare(activeSql).get(row.id, today)
+        const mapped = mapMember(row, active, warningDays)
+        const paused = db.prepare(pausedSql).get(row.id)
+        mapped.pausedMembership = paused ? mapMembership(paused, warningDays) : null
+        return mapped
       })
       return { members }
+    })
+  )
+
+  // 3-B: freeze a membership (travel/injury). The expiry job ignores paused
+  // rows (it only touches status='active'), so a frozen membership is never
+  // auto-expired.
+  ipcMain.handle(
+    'members:pause-membership',
+    wrap(({ membershipId, reason }) => {
+      const session = requireOwner()
+      const db = getDb()
+      const ms = db.prepare(`SELECT id, status FROM memberships WHERE id = ?`).get(membershipId)
+      if (!ms) throw new Error('Membership not found')
+      if (ms.status !== 'active') throw new Error('Only an active membership can be paused')
+      db.prepare(
+        `UPDATE memberships SET status = 'paused', pause_start = ?, pause_reason = ? WHERE id = ?`
+      ).run(todayLocal(), reason || null, membershipId)
+      writeAudit(session.userId, 'membership:pause', { membershipId, reason: reason || null })
+      return { success: true }
+    })
+  )
+
+  // 3-B: resume a frozen membership and push end_date out by the paused span so
+  // the member isn't charged for days they couldn't use.
+  ipcMain.handle(
+    'members:resume-membership',
+    wrap(({ membershipId }) => {
+      const session = requireOwner()
+      const db = getDb()
+      const ms = db
+        .prepare(`SELECT id, status, end_date, pause_start FROM memberships WHERE id = ?`)
+        .get(membershipId)
+      if (!ms) throw new Error('Membership not found')
+      if (ms.status !== 'paused') throw new Error('Membership is not paused')
+      const today = todayLocal()
+      const pausedDays = ms.pause_start ? daysBetween(ms.pause_start, today) : 0
+      const newEnd = addDays(ms.end_date, pausedDays)
+      db.prepare(
+        `UPDATE memberships SET status = 'active', pause_end = ?, end_date = ? WHERE id = ?`
+      ).run(today, newEnd, membershipId)
+      writeAudit(session.userId, 'membership:resume', { membershipId, pausedDays, newEnd })
+      return { success: true, pausedDays, endDate: newEnd }
     })
   )
 }

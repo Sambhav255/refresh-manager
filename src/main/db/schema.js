@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS members (
 
 CREATE TABLE IF NOT EXISTS transactions (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
-  transaction_type TEXT NOT NULL CHECK(transaction_type IN ('membership','day_package','day_pass','pool_inventory','restaurant')),
+  transaction_type TEXT NOT NULL CHECK(transaction_type IN ('membership','day_package','day_pass','pool_inventory','restaurant','booking_deposit','refund')),
   source           TEXT NOT NULL DEFAULT 'pool' CHECK(source IN ('pool','restaurant')),
   customer_name    TEXT NOT NULL,
   phone            TEXT,
@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   void_reason      TEXT,
   void_by          INTEGER REFERENCES users(id),
   void_at          TEXT,
+  refunds_transaction_id INTEGER REFERENCES transactions(id),
   created_at       TEXT DEFAULT (datetime('now','localtime'))
 );
 
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS pool_inventory_transactions (
   reason         TEXT,
   transaction_id INTEGER REFERENCES transactions(id),
   staff_id       INTEGER NOT NULL REFERENCES users(id),
+  unit_price     REAL,
   created_at     TEXT DEFAULT (datetime('now','localtime'))
 );
 
@@ -109,6 +111,7 @@ CREATE TABLE IF NOT EXISTS restaurant_inventory_transactions (
   reason         TEXT,
   transaction_id INTEGER REFERENCES transactions(id),
   staff_id       INTEGER NOT NULL REFERENCES users(id),
+  unit_price     REAL,
   created_at     TEXT DEFAULT (datetime('now','localtime'))
 );
 
@@ -126,6 +129,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   deposit_method    TEXT CHECK(deposit_method IN ('cash','qr',NULL)),
   total_expected    REAL DEFAULT 0,
   notes             TEXT,
+  deposit_transaction_id INTEGER REFERENCES transactions(id),
   created_by        INTEGER REFERENCES users(id),
   created_at        TEXT DEFAULT (datetime('now','localtime')),
   updated_at        TEXT DEFAULT (datetime('now','localtime'))

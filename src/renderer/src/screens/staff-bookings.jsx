@@ -5,6 +5,7 @@ import { Icon, Badge, SectionHead } from '../components/ui'
 export function StaffBookings({ back }) {
   const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   const load = () => {
     setLoading(true)
@@ -19,7 +20,12 @@ export function StaffBookings({ back }) {
   }, [])
 
   const markCompleted = async (id) => {
-    await api.updateBookingStatus({ bookingId: id, status: 'completed' })
+    setError('')
+    const r = await api.updateBookingStatus({ bookingId: id, status: 'completed' })
+    if (r?.success === false) {
+      setError(r.error || 'Could not update booking')
+      return
+    }
     load()
   }
 
@@ -30,6 +36,11 @@ export function StaffBookings({ back }) {
           <Icon name="chevron-left" size={15} /> Back to home
         </button>
       </SectionHead>
+      {error && (
+        <div className="alert red" style={{ marginBottom: 12 }}>
+          <div className="a-desc">{error}</div>
+        </div>
+      )}
       {loading ? (
         <div className="sub">Loading…</div>
       ) : bookings.length === 0 ? (
