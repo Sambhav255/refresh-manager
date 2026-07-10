@@ -207,3 +207,24 @@ After setup the app seeds default products (memberships, day packages, day passe
 | Owner | Name + password | Everything above + reports, settings, void, inventory management |
 
 The session auto-expires after an idle timeout (default 30 minutes, configurable in Settings). Press **Esc** to log out immediately.
+
+---
+
+## Documentation
+
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** — reception-PC setup and operations runbook.
+- **[docs/PROGRESS.md](docs/PROGRESS.md)** — running log of what has changed, why, and how to work on this codebase safely (**start here if you're picking this up**).
+- **[docs/VERIFICATION.md](docs/VERIFICATION.md)** / **[docs/SAFETY_AUDIT.md](docs/SAFETY_AUDIT.md)** — verification matrix and security/correctness audit (incl. the multi-agent review round).
+- **[docs/](docs/)** — original + Phase-2 engineering work orders and follow-up notes.
+
+### Developer quickstart
+
+```bash
+npm install
+npm run dev      # runs the app (auto-rebuilds better-sqlite3 for Electron)
+npm test         # 59 tests (auto-rebuilds better-sqlite3 for Node)
+npm run lint     # 0 errors expected
+npm run build    # production bundle
+```
+
+> `better-sqlite3` is native; Electron and Node use different ABIs. The `predev`/`prestart` and `pretest` scripts rebuild it automatically for each — see `docs/PROGRESS.md` if you hit a `NODE_MODULE_VERSION` error.
