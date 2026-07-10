@@ -16,6 +16,7 @@ export const ipcMain = {
 
 export const app = {
   getPath: () => userDataDir,
+  getVersion: () => '1.0.0-test',
   relaunch: () => {},
   exit: () => {},
   quit: () => {},

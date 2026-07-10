@@ -50,16 +50,28 @@ it automatically:
 - `docs/` — process/history docs (work orders, verification, safety audit, this log).
 - `DEPLOYMENT.md` (root) — reception-PC setup + operations runbook.
 
-## Migrations — how to add one safely
+## Migrations & safe updates — how to ship a schema change
 
-`src/main/db/migrations.js` is a `PRAGMA user_version` ordered runner. To add a change:
-append one entry to `MIGRATIONS`. If it **rebuilds a table referenced by foreign keys**
-(e.g. a CHECK-constraint change on `transactions`), set `rebuildsReferencedTable: true`
-— the runner toggles `foreign_keys` off/on around it, runs `foreign_key_check`, and
-**recreates the report indexes afterward** (a DROP+RENAME rebuild silently drops them).
-Guard each migration so it no-ops on an already-current DB (`schema.js` is the
-fresh-DB baseline and is kept in sync). Always add/extend `test/migration.test.js`
-against a **populated** fixture with FK children.
+`src/main/db/migrations.js` is a `PRAGMA user_version` ordered runner
+(`SCHEMA_VERSION` = number of migrations). To add a change:
+
+1. Append **one** entry to `MIGRATIONS` (never edit/reorder existing ones).
+2. If it **rebuilds a table referenced by foreign keys** (e.g. a CHECK-constraint
+   change on `transactions`), set `rebuildsReferencedTable: true` — the runner toggles
+   `foreign_keys` off/on around it, runs `foreign_key_check`, and **recreates the report
+   indexes afterward** (a DROP+RENAME rebuild silently drops them).
+3. Make it **guarded/idempotent** so it no-ops on an already-current DB. Keep
+   `schema.js` (the fresh-DB baseline) in sync with the end state.
+4. Extend `test/migration.test.js` against a **populated** fixture with FK children.
+5. Bump `version` in `package.json`.
+
+**The update is protected automatically** (`src/main/db/index.js` `initDatabase` +
+`src/main/db/update-safety.js`): before applying migrations to a populated DB it
+snapshots the whole file to `userData/pre-update-backups/` (keeps 5); if a migration
+throws it restores the snapshot and throws a tagged `MIGRATION_FAILED` error; a DB
+newer than `SCHEMA_VERSION` is refused (`DB_TOO_NEW`, downgrade guard). `index.js`
+catches these at startup and shows a dialog + quits cleanly (no blank window). So a
+bad migration is a recoverable non-event, not data loss.
 
 ## Known-accepted decisions (don't "fix" these without reason)
 
@@ -80,6 +92,28 @@ against a **populated** fixture with FK children.
 ---
 
 ## Session log (newest first)
+
+### 2026-07-10 — Safe-update hardening (deploy without crashing / data loss)
+Made shipping future versions safe on the live cash DB. `src/main/db/index.js`
+`initDatabase` now, on startup:
+- **Downgrade guard** — refuses a DB whose `user_version > SCHEMA_VERSION`
+  (`DB_TOO_NEW`) instead of silently corrupting it if an older build is reinstalled.
+- **Pre-update snapshot** — before applying any pending migration to a *populated* DB,
+  copies the whole file to `userData/pre-update-backups/` (keeps 5) via new
+  `src/main/db/update-safety.js`.
+- **Roll back on failure** — a throwing migration restores the snapshot and raises a
+  tagged `MIGRATION_FAILED`; `src/main/index.js` wraps `initDatabase` in try/catch,
+  shows a clear `dialog.showErrorBox`, and `app.quit()`s cleanly (previously a migration
+  throw left a blank/frozen window).
+- **Version stamp** — records `app_version`/`schema_version` in settings and audits
+  `app:migrated`.
+- **Tests:** +4 (`test/update-safety.test.js`): snapshot/restore round-trip, DB_TOO_NEW
+  refusal, snapshot-created-on-upgrade, no-snapshot-on-fresh-install. **63 total pass**,
+  lint 0 errors, build OK. Docs: `DEPLOYMENT.md` "Built-in update safety" + this file.
+- **Not done (by design):** no `electron-updater`/auto-update — it needs a network/server
+  and violates offline-first; manual `.exe`-over-`.exe` on the single kiosk is the
+  intended, now-safe path. Scalability: SQLite + existing indexes comfortably handle this
+  workload (hundreds of txns/day → tens of thousands/year); no throughput change needed.
 
 ### 2026-07-10 — Repo cleanup + this log
 - Merged PR #1 (all work below) into `main` after CI passed (lint-test 3m38s green).

@@ -270,6 +270,16 @@ const MIGRATIONS = [
   }
 ]
 
+// The schema version this build understands. A DB whose user_version exceeds
+// this was written by a newer app and must not be opened (downgrade guard).
+export const SCHEMA_VERSION = MIGRATIONS.length
+
+// Number of migrations a given DB still has to apply (0 = up to date).
+export function pendingMigrationCount(db) {
+  const version = db.pragma('user_version', { simple: true })
+  return Math.max(0, MIGRATIONS.length - version)
+}
+
 export function runMigrations(db) {
   let version = db.pragma('user_version', { simple: true })
 

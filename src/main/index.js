@@ -120,7 +120,23 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  initDatabase()
+  // Bring the DB up to date safely. On any failure, show a clear dialog and
+  // quit cleanly rather than leaving a blank/frozen window — and never proceed
+  // to register handlers or open the app against a bad/absent database.
+  try {
+    initDatabase()
+  } catch (err) {
+    console.error('Database initialization failed:', err)
+    const title = 'Refresh Manager — cannot start'
+    const detail =
+      err.code === 'DB_TOO_NEW' || err.code === 'MIGRATION_FAILED' || err.code === 'SNAPSHOT_FAILED'
+        ? err.message
+        : `Refresh Manager could not open its database.\n\n${err.message}\n\nYour data has not been changed. Please restart the app or contact support.`
+    dialog.showErrorBox(title, detail)
+    app.quit()
+    return
+  }
+
   registerAllHandlers()
   startBackupScheduler()
   startMaintenanceScheduler()

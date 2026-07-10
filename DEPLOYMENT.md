@@ -109,9 +109,38 @@ failed migration rolls back and the old data is untouched. The migration test
 suite proves a populated v1.0.0-shaped database upgrades to the current schema
 with foreign-key integrity intact.
 
-**Upgrade steps:** (1) take a backup and confirm it reports success; (2) install
-the new `.exe`; (3) launch — migrations apply on open; (4) spot-check that recent
-transactions, members, and photos are present.
+### Built-in update safety (automatic)
+
+Every launch that has migrations to apply is protected without any manual step:
+
+1. **Pre-update snapshot.** Before *any* migration runs on a database that already
+   has data, the app copies the whole DB to
+   `%APPDATA%/refresh-manager/pre-update-backups/` (the last 5 are kept). This is a
+   same-instant rollback point that does not depend on the configured off-site backup.
+2. **Roll back on failure.** If a migration throws, the app closes the DB, restores
+   that snapshot, and shows a dialog: *"A database update did not complete and was
+   rolled back. Your data is intact… reinstall the previous version or contact
+   support."* — instead of crashing to a blank window. The app does **not** run
+   against a half-migrated database.
+3. **Downgrade guard.** If you ever install an **older** app version over a database a
+   **newer** version created, the app refuses to open it (*"This data was created by a
+   newer version…"*) rather than silently corrupting it. Reinstall the newer version to
+   proceed.
+4. **Version stamp.** The app + schema version that last opened the DB is recorded in
+   settings, and each upgrade is written to the audit log (`app:migrated`).
+
+**Upgrade steps:** (1) take a manual backup and confirm it reports success (belt and
+braces — the app also snapshots automatically); (2) install the new `.exe` over the old
+one; (3) launch — migrations apply on open, with the safety net above; (4) spot-check
+that recent transactions, members, and photos are present. If anything looks wrong, the
+pre-update snapshot in `pre-update-backups/` (or Settings → Backup → Restore) rolls you
+back.
+
+> **Deploying a change involving a schema migration:** add one entry to the
+> `MIGRATIONS` array in `src/main/db/migrations.js` (see `docs/PROGRESS.md` →
+> "Migrations"), keep it guarded/idempotent, extend `test/migration.test.js` against a
+> populated fixture, and bump the app `version` in `package.json`. The runner and the
+> safety net handle the rest.
 
 ## Windows signing / SmartScreen
 
