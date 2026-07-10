@@ -89,3 +89,56 @@ Recommendation: document posture + restrict backup folder (min), password-protec
 | **3-F** | Idle timer also resets on `click`/`touchstart` | Low |
 
 Nothing found requires reverting any Phase-1 work. The money path itself is sound; the gaps are in **verification, backup/restore integrity, tamper-evidence, and privacy** — plus the Phase 3+ product features the owner's KPIs need.
+
+---
+
+# Round 2 — Multi-agent end-to-end review (2026-07-10)
+
+After the Phase 2–6 work landed, three independent agents (security, main-process
+correctness, renderer/wiring) re-reviewed the whole tree. Every CRITICAL/HIGH and
+every actionable MEDIUM was verified against the code and fixed in commit
+`5500561`, each with a regression test. Status below is **post-fix**.
+
+## Critical — fixed
+
+| Finding | Fix | Test |
+|---------|-----|------|
+| **Refund-then-void double-reversal** — voiding an already-refunded sale hid the original but left the negative refund row live, so every revenue total (reports, EOD, reconciliation) understated by the refunded amount. | `transactions:void` rejects a sale that has live refund rows. | `refund.test.js` "rejects voiding a sale that has been refunded" |
+| **`photos:save` path traversal** — a crafted `memberId` (`../../evil`) wrote attacker-controlled bytes anywhere the OS user could write. | Coerce to positive integer + require the member to exist. | `security.test.js` "photos:save path traversal" |
+
+## High — fixed
+
+| Finding | Fix | Test |
+|---------|-----|------|
+| Owner password login had **no brute-force throttle** (PINs did). | 5 failures → 60s cooldown, keyed to the password branch. | `security.test.js` "owner password lockout" |
+| Five inventory handlers (`pool restock/adjust`, `restaurant restock/sell/adjust`) trusted `staffId` from the payload and skipped quantity validation; `restaurant-inventory:sell` accepted a **negative** quantity that silently *added* stock via an `out` row. | Session-derived `staffId`, `Number.isInteger`/`> 0` guards, stock floor. | `security.test.js` "inventory handlers derive staff from session" |
+| Main window ran with `sandbox: false`. | `sandbox: true` (preload is contextBridge/ipcRenderer-only). | manual smoke |
+| `syncDepositTransaction` could resurrect a refunded/owner-voided deposit on any booking edit, double-counting reversed money. | Skip reinstating refunded/owner-voided rows; keep the zero→re-add flow. | `booking-deposit.test.js` "a refunded deposit is never resurrected" |
+| Inventory-turnover revenue used the **current** selling price for historic sales and never netted refunds. | Migration v6 adds `unit_price` (recorded at sale, carried onto refund reversals); report uses it and nets reversals out. | `refund.test.js` "turnover report uses the sale-time price" |
+
+## Medium — fixed
+
+Index recreation after any table-rebuild migration; per-line quantity caps (≤999)
+on checkout/sell-item; `bookings:update-status` audit-logged; raw `window.electron`
+bridge removed from preload (curated `api` only); six renderer screens now surface
+mutation failures instead of silently closing modals; `window.prompt` (throws in
+Electron) replaced with an in-app pause-reason card.
+
+## Verified clean (no change needed)
+
+IPC wiring end-to-end (all 76 `api` methods trace to a registered handler); SQL
+fully parameterized (dynamic `SET` clauses use hardcoded column allowlists); every
+handler is `requireOwner`/`requireStaffOrOwner` gated; backup crypto sound (fresh
+salt+IV per backup, GCM auth verified before any length-parsing of untrusted
+bytes); CSP strict on all HTML entries; `shell.openExternal` phone numbers
+digit-sanitized; refund `refundedSoFar` math and date/DST handling correct.
+
+## Known-accepted (not fixed, by design)
+
+- **`npm audit`**: 3 residual findings (1 low `esbuild`, 2 moderate `uuid` via
+  `exceljs`). `esbuild` is dev-server-only (not shipped); `uuid`'s bug needs a
+  caller-supplied `buf` which `exceljs` never does. The only offered "fix" is a
+  breaking `exceljs` **downgrade** to 3.4.0 that would break report exports, so it
+  is deliberately not applied.
+- **In-memory throttles** (PIN + owner password) reset on app restart — acceptable
+  for a single-kiosk physical-access threat model; documented, not persisted.
