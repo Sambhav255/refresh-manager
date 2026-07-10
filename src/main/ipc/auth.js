@@ -21,6 +21,13 @@ const PIN_COOLDOWN_MS = 30000
 let failedPinAttempts = 0
 let lockedUntil = 0
 
+// The owner password is the highest-value credential (gates restore, refunds,
+// staff management) — throttle it too, with a stricter cooldown than PINs.
+const MAX_PASSWORD_ATTEMPTS = 5
+const PASSWORD_COOLDOWN_MS = 60000
+let failedPasswordAttempts = 0
+let passwordLockedUntil = 0
+
 // Reject a new PIN if it collides with any existing active staff PIN.
 // excludeUserId lets a staff member keep/re-set their own PIN without
 // colliding with themselves.
@@ -109,14 +116,24 @@ export function registerAuthHandlers() {
       }
 
       if (username && password) {
+        if (Date.now() < passwordLockedUntil) {
+          throw new Error('Too many attempts. Please try again in a minute.')
+        }
         const owner = db
           .prepare(
             `SELECT id, name, role, password_hash FROM users WHERE role = 'owner' AND is_active = 1 AND name = ?`
           )
           .get(username)
         if (!owner || !(await bcrypt.compare(password, owner.password_hash))) {
+          failedPasswordAttempts += 1
+          if (failedPasswordAttempts >= MAX_PASSWORD_ATTEMPTS) {
+            passwordLockedUntil = Date.now() + PASSWORD_COOLDOWN_MS
+            failedPasswordAttempts = 0
+          }
           throw new Error('Incorrect password')
         }
+        failedPasswordAttempts = 0
+        passwordLockedUntil = 0
         const session = { userId: owner.id, name: owner.name, role: owner.role }
         setSession(session)
         return { success: true, user: session }

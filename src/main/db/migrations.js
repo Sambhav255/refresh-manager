@@ -103,6 +103,26 @@ function migrateRefundSupport(db) {
   `)
 }
 
+// 4-C hot-path indexes. Split out (and idempotent) because a table rebuild
+// (DROP + RENAME, as used for CHECK-constraint changes) silently drops every
+// index on that table — the runner re-runs this after any rebuild migration so
+// a future rebuild can't leave the DB unindexed.
+function createReportIndexes(db) {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_txn_created ON transactions(created_at);
+    CREATE INDEX IF NOT EXISTS idx_txn_member ON transactions(member_id);
+    CREATE INDEX IF NOT EXISTS idx_txn_staff ON transactions(staff_id);
+    CREATE INDEX IF NOT EXISTS idx_txn_product ON transactions(product_id);
+    CREATE INDEX IF NOT EXISTS idx_txn_type ON transactions(transaction_type);
+    CREATE INDEX IF NOT EXISTS idx_ms_member ON memberships(member_id);
+    CREATE INDEX IF NOT EXISTS idx_ms_status_end ON memberships(status, end_date);
+  `)
+  // Column arrives in v4 — earlier rebuild passes (v1) must not fail on it.
+  if (hasColumn(db, 'transactions', 'refunds_transaction_id')) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_txn_refunds ON transactions(refunds_transaction_id)`)
+  }
+}
+
 function backfillBaseline(db) {
   if (!hasColumn(db, 'memberships', 'reminder_sent_at')) {
     db.exec(`ALTER TABLE memberships ADD COLUMN reminder_sent_at TEXT`)
@@ -229,17 +249,23 @@ const MIGRATIONS = [
     // v4 transactions rebuild so they survive it.
     name: 'v5: report indexes',
     rebuildsReferencedTable: false,
+    up: createReportIndexes
+  },
+  {
+    // Turnover accuracy: record the unit price actually charged on each stock
+    // movement, so the inventory-turnover report doesn't drift when the owner
+    // later changes an item's selling price, and refund reversals can be netted
+    // at the price of the original sale. Historic rows stay NULL (the report
+    // falls back to the current selling price for them).
+    name: 'v6: unit_price on inventory transactions',
+    rebuildsReferencedTable: false,
     up: (db) => {
-      db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_txn_created ON transactions(created_at);
-        CREATE INDEX IF NOT EXISTS idx_txn_member ON transactions(member_id);
-        CREATE INDEX IF NOT EXISTS idx_txn_staff ON transactions(staff_id);
-        CREATE INDEX IF NOT EXISTS idx_txn_product ON transactions(product_id);
-        CREATE INDEX IF NOT EXISTS idx_txn_type ON transactions(transaction_type);
-        CREATE INDEX IF NOT EXISTS idx_txn_refunds ON transactions(refunds_transaction_id);
-        CREATE INDEX IF NOT EXISTS idx_ms_member ON memberships(member_id);
-        CREATE INDEX IF NOT EXISTS idx_ms_status_end ON memberships(status, end_date);
-      `)
+      if (!hasColumn(db, 'pool_inventory_transactions', 'unit_price')) {
+        db.exec(`ALTER TABLE pool_inventory_transactions ADD COLUMN unit_price REAL`)
+      }
+      if (!hasColumn(db, 'restaurant_inventory_transactions', 'unit_price')) {
+        db.exec(`ALTER TABLE restaurant_inventory_transactions ADD COLUMN unit_price REAL`)
+      }
     }
   }
 ]
@@ -267,6 +293,9 @@ export function runMigrations(db) {
         )
       }
       db.pragma('foreign_keys = ON')
+      // A DROP+RENAME rebuild silently drops the rebuilt table's indexes —
+      // recreate them (idempotent) so no rebuild can leave the DB unindexed.
+      createReportIndexes(db)
     }
 
     version++

@@ -44,6 +44,10 @@ function oldDatabase() {
       id INTEGER PRIMARY KEY, item_id INTEGER, txn_type TEXT, quantity INTEGER,
       transaction_id INTEGER REFERENCES transactions(id), staff_id INTEGER
     );
+    CREATE TABLE restaurant_inventory_transactions (
+      id INTEGER PRIMARY KEY, item_id INTEGER, txn_type TEXT, quantity REAL,
+      transaction_id INTEGER REFERENCES transactions(id), staff_id INTEGER
+    );
     CREATE TABLE bookings (id INTEGER PRIMARY KEY, booking_name TEXT, deposit_paid REAL);
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
   `)

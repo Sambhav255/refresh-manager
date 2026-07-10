@@ -70,6 +70,43 @@ describe('3-C — refunds', () => {
     expect(stock()).toBe(10) // now fully refunded ⇒ stock restored
   })
 
+  it('rejects voiding a sale that has been refunded (double-reversal guard)', async () => {
+    const sale = await sellPoolItem(2) // amount 400
+    await __invoke('transactions:refund', { transactionId: sale.transactionId })
+
+    const res = await __invoke('transactions:void', {
+      transactionId: sale.transactionId,
+      reason: 'also void it'
+    })
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/refunded/i)
+    // Ledger still nets to zero: original +400 and refund -400 both live.
+    const net = db
+      .prepare('SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE is_voided = 0')
+      .get().s
+    expect(net).toBe(0)
+  })
+
+  it('turnover report uses the sale-time price and nets refunds out', async () => {
+    const sale = await sellPoolItem(2) // 2 × 200 = 400 at sale time
+    // Owner later raises the price — must NOT rewrite history.
+    db.prepare('UPDATE pool_inventory_items SET selling_price = 999 WHERE id = ?').run(
+      ids.poolItemId
+    )
+    const now = new Date()
+    const params = { year: now.getFullYear(), month: now.getMonth() + 1 }
+    let rep = await __invoke('reports:inventory-turnover', params)
+    expect(rep.pool[0].sold).toBe(2)
+    expect(rep.pool[0].revenue).toBe(400) // sale-time price, not 999
+
+    // A full refund nets the sale out of turnover entirely.
+    await __invoke('transactions:refund', { transactionId: sale.transactionId })
+    rep = await __invoke('reports:inventory-turnover', params)
+    const goggles = rep.pool.find((p) => p.name === 'Goggles')
+    expect(goggles.sold).toBe(0)
+    expect(goggles.revenue).toBe(0)
+  })
+
   it('rejects over-refunding and refunding a voided sale', async () => {
     const sale = await sellPoolItem(1) // amount 200
     const over = await __invoke('transactions:refund', {

@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
+import { writeAudit } from '../audit.js'
 import { addDays, formatShortDate, todayLocal } from './utils.js'
 
 function wrap(handler) {
@@ -28,6 +29,23 @@ function syncDepositTransaction(db, bookingId, staffId) {
   const deposit = Number(b.deposit_paid) || 0
   const pay = b.deposit_method?.toLowerCase() === 'qr' ? 'qr' : 'cash'
   const customer = b.contact_person || b.booking_name
+
+  // A linked deposit transaction that has since been REFUNDED, or voided by the
+  // owner for cause (void_by set), must never be silently reinstated or
+  // overwritten by a booking edit — that would resurrect reversed money into
+  // the totals with no offsetting entry. A void done by this sync itself when
+  // the deposit was zeroed (void_by IS NULL) stays resurrectable, so the
+  // legitimate zero-then-re-add flow keeps working.
+  if (b.deposit_transaction_id) {
+    const linked = db
+      .prepare(
+        `SELECT is_voided, void_by,
+                (SELECT 1 FROM transactions r WHERE r.refunds_transaction_id = transactions.id AND r.is_voided = 0 LIMIT 1) as refunded
+         FROM transactions WHERE id = ?`
+      )
+      .get(b.deposit_transaction_id)
+    if (linked && (linked.refunded || (linked.is_voided && linked.void_by != null))) return
+  }
 
   if (deposit > 0) {
     if (b.deposit_transaction_id) {
@@ -224,7 +242,7 @@ export function registerBookingHandlers() {
   ipcMain.handle(
     'bookings:update-status',
     wrap(({ bookingId, status }) => {
-      requireStaffOrOwner()
+      const session = requireStaffOrOwner()
       const allowed = ['pending', 'confirmed', 'completed', 'cancelled']
       if (!allowed.includes(status)) throw new Error('Invalid status')
       getDb()
@@ -232,6 +250,8 @@ export function registerBookingHandlers() {
           `UPDATE bookings SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?`
         )
         .run(status, bookingId)
+      // Staff-reachable state change with reporting impact — keep it traceable.
+      writeAudit(session.userId, 'booking:status', { bookingId, status })
       return { success: true }
     })
   )

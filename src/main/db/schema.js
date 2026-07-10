@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS pool_inventory_transactions (
   reason         TEXT,
   transaction_id INTEGER REFERENCES transactions(id),
   staff_id       INTEGER NOT NULL REFERENCES users(id),
+  unit_price     REAL,
   created_at     TEXT DEFAULT (datetime('now','localtime'))
 );
 
@@ -110,6 +111,7 @@ CREATE TABLE IF NOT EXISTS restaurant_inventory_transactions (
   reason         TEXT,
   transaction_id INTEGER REFERENCES transactions(id),
   staff_id       INTEGER NOT NULL REFERENCES users(id),
+  unit_price     REAL,
   created_at     TEXT DEFAULT (datetime('now','localtime'))
 );
 

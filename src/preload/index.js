@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload)
 
@@ -125,14 +124,15 @@ const api = {
   printMembershipCard: (data) => invoke('tickets:print-membership-card', data)
 }
 
+// Least privilege: only the curated `api` object is exposed. The raw toolkit
+// bridge (window.electron / unrestricted ipcRenderer) is deliberately NOT
+// exposed — the renderer must go through the typed surface above.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  window.electron = electronAPI
   window.api = api
 }

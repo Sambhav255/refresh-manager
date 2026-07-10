@@ -17,6 +17,9 @@ import { registerAuditHandlers } from '../src/main/ipc/audit.js'
 import { registerCheckinHandlers } from '../src/main/ipc/checkins.js'
 import { registerReminderHandlers } from '../src/main/ipc/reminders.js'
 import { registerReportHandlers } from '../src/main/ipc/reports.js'
+import { registerPhotoHandlers } from '../src/main/ipc/photos.js'
+import { registerAuthHandlers } from '../src/main/ipc/auth.js'
+import { registerRestaurantInventoryHandlers } from '../src/main/ipc/inventory-restaurant.js'
 
 let registered = false
 function registerAll() {
@@ -33,6 +36,9 @@ function registerAll() {
   registerCheckinHandlers()
   registerReminderHandlers()
   registerReportHandlers()
+  registerPhotoHandlers()
+  registerAuthHandlers()
+  registerRestaurantInventoryHandlers()
   registered = true
 }
 

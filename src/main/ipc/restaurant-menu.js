@@ -93,7 +93,9 @@ export function registerRestaurantMenuHandlers() {
       const menuStmt = db.prepare(`SELECT * FROM restaurant_menu_items WHERE id = ?`)
       const lines = items.map((i) => {
         const qty = Number(i.quantity)
-        if (!Number.isInteger(qty) || qty <= 0) throw new Error('Invalid quantity')
+        // Cap per line: unlinked items have no stock check, so an absurd qty
+        // (1e21 passes Number.isInteger) would otherwise corrupt daily totals.
+        if (!Number.isInteger(qty) || qty <= 0 || qty > 999) throw new Error('Invalid quantity')
         const menuItem = menuStmt.get(i.id)
         if (!menuItem) throw new Error(`Menu item not found: ${i.name || i.id}`)
         if (!menuItem.is_active) throw new Error(`Item unavailable: ${menuItem.name}`)
@@ -125,9 +127,9 @@ export function registerRestaurantMenuHandlers() {
             throw new Error(`Not enough stock for ${stock.name}: only ${stock.current_stock} left`)
           }
           db.prepare(
-            `INSERT INTO restaurant_inventory_transactions (item_id, txn_type, quantity, transaction_id, staff_id)
-             VALUES (?, 'out', ?, ?, ?)`
-          ).run(menuItem.inventory_item_id, qty, transactionId, staffId)
+            `INSERT INTO restaurant_inventory_transactions (item_id, txn_type, quantity, transaction_id, staff_id, unit_price)
+             VALUES (?, 'out', ?, ?, ?, ?)`
+          ).run(menuItem.inventory_item_id, qty, transactionId, staffId, menuItem.price)
           db.prepare(
             `UPDATE restaurant_inventory_items SET current_stock = current_stock - ? WHERE id = ?`
           ).run(qty, menuItem.inventory_item_id)

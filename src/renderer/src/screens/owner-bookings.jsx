@@ -22,6 +22,7 @@ export function OwnerBookings({ session }) {
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const [error, setError] = useState('')
 
   const load = () => {
     if (tab === 'upcoming') {
@@ -59,17 +60,25 @@ export function OwnerBookings({ session }) {
   }
 
   const handleSave = async () => {
-    if (editId) {
-      await api.updateBooking({ bookingId: editId, fields: form })
-    } else {
-      await api.createBooking({ ...form, createdBy: session?.userId })
+    setError('')
+    const r = editId
+      ? await api.updateBooking({ bookingId: editId, fields: form })
+      : await api.createBooking({ ...form, createdBy: session?.userId })
+    if (r?.success === false) {
+      setError(r.error || 'Could not save booking')
+      return
     }
     setShowForm(false)
     load()
   }
 
   const cancelBooking = async (id) => {
-    await api.updateBookingStatus({ bookingId: id, status: 'cancelled' })
+    setError('')
+    const r = await api.updateBookingStatus({ bookingId: id, status: 'cancelled' })
+    if (r?.success === false) {
+      setError(r.error || 'Could not cancel booking')
+      return
+    }
     load()
   }
 
@@ -80,6 +89,11 @@ export function OwnerBookings({ session }) {
           <Icon name="plus" size={15} /> New booking
         </button>
       </SectionHead>
+      {error && (
+        <div className="alert red" style={{ marginBottom: 12 }}>
+          <div className="a-desc">{error}</div>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         <button
           className={'btn ' + (tab === 'upcoming' ? 'btn-primary' : 'btn-ghost')}

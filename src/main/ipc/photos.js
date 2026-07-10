@@ -25,14 +25,20 @@ export function registerPhotoHandlers() {
     'photos:save',
     wrap(({ memberId, base64 }) => {
       requireStaffOrOwner()
-      if (!memberId) throw new Error('memberId is required')
+      // Security: memberId is interpolated into a filename — coerce to a
+      // positive integer and require the member to exist, so a crafted payload
+      // (e.g. '../../evil') can never write outside the photos directory.
+      const id = Number(memberId)
+      if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid memberId')
       if (!base64) throw new Error('Photo data is required')
+      const member = getDb().prepare('SELECT id FROM members WHERE id = ?').get(id)
+      if (!member) throw new Error('Member not found')
 
       const data = base64.replace(/^data:image\/\w+;base64,/, '')
-      const filePath = join(photosDir(), `${memberId}.jpg`)
+      const filePath = join(photosDir(), `${id}.jpg`)
       writeFileSync(filePath, Buffer.from(data, 'base64'))
 
-      getDb().prepare(`UPDATE members SET photo_path = ? WHERE id = ?`).run(filePath, memberId)
+      getDb().prepare(`UPDATE members SET photo_path = ? WHERE id = ?`).run(filePath, id)
       return { success: true, photoPath: filePath }
     })
   )

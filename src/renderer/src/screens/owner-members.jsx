@@ -25,6 +25,11 @@ export function OwnerMembers() {
   const [q, setQ] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [busy, setBusy] = useState(null)
+  // Pause flow uses an in-app reason card — window.prompt() is not supported in
+  // Electron renderers (it throws), so never use it.
+  const [pauseTarget, setPauseTarget] = useState(null) // { membershipId, name }
+  const [pauseReason, setPauseReason] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
     api.listAllMembers().then((r) => {
@@ -44,19 +49,34 @@ export function OwnerMembers() {
     setBusy(null)
   }
 
-  const pause = async (membershipId) => {
-    setBusy(membershipId)
-    const reason = window.prompt('Reason for pausing (optional):') ?? ''
-    await api.pauseMembership({ membershipId, reason })
-    await reload()
+  const confirmPause = async () => {
+    if (!pauseTarget) return
+    setBusy(pauseTarget.membershipId)
+    setError('')
+    const res = await api.pauseMembership({
+      membershipId: pauseTarget.membershipId,
+      reason: pauseReason
+    })
     setBusy(null)
+    if (res?.success === false) {
+      setError(res.error || 'Pause failed')
+      return
+    }
+    setPauseTarget(null)
+    setPauseReason('')
+    await reload()
   }
 
   const resume = async (membershipId) => {
     setBusy(membershipId)
-    await api.resumeMembership({ membershipId })
-    await reload()
+    setError('')
+    const res = await api.resumeMembership({ membershipId })
     setBusy(null)
+    if (res?.success === false) {
+      setError(res.error || 'Resume failed')
+      return
+    }
+    await reload()
   }
 
   const filtered = members.filter((m) => {
@@ -168,7 +188,11 @@ export function OwnerMembers() {
                         className="btn btn-ghost"
                         style={{ padding: '4px 8px', fontSize: 11 }}
                         disabled={busy === mem.id}
-                        onClick={() => pause(mem.id)}
+                        onClick={() => {
+                          setPauseTarget({ membershipId: mem.id, name: x.name })
+                          setPauseReason('')
+                          setError('')
+                        }}
                       >
                         Pause
                       </button>
@@ -193,6 +217,44 @@ export function OwnerMembers() {
       {loading && <div className="sub">Loading members…</div>}
       {!loading && filtered.length === 0 && (
         <div className="sub">No members match your search.</div>
+      )}
+      {error && !pauseTarget && (
+        <div className="alert red" style={{ marginTop: 12, maxWidth: 480 }}>
+          <div className="a-desc">{error}</div>
+        </div>
+      )}
+      {pauseTarget && (
+        <div className="card" style={{ marginTop: 14, padding: 16, maxWidth: 420 }}>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>
+            Pause membership — {pauseTarget.name}
+          </div>
+          <input
+            className="input"
+            value={pauseReason}
+            onChange={(e) => setPauseReason(e.target.value)}
+            placeholder="Reason (optional, e.g. travel, injury)"
+          />
+          <div className="sub" style={{ marginTop: 6, fontSize: 11.5 }}>
+            Frozen days are added back to the expiry date on resume.
+          </div>
+          {error && (
+            <div className="alert red" style={{ marginTop: 10 }}>
+              <div className="a-desc">{error}</div>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              className="btn btn-primary"
+              disabled={busy === pauseTarget.membershipId}
+              onClick={confirmPause}
+            >
+              {busy === pauseTarget.membershipId ? 'Pausing…' : 'Confirm pause'}
+            </button>
+            <button className="btn btn-ghost" onClick={() => setPauseTarget(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

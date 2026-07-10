@@ -35,12 +35,16 @@ export function RestaurantMenuSettings({ back }) {
       setError(nameErr || priceErr)
       return
     }
-    await api.addMenuItem({
+    const r = await api.addMenuItem({
       name,
       category,
       price: Number(price),
       inventoryItemId: inventoryItemId ? Number(inventoryItemId) : null
     })
+    if (r?.success === false) {
+      setError(r.error || 'Could not add menu item')
+      return
+    }
     setName('')
     setPrice('')
     setInventoryItemId('')
@@ -48,14 +52,20 @@ export function RestaurantMenuSettings({ back }) {
   }
 
   const toggle = async (id, isActive) => {
-    await api.toggleMenuItem({ id, isActive: !isActive })
+    setError('')
+    const r = await api.toggleMenuItem({ id, isActive: !isActive })
+    if (r?.success === false) {
+      setError(r.error || 'Could not update menu item')
+      return
+    }
     load()
   }
 
   // P0-2: change (or clear) a menu item's linked stock item. updateMenuItem is a
   // full update, so we resend the item's existing fields alongside the new link.
   const setLink = async (item, newId) => {
-    await api.updateMenuItem({
+    setError('')
+    const r = await api.updateMenuItem({
       id: item.id,
       name: item.name,
       category: item.category,
@@ -64,6 +74,10 @@ export function RestaurantMenuSettings({ back }) {
       isActive: !!item.is_active,
       inventoryItemId: newId ? Number(newId) : null
     })
+    if (r?.success === false) {
+      setError(r.error || 'Could not update menu item')
+      return
+    }
     load()
   }
 

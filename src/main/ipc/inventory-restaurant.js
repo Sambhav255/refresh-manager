@@ -52,17 +52,21 @@ export function registerRestaurantInventoryHandlers() {
 
   ipcMain.handle(
     'restaurant-inventory:restock',
-    wrap(({ itemId, quantity, staffId }) => {
-      requireStaffOrOwner()
+    // P0-1: staff id from session, never payload. Quantity must be a positive
+    // finite number (restaurant units can be fractional, e.g. kg).
+    wrap(({ itemId, quantity }) => {
+      const session = requireStaffOrOwner()
+      const qty = Number(quantity)
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error('Invalid quantity')
       const db = getDb()
       const tx = db.transaction(() => {
         db.prepare(
           `INSERT INTO restaurant_inventory_transactions (item_id, txn_type, quantity, reason, staff_id)
            VALUES (?, 'in', ?, 'Restock', ?)`
-        ).run(itemId, quantity, staffId)
+        ).run(itemId, qty, session.userId)
         db.prepare(
           `UPDATE restaurant_inventory_items SET current_stock = current_stock + ? WHERE id = ?`
-        ).run(quantity, itemId)
+        ).run(qty, itemId)
       })
       tx()
       const item = db
@@ -74,17 +78,28 @@ export function registerRestaurantInventoryHandlers() {
 
   ipcMain.handle(
     'restaurant-inventory:sell',
-    wrap(({ itemId, quantity, transactionId, staffId }) => {
-      requireStaffOrOwner()
+    // P0-1: staff id from session. P0-4: refuse to drive stock negative, and a
+    // negative quantity must never sneak stock IN through an 'out' row.
+    wrap(({ itemId, quantity, transactionId }) => {
+      const session = requireStaffOrOwner()
+      const qty = Number(quantity)
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error('Invalid quantity')
       const db = getDb()
       const tx = db.transaction(() => {
+        const item = db
+          .prepare('SELECT current_stock, name FROM restaurant_inventory_items WHERE id = ?')
+          .get(itemId)
+        if (!item) throw new Error('Item not found')
+        if (qty > item.current_stock) {
+          throw new Error(`Not enough stock: only ${item.current_stock} left`)
+        }
         db.prepare(
           `INSERT INTO restaurant_inventory_transactions (item_id, txn_type, quantity, transaction_id, staff_id)
            VALUES (?, 'out', ?, ?, ?)`
-        ).run(itemId, quantity, transactionId, staffId)
+        ).run(itemId, qty, transactionId || null, session.userId)
         db.prepare(
           `UPDATE restaurant_inventory_items SET current_stock = current_stock - ? WHERE id = ?`
-        ).run(quantity, itemId)
+        ).run(qty, itemId)
       })
       tx()
       return { success: true }
@@ -93,20 +108,25 @@ export function registerRestaurantInventoryHandlers() {
 
   ipcMain.handle(
     'restaurant-inventory:adjust',
-    wrap(({ itemId, newQuantity, reason, staffId }) => {
-      requireOwner()
+    // P0-1: staff id from session. P0-4: an adjustment may set any value, never
+    // a negative one.
+    wrap(({ itemId, newQuantity, reason }) => {
+      const session = requireOwner()
+      const target = Number(newQuantity)
+      if (!Number.isFinite(target) || target < 0) throw new Error('Stock cannot be negative')
       const db = getDb()
       const current = db
         .prepare('SELECT current_stock FROM restaurant_inventory_items WHERE id = ?')
         .get(itemId)
-      const diff = newQuantity - current.current_stock
+      if (!current) throw new Error('Item not found')
+      const diff = target - current.current_stock
       const tx = db.transaction(() => {
         db.prepare(
           `INSERT INTO restaurant_inventory_transactions (item_id, txn_type, quantity, reason, staff_id)
            VALUES (?, 'adjustment', ?, ?, ?)`
-        ).run(itemId, diff, reason, staffId)
+        ).run(itemId, diff, reason, session.userId)
         db.prepare(`UPDATE restaurant_inventory_items SET current_stock = ? WHERE id = ?`).run(
-          newQuantity,
+          target,
           itemId
         )
       })

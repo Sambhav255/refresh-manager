@@ -49,5 +49,41 @@ describe('P2-3 / 5-A — booking deposit transaction stays in sync (idempotent)'
     const active = depositTxns().filter((t) => !t.is_voided)
     expect(active.length).toBe(0)
     expect(depositTxns().length).toBe(1) // row still exists, just voided
+
+    // Legitimate zero → re-add still works (sync-void is resurrectable).
+    await __invoke('bookings:update', {
+      bookingId: created.bookingId,
+      fields: { depositPaid: 300 }
+    })
+    const back = depositTxns().filter((t) => !t.is_voided)
+    expect(back.length).toBe(1)
+    expect(back[0].amount).toBe(300)
+  })
+
+  it('a refunded deposit is never resurrected by a booking edit', async () => {
+    const created = await __invoke('bookings:create', {
+      bookingName: 'Refunded Party',
+      bookingDate: '2026-04-01',
+      depositPaid: 2000,
+      depositMethod: 'cash'
+    })
+    const txn = depositTxns().find((t) => t.customer_name === 'Refunded Party')
+    await __invoke('transactions:refund', { transactionId: txn.id, reason: 'cancelled plans' })
+
+    // Editing unrelated booking fields must not reinstate/overwrite the txn.
+    await __invoke('bookings:update', {
+      bookingId: created.bookingId,
+      fields: { contactPhone: '9800000009' }
+    })
+    const after = db.prepare('SELECT * FROM transactions WHERE id = ?').get(txn.id)
+    expect(after.amount).toBe(2000) // unchanged, not re-synced
+    // Net revenue for this booking stays zero (sale + refund).
+    const net = db
+      .prepare(
+        `SELECT COALESCE(SUM(amount),0) s FROM transactions
+         WHERE is_voided = 0 AND (id = ? OR refunds_transaction_id = ?)`
+      )
+      .get(txn.id, txn.id).s
+    expect(net).toBe(0)
   })
 })

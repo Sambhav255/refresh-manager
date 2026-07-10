@@ -700,14 +700,34 @@ export function registerReportHandlers() {
       const m = month ?? now.getMonth() + 1
       const { dateFrom, dateTo } = monthRange(y, m)
       const db = getDb()
+      // Revenue uses the unit price recorded at sale time (falling back to the
+      // current selling price for pre-migration rows), and refund reversals
+      // ('in' rows tagged 'Refund reversal') net OUT of both sold and revenue —
+      // so a refunded sale no longer counts as turnover, and later price changes
+      // don't rewrite history.
+      const turnoverSql = (txnTable, itemTable, extraCols) => `
+        SELECT ${extraCols},
+          SUM(CASE
+                WHEN t.txn_type = 'out' THEN t.quantity
+                WHEN t.txn_type = 'in' AND t.reason = 'Refund reversal' THEN -t.quantity
+                ELSE 0 END) as sold,
+          SUM(CASE
+                WHEN t.txn_type = 'out' THEN t.quantity * COALESCE(t.unit_price, i.selling_price)
+                WHEN t.txn_type = 'in' AND t.reason = 'Refund reversal'
+                  THEN -t.quantity * COALESCE(t.unit_price, i.selling_price)
+                ELSE 0 END) as revenue
+        FROM ${txnTable} t JOIN ${itemTable} i ON i.id = t.item_id
+        WHERE (t.txn_type = 'out' OR (t.txn_type = 'in' AND t.reason = 'Refund reversal'))
+          AND date(t.created_at) >= ? AND date(t.created_at) <= ?
+        GROUP BY i.id ORDER BY sold DESC`
       const pool = db
         .prepare(
-          `SELECT pi.name, pi.variant, SUM(pit.quantity) as sold, SUM(pit.quantity * pi.selling_price) as revenue FROM pool_inventory_transactions pit JOIN pool_inventory_items pi ON pi.id = pit.item_id WHERE pit.txn_type = 'out' AND date(pit.created_at) >= ? AND date(pit.created_at) <= ? GROUP BY pi.id ORDER BY sold DESC`
+          turnoverSql('pool_inventory_transactions', 'pool_inventory_items', 'i.name, i.variant')
         )
         .all(dateFrom, dateTo)
       const restaurant = db
         .prepare(
-          `SELECT ri.name, SUM(rit.quantity) as sold, SUM(rit.quantity * ri.selling_price) as revenue FROM restaurant_inventory_transactions rit JOIN restaurant_inventory_items ri ON ri.id = rit.item_id WHERE rit.txn_type = 'out' AND date(rit.created_at) >= ? AND date(rit.created_at) <= ? GROUP BY ri.id ORDER BY sold DESC`
+          turnoverSql('restaurant_inventory_transactions', 'restaurant_inventory_items', 'i.name')
         )
         .all(dateFrom, dateTo)
       const lowStock = [

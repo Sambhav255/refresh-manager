@@ -185,6 +185,21 @@ export function registerTransactionHandlers() {
       if (!txn) throw new Error('Transaction not found')
       if (txn.is_voided) throw new Error('Transaction is already voided')
 
+      // A transaction that has refunds must never be voided: the refund rows
+      // stay live while the original drops out of WHERE is_voided = 0, so every
+      // revenue total would double-reverse (net negative). The refund IS the
+      // correction — reject the void outright.
+      const hasRefunds = db
+        .prepare(
+          `SELECT 1 FROM transactions WHERE refunds_transaction_id = ? AND is_voided = 0 LIMIT 1`
+        )
+        .get(transactionId)
+      if (hasRefunds) {
+        throw new Error(
+          'This sale has been refunded and cannot be voided — the refund already reverses it.'
+        )
+      }
+
       // 2-E: voiding a transaction on a day that was already cash-reconciled
       // silently changes a day the owner already signed off on. Require an
       // explicit confirmation and record that the void hit a reconciled day.
@@ -277,14 +292,16 @@ export function registerTransactionHandlers() {
                 : 'restaurant_inventory_items'
             const outs = db
               .prepare(
-                `SELECT item_id, quantity FROM ${table} WHERE transaction_id = ? AND txn_type = 'out'`
+                `SELECT item_id, quantity, unit_price FROM ${table} WHERE transaction_id = ? AND txn_type = 'out'`
               )
               .all(original.id)
             for (const o of outs) {
+              // Carry the original sale's unit price onto the reversal so the
+              // turnover report nets the refund at the price actually charged.
               db.prepare(
-                `INSERT INTO ${table} (item_id, txn_type, quantity, reason, transaction_id, staff_id)
-                 VALUES (?, 'in', ?, 'Refund reversal', ?, ?)`
-              ).run(o.item_id, o.quantity, refundId, session.userId)
+                `INSERT INTO ${table} (item_id, txn_type, quantity, reason, transaction_id, staff_id, unit_price)
+                 VALUES (?, 'in', ?, 'Refund reversal', ?, ?, ?)`
+              ).run(o.item_id, o.quantity, refundId, session.userId, o.unit_price ?? null)
               db.prepare(`UPDATE ${items} SET current_stock = current_stock + ? WHERE id = ?`).run(
                 o.quantity,
                 o.item_id
