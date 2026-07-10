@@ -12,6 +12,11 @@ export function OwnerTransactions() {
   const [staffFilter, setStaffFilter] = useState('')
   const [voidId, setVoidId] = useState(null)
   const [reason, setReason] = useState('')
+  const [voidConfirmDay, setVoidConfirmDay] = useState(null)
+  const [refundTx, setRefundTx] = useState(null)
+  const [refundAmount, setRefundAmount] = useState('')
+  const [refundReason, setRefundReason] = useState('')
+  const [error, setError] = useState('')
 
   const load = () => {
     const today = todayLocal()
@@ -35,11 +40,46 @@ export function OwnerTransactions() {
     load()
   }, [range, typeFilter, payFilter, staffFilter])
 
-  const handleVoid = async () => {
+  const handleVoid = async (confirmReconciled = false) => {
     if (!voidId || !reason.trim()) return
-    await api.voidTransaction({ transactionId: voidId, reason })
+    setError('')
+    const res = await api.voidTransaction({ transactionId: voidId, reason, confirmReconciled })
+    // 2-E: voiding a reconciled day needs an explicit confirm.
+    if (res?.requiresConfirmation) {
+      setVoidConfirmDay(res.reconciledDay)
+      return
+    }
+    if (res?.success === false) {
+      setError(res.error || 'Void failed')
+      return
+    }
     setVoidId(null)
     setReason('')
+    setVoidConfirmDay(null)
+    load()
+  }
+
+  const openRefund = (t) => {
+    setRefundTx(t)
+    setRefundAmount(String(t.amount))
+    setRefundReason('')
+    setError('')
+  }
+
+  const handleRefund = async () => {
+    if (!refundTx) return
+    setError('')
+    const amt = Number(refundAmount)
+    const res = await api.refundTransaction({
+      transactionId: refundTx.id,
+      amount: amt,
+      reason: refundReason
+    })
+    if (res?.success === false) {
+      setError(res.error || 'Refund failed')
+      return
+    }
+    setRefundTx(null)
     load()
   }
 
@@ -119,13 +159,30 @@ export function OwnerTransactions() {
                 <PayBadge pay={t.pay} />
               </td>
               <td>
-                <button
-                  className="btn btn-ghost"
-                  style={{ padding: '4px 8px', fontSize: 11 }}
-                  onClick={() => setVoidId(t.id)}
-                >
-                  Void
-                </button>
+                {t.type === 'refund' || t.amount < 0 ? (
+                  <span style={{ color: '#94a3b8', fontSize: 11 }}>refund</span>
+                ) : (
+                  <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: '4px 8px', fontSize: 11 }}
+                      onClick={() => {
+                        setVoidId(t.id)
+                        setVoidConfirmDay(null)
+                        setError('')
+                      }}
+                    >
+                      Void
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: '4px 8px', fontSize: 11 }}
+                      onClick={() => openRefund(t)}
+                    >
+                      Refund
+                    </button>
+                  </div>
+                )}
               </td>
             </tr>
           ))}
@@ -144,11 +201,69 @@ export function OwnerTransactions() {
             onChange={(e) => setReason(e.target.value)}
             placeholder="Reason for void"
           />
+          {voidConfirmDay && (
+            <div className="alert amber" style={{ marginTop: 10 }}>
+              <div className="a-desc">
+                This sale is on {voidConfirmDay}, a day already cash-reconciled. Voiding it will
+                change a day you already closed. Confirm to proceed.
+              </div>
+            </div>
+          )}
+          {error && (
+            <div className="alert red" style={{ marginTop: 10 }}>
+              <div className="a-desc">{error}</div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button className="btn btn-primary" onClick={handleVoid}>
-              Confirm void
+            <button className="btn btn-primary" onClick={() => handleVoid(!!voidConfirmDay)}>
+              {voidConfirmDay ? 'Void reconciled day anyway' : 'Confirm void'}
             </button>
-            <button className="btn btn-ghost" onClick={() => setVoidId(null)}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setVoidId(null)
+                setVoidConfirmDay(null)
+                setError('')
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {refundTx && (
+        <div className="card" style={{ marginTop: 14, padding: 16 }}>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>
+            Refund #{refundTx.id} — {refundTx.customer} ({fmt(refundTx.amount)})
+          </div>
+          <div className="field">
+            <label>Refund amount (Rs.)</label>
+            <input
+              className="input"
+              type="number"
+              value={refundAmount}
+              onChange={(e) => setRefundAmount(e.target.value)}
+            />
+            <div className="sub" style={{ marginTop: 4, fontSize: 11.5 }}>
+              Full refund restores any linked stock. Partial refunds are money-only.
+            </div>
+          </div>
+          <input
+            className="input"
+            value={refundReason}
+            onChange={(e) => setRefundReason(e.target.value)}
+            placeholder="Reason (optional)"
+          />
+          {error && (
+            <div className="alert red" style={{ marginTop: 10 }}>
+              <div className="a-desc">{error}</div>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button className="btn btn-primary" onClick={handleRefund}>
+              Confirm refund
+            </button>
+            <button className="btn btn-ghost" onClick={() => setRefundTx(null)}>
               Cancel
             </button>
           </div>

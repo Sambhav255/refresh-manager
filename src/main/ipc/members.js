@@ -279,10 +279,19 @@ export function registerMemberHandlers() {
              JOIN products p ON p.id = ms.product_id
              WHERE ms.member_id = ? AND ms.status = 'active' AND ms.end_date >= ?
              ORDER BY ms.end_date DESC LIMIT 1`
+      // 3-B: also surface a paused membership so the owner can resume it.
+      const pausedSql = `SELECT ms.*, p.name as product_name, p.category, p.duration_days, p.sub_category
+             FROM memberships ms
+             JOIN products p ON p.id = ms.product_id
+             WHERE ms.member_id = ? AND ms.status = 'paused'
+             ORDER BY ms.id DESC LIMIT 1`
       const today = todayLocal()
       const members = rows.map((row) => {
         const active = db.prepare(activeSql).get(row.id, today)
-        return mapMember(row, active, warningDays)
+        const mapped = mapMember(row, active, warningDays)
+        const paused = db.prepare(pausedSql).get(row.id)
+        mapped.pausedMembership = paused ? mapMembership(paused, warningDays) : null
+        return mapped
       })
       return { members }
     })

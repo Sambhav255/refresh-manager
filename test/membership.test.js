@@ -52,6 +52,17 @@ describe('3-B — membership pause / resume', () => {
     expect(row.end_date).toBe(isoOffset(15)) // 10 + 5 days
   })
 
+  it('surfaces a paused membership in members:list-all so it can be resumed', async () => {
+    loginOwner(ids)
+    const msId = newMembership(isoOffset(10))
+    await __invoke('members:pause-membership', { membershipId: msId })
+    const res = await __invoke('members:list-all', {})
+    const frozen = res.members.find((m) => m.name === 'Frozen')
+    expect(frozen.activeMembership).toBeNull()
+    expect(frozen.pausedMembership).toBeTruthy()
+    expect(frozen.pausedMembership.id).toBe(msId)
+  })
+
   it('rejects pausing a non-active or resuming a non-paused membership', async () => {
     loginOwner(ids)
     const msId = newMembership(isoOffset(10))

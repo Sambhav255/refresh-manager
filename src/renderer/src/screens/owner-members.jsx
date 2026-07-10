@@ -33,9 +33,29 @@ export function OwnerMembers() {
     })
   }, [])
 
+  const reload = async () => {
+    const r = await api.listAllMembers()
+    setMembers(r.members || [])
+  }
+
   const sendReminder = async (membershipId) => {
     setBusy(membershipId)
     await api.sendReminder({ membershipId })
+    setBusy(null)
+  }
+
+  const pause = async (membershipId) => {
+    setBusy(membershipId)
+    const reason = window.prompt('Reason for pausing (optional):') ?? ''
+    await api.pauseMembership({ membershipId, reason })
+    await reload()
+    setBusy(null)
+  }
+
+  const resume = async (membershipId) => {
+    setBusy(membershipId)
+    await api.resumeMembership({ membershipId })
+    await reload()
     setBusy(null)
   }
 
@@ -97,9 +117,11 @@ export function OwnerMembers() {
         <tbody>
           {filtered.map((x) => {
             const mem = x.activeMembership
-            const status = mem?.uiStatus || 'Expired'
-            const type = mem?.productName || '—'
-            const expiry = mem?.endDisplay || '—'
+            const paused = x.pausedMembership
+            const isPaused = !mem && !!paused
+            const status = isPaused ? 'Paused' : mem?.uiStatus || 'Expired'
+            const type = (mem || paused)?.productName || '—'
+            const expiry = (mem || paused)?.endDisplay || '—'
             return (
               <tr key={x.id}>
                 <td>
@@ -130,16 +152,38 @@ export function OwnerMembers() {
                   {expiry}
                 </td>
                 <td>
-                  {status === 'Expiring soon' && x.phone && mem?.id && (
-                    <button
-                      className="btn btn-ghost"
-                      style={{ padding: '4px 8px', fontSize: 11 }}
-                      disabled={busy === mem.id}
-                      onClick={() => sendReminder(mem.id)}
-                    >
-                      {busy === mem.id ? '…' : 'Send reminder'}
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {status === 'Expiring soon' && x.phone && mem?.id && (
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 8px', fontSize: 11 }}
+                        disabled={busy === mem.id}
+                        onClick={() => sendReminder(mem.id)}
+                      >
+                        {busy === mem.id ? '…' : 'Send reminder'}
+                      </button>
+                    )}
+                    {mem?.id && status !== 'Expired' && (
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 8px', fontSize: 11 }}
+                        disabled={busy === mem.id}
+                        onClick={() => pause(mem.id)}
+                      >
+                        Pause
+                      </button>
+                    )}
+                    {isPaused && paused?.id && (
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 8px', fontSize: 11 }}
+                        disabled={busy === paused.id}
+                        onClick={() => resume(paused.id)}
+                      >
+                        {busy === paused.id ? '…' : 'Resume'}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             )

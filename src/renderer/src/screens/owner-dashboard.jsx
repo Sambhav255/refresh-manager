@@ -13,6 +13,7 @@ export function OwnerDashboard() {
   const [expiring, setExpiring] = useState([])
   const [reminders, setReminders] = useState([])
   const [backupStatus, setBackupStatus] = useState(null)
+  const [backupStale, setBackupStale] = useState(false)
   const [footfall, setFootfall] = useState(0)
   const [loading, setLoading] = useState(true)
   const [sendingReminders, setSendingReminders] = useState(false)
@@ -40,6 +41,11 @@ export function OwnerDashboard() {
       setExpiring(e.members || [])
       setReminders(rem.members || [])
       setBackupStatus(bk)
+      // 6-C: compute staleness once at load (avoids an impure Date.now in render).
+      const lastBk = bk?.lastBackupAt
+      setBackupStale(
+        !lastBk || Date.now() - Date.parse(String(lastBk).replace(' ', 'T')) > 36 * 3600 * 1000
+      )
       setFootfall(ci.count || 0)
       setLoading(false)
     })
@@ -107,11 +113,9 @@ export function OwnerDashboard() {
     })
   // 6-C: flag a stale backup (no success in >36h) so it's noticed early.
   const lastBk = backupStatus?.lastBackupAt
-  const bkStale =
-    !lastBk || Date.now() - Date.parse(String(lastBk).replace(' ', 'T')) > 36 * 3600 * 1000
   if (backupStatus?.status === 'failed')
     alerts.push({ c: 'red', icon: 'folder', t: 'Backup failed', d: 'Check backup settings' })
-  else if (bkStale)
+  else if (backupStale)
     alerts.push({
       c: 'red',
       icon: 'folder',
