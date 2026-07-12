@@ -50,6 +50,17 @@ function createWindow() {
     }
   })
 
+  // Defense in depth: the app is fully local, so no window may ever open a
+  // popup or navigate away from the bundled renderer (external links go
+  // through shell.openExternal in the main process, never the webContents).
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const devUrl = is.dev ? process.env['ELECTRON_RENDERER_URL'] : null
+    if (!url.startsWith('file:') && !(devUrl && url.startsWith(devUrl))) {
+      event.preventDefault()
+    }
+  })
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
