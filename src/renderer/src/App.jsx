@@ -126,6 +126,37 @@ function SetupWizard({ onDone }) {
   )
 }
 
+// Defined at module scope, not inside Login: a component created during render
+// gets a new identity on every keystroke, so React remounts it and replays the
+// scale-in animation — the modal visibly "blinks" on each PIN digit.
+const Modal = ({ title, children, onClose }) => (
+  <div
+    style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(0,0,0,.35)',
+      display: 'grid',
+      placeItems: 'center',
+      zIndex: 50
+    }}
+    onClick={onClose}
+  >
+    <div
+      className="card scale-in"
+      style={{ width: 360, padding: 24 }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ fontSize: 16, fontWeight: 500 }}>{title}</div>
+        <button className="btn btn-ghost" style={{ padding: 4 }} onClick={onClose}>
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+      {children}
+    </div>
+  </div>
+)
+
 function Login({ onLogin }) {
   const [modal, setModal] = useState(null)
   const [pin, setPin] = useState('')
@@ -157,34 +188,6 @@ function Login({ onLogin }) {
     }
     onLogin(result.user)
   }
-
-  const Modal = ({ title, children, onClose }) => (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,.35)',
-        display: 'grid',
-        placeItems: 'center',
-        zIndex: 50
-      }}
-      onClick={onClose}
-    >
-      <div
-        className="card scale-in"
-        style={{ width: 360, padding: 24 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 500 }}>{title}</div>
-          <button className="btn btn-ghost" style={{ padding: 4 }} onClick={onClose}>
-            <Icon name="x" size={16} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  )
 
   return (
     <div

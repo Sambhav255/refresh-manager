@@ -14,6 +14,119 @@ function addDays(dateStr, days) {
 
 const UI_TYPES = ['Membership', 'Day Package', 'Day Pass']
 
+const STEP_LABELS = ['Type', 'Product', 'Customer', 'Payment', 'Confirm']
+
+// StepBar and PhotoCapture live at module scope: defining them inside
+// NewTransaction gave them a new identity on every keystroke, so React
+// remounted them per character — the step bar blinked and the camera
+// <video> element was torn down mid-preview.
+function StepBar({ step }) {
+  return (
+    <div className="steps">
+      {STEP_LABELS.map((l, i) => (
+        <div key={l} className={'step ' + (i < step ? 'done' : i === step ? 'active' : '')}>
+          {i < step && (
+            <Icon name="check" size={10} style={{ marginRight: 3, verticalAlign: '-1px' }} />
+          )}
+          {l}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PhotoCapture({
+  photoPreview,
+  cameraOn,
+  videoRef,
+  fileRef,
+  onStartCamera,
+  onStopCamera,
+  onCapture,
+  onClear,
+  onFilePhoto
+}) {
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: 12,
+        background: '#f8fafc',
+        borderRadius: 8,
+        border: '1px solid var(--border)'
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 8 }}>
+        Member photo (optional)
+      </div>
+      {photoPreview ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img
+            src={photoPreview}
+            alt="Member"
+            style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover' }}
+          />
+          <button
+            className="btn btn-ghost"
+            style={{ padding: '6px 10px', fontSize: 12 }}
+            onClick={onClear}
+          >
+            Remove photo
+          </button>
+        </div>
+      ) : cameraOn ? (
+        <div>
+          <video
+            ref={videoRef}
+            style={{ width: '100%', maxWidth: 280, borderRadius: 8, background: '#000' }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button
+              className="btn btn-primary"
+              style={{ padding: '6px 12px', fontSize: 12 }}
+              onClick={onCapture}
+            >
+              Capture
+            </button>
+            <button
+              className="btn btn-ghost"
+              style={{ padding: '6px 12px', fontSize: 12 }}
+              onClick={onStopCamera}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-ghost"
+            style={{ padding: '6px 12px', fontSize: 12 }}
+            onClick={onStartCamera}
+          >
+            <Icon name="camera" size={14} /> Take photo
+          </button>
+          <button
+            className="btn btn-ghost"
+            style={{ padding: '6px 12px', fontSize: 12 }}
+            onClick={() => fileRef.current?.click()}
+          >
+            <Icon name="upload" size={14} /> Upload
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            capture="user"
+            style={{ display: 'none' }}
+            onChange={onFilePhoto}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function groupProducts(products) {
   const grouped = {}
   for (const t of UI_TYPES) grouped[t] = []
@@ -122,8 +235,6 @@ export function NewTransaction({ session, onDone }) {
     stopCamera()
     if (fileRef.current) fileRef.current.value = ''
   }
-
-  const labels = ['Type', 'Product', 'Customer', 'Payment', 'Confirm']
 
   const handleSave = async () => {
     setSaving(true)
@@ -299,102 +410,9 @@ export function NewTransaction({ session, onDone }) {
     )
   }
 
-  const StepBar = () => (
-    <div className="steps">
-      {labels.map((l, i) => (
-        <div key={l} className={'step ' + (i < step ? 'done' : i === step ? 'active' : '')}>
-          {i < step && (
-            <Icon name="check" size={10} style={{ marginRight: 3, verticalAlign: '-1px' }} />
-          )}
-          {l}
-        </div>
-      ))}
-    </div>
-  )
-
   const next = () => setStep((s) => Math.min(4, s + 1))
   const back = () => setStep((s) => Math.max(0, s - 1))
   const typeProducts = grouped[type] || []
-
-  const PhotoCapture = () => (
-    <div
-      style={{
-        marginTop: 12,
-        padding: 12,
-        background: '#f8fafc',
-        borderRadius: 8,
-        border: '1px solid var(--border)'
-      }}
-    >
-      <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 8 }}>
-        Member photo (optional)
-      </div>
-      {photoPreview ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img
-            src={photoPreview}
-            alt="Member"
-            style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover' }}
-          />
-          <button
-            className="btn btn-ghost"
-            style={{ padding: '6px 10px', fontSize: 12 }}
-            onClick={clearPhoto}
-          >
-            Remove photo
-          </button>
-        </div>
-      ) : cameraOn ? (
-        <div>
-          <video
-            ref={videoRef}
-            style={{ width: '100%', maxWidth: 280, borderRadius: 8, background: '#000' }}
-          />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button
-              className="btn btn-primary"
-              style={{ padding: '6px 12px', fontSize: 12 }}
-              onClick={capturePhoto}
-            >
-              Capture
-            </button>
-            <button
-              className="btn btn-ghost"
-              style={{ padding: '6px 12px', fontSize: 12 }}
-              onClick={stopCamera}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            className="btn btn-ghost"
-            style={{ padding: '6px 12px', fontSize: 12 }}
-            onClick={startCamera}
-          >
-            <Icon name="camera" size={14} /> Take photo
-          </button>
-          <button
-            className="btn btn-ghost"
-            style={{ padding: '6px 12px', fontSize: 12 }}
-            onClick={() => fileRef.current?.click()}
-          >
-            <Icon name="upload" size={14} /> Upload
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            capture="user"
-            style={{ display: 'none' }}
-            onChange={handleFilePhoto}
-          />
-        </div>
-      )}
-    </div>
-  )
 
   return (
     <div
@@ -413,7 +431,7 @@ export function NewTransaction({ session, onDone }) {
             </div>
           </div>
         )}
-        <StepBar />
+        <StepBar step={step} />
         {step === 0 && (
           <div className="fade-in">
             <div className="field">
@@ -494,7 +512,19 @@ export function NewTransaction({ session, onDone }) {
                 placeholder="98XXXXXXXX"
               />
             </div>
-            {type === 'Membership' && <PhotoCapture />}
+            {type === 'Membership' && (
+              <PhotoCapture
+                photoPreview={photoPreview}
+                cameraOn={cameraOn}
+                videoRef={videoRef}
+                fileRef={fileRef}
+                onStartCamera={startCamera}
+                onStopCamera={stopCamera}
+                onCapture={capturePhoto}
+                onClear={clearPhoto}
+                onFilePhoto={handleFilePhoto}
+              />
+            )}
             <div className="amount-box">
               <span className="a-label">Amount</span>
               <span className="a-value">{fmt(amount)}</span>
