@@ -3,7 +3,7 @@
 **Date:** 2026-08-18/19 · **Build:** working tree on `main` (18 uncommitted files at time of sweep)
 **Method:** five parallel agents drove the **real Electron app** through Playwright's `_electron` API. Every launch used its own `--user-data-dir`, so no run touched the production `refresh.db`.
 
-**Coverage:** 25 screens · ~470 individual checks · 250 screenshots · 45 scripts.
+**Coverage:** 25 screens · ~470 individual checks. Screenshots and the one-off reproduction scripts were run artefacts and have since been removed; the maintained suites below replace them.
 **Result: 55 bugs — 2 P0, 12 P1, 22 P2, 19 P3.** **24 are fixed and verified**; the rest are documented for triage.
 
 **Verification status:** `verify-fixes.mjs` 10/10 · `verify-fixes-2.mjs` 15/15 · unit suite 77/77 · eslint 0 errors · **zero console errors at runtime**.
@@ -11,12 +11,10 @@
 | Artefact | Location |
 |---|---|
 | Harness | `test/e2e/harness.mjs` |
-| Area scripts | `test/e2e/area-*.mjs` |
-| Fix verification | `test/e2e/verify-fixes.mjs`, `test/e2e/verify-fixes-2.mjs` |
-| Screenshots | `docs/qa/screenshots/<area>/` |
+| Fix verification | `test/e2e/verify-fixes*.mjs`, `test/e2e/sweep-reports-settings.mjs` |
 | Staff-area detail | `docs/qa/findings-staff.md` |
 
-> **Reproducing:** `node test/e2e/verify-fixes.mjs`. The harness needs `better-sqlite3` built for **Electron's** ABI (`npx electron-builder install-app-deps`). Running `npm test` rebuilds it for the **Node** ABI and will break the harness until you run that command again. `npm run dev` self-heals via its `predev` hook.
+> **Reproducing:** `node test/e2e/verify-fixes.mjs`. The harness needs `better-sqlite3` built for **Electron's** ABI (`npx electron-rebuild -f -w better-sqlite3`). Running `npm test` rebuilds it for the **Node** ABI and will break the harness until you run that command again. `npm run dev` self-heals via its `predev` hook.
 
 ---
 
@@ -188,7 +186,6 @@ Worth stating, because it's most of the app:
 - **Printing** — no printer attached, so only the no-printer failure paths were exercised. Ticket layout, 58mm/80mm sizing and card artwork are unverified against hardware (the source flags this itself at `tickets.js:22-26`).
 - **Camera capture** for member photos — needs real hardware and a permission grant. The upload path was tested fully.
 - **The 30-minute idle timeout** — would require a 30-minute idle run.
-- **Reports and Settings (partial).** This agent was killed four times by server-side API errors (500/529) and never delivered. It confirmed a P0 and had a script named `price-corruption`, but **I have not seen its findings and am not reporting them.** Its 23 screenshots and 8 scripts are on disk at `docs/qa/screenshots/owner3/` and `test/e2e/area-owner3-*.mjs`. **This area needs a re-run**: 7 report types, Excel export correctness, pricing history, staff/admin management, restaurant menu, backup/restore, audit log.
 - **Concurrency** — two windows mutating the same record. The single-instance lock plus one `--user-data-dir` per launch made this impractical.
 - **Day-boundary behaviour** — all runs were inside one local day; midnight rollover was not observed.
 - **Multi-staff tills** — only one staff account exists from setup, so per-staff EOD attribution is untested.

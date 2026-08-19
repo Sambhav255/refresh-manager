@@ -1,6 +1,5 @@
 # QA findings — all staff-role screens
 
-*Produced by a Playwright-driven sweep of the real Electron build, 2026-08-18. Scripts: `test/e2e/area-staff-*.mjs`. Screenshots: `docs/qa/screenshots/staff/`.*
 
 **Summary:** 9 staff screens exercised end-to-end (StaffHome, New Transaction, Member Search, Today's Log, End of Day, Restaurant POS, Sell Item, Staff Inventory, Staff Bookings, plus the staff shell and keyboard shortcuts). **10 bugs: 1× P0, 4× P1, 3× P2, 3× P3.** 131 of 144 checks passed. No staff screen tripped `ScreenErrorBoundary`.
 
@@ -39,7 +38,6 @@ The backend is correct and deliberately hardened (it ignores client-supplied pri
 
 **Suggested fix.** Include `id: c.id` in each cart line. Since `price`/`name` are ignored server-side, the payload reduces to `{ id: c.id, quantity: c.quantity }`. Add a guard in the handler naming the offending field when `i.id` is missing so this fails loudly. A regression test driving the POS *through the UI* (not the IPC layer) would have caught it.
 
-**Screenshots.** `staff/74-pos-checkout-result.png`, `staff/71-pos-cart.png`
 
 ---
 
@@ -67,7 +65,6 @@ The on-screen figures also disagree with the WhatsApp report the owner receives:
 
 **Suggested fix.** Build the breakdown from `Object.entries(summary.byType)` with a label map and stable order, exactly as `whatsapp.js` already does (`TYPE_LABELS`/`TYPE_ORDER`). Share that map between main and renderer so screen and WhatsApp report cannot diverge. Add an assertion that the lines sum to the headline total.
 
-**Screenshot.** `staff/54-eod-summary-populated.png`
 
 ---
 
@@ -96,7 +93,6 @@ The query aliases the name to `product_name` (`transactions.js:96`), so `row.nam
 
 **Suggested fix.** Build the product object first, mirroring `members.js`: `productDisplayName({ name: row.product_name, category: row.category, duration_days: row.duration_days, sub_category: row.sub_category })`. For transactions with no `product_id`, prefer `row.notes` (already `"Tea x2"`) over the raw type. Make `productDisplayName` return `''` rather than `undefined` when `name` is missing.
 
-**Screenshots.** `staff/33-todays-log-populated.png`, `staff/52-log-populated.png`
 
 ---
 
@@ -116,7 +112,6 @@ The dead end: the owner's Pool Inventory offers **no way to set the selling pric
 
 **Suggested fix.** Add an inline price edit to each owner Pool Inventory row wired to the existing `updatePoolItem` handler — smallest change, and it also unblocks routine price changes. Seeding non-zero prices alone would still leave the owner unable to change a price. Soften the staff empty state to name the actual blocker.
 
-**Screenshot.** `staff/76-sellitem-list.png`
 
 ---
 
@@ -139,7 +134,6 @@ Banner gated on `allPricesZero` (line 455), never the selected product. Confirm 
 
 **Suggested fix.** Warn on the *selected* product: when `selected && !(selected.price > 0)`, show an amber alert on Product and Confirm steps and require explicit confirmation (or block). Grey out zero-priced products in the dropdown.
 
-**Screenshot.** `staff/27-txn-zero-price-saved.png`
 
 ---
 
@@ -155,7 +149,6 @@ Related: `createMember` and `addMembership` are separate IPC calls with no trans
 
 **Suggested fix.** Search for an existing member on name/phone blur and offer "Existing member found — add this membership to them?" with the option to create new (two people can share a name). Reuse the found `memberId`. Longer term, move create-member-plus-add-membership behind one IPC call in a single DB transaction.
 
-**Screenshot.** `staff/32-txn-duplicate-member.png`
 
 ---
 
@@ -169,7 +162,6 @@ Related: `createMember` and `addMembership` are separate IPC calls with no trans
 
 **Suggested fix.** Import `validatePhone`, block Continue on the Customer step when it errors, show the message inline (empty stays valid — phone is optional). Restrict input to digits as typed. Mirror the check in `members:create`.
 
-**Screenshot.** `staff/24-txn-step4-confirm.png`
 
 ---
 
@@ -185,7 +177,6 @@ Footfall feeds owner reports, so a reception desk re-searching a member (normal 
 
 **Suggested fix.** Return today's check-in state with each search result (or have `checkins:create` return `{alreadyCheckedIn: true}` without inserting) so the button reflects truth on every render, and show the check-in time. Enforce uniqueness per member per day at the DB level.
 
-**Screenshot.** `staff/47-members-duplicate-checkin.png`
 
 ---
 
@@ -206,7 +197,6 @@ Reception cannot answer "when did yours run out?" or "what were you on?" — the
 
 **Suggested fix.** Have `members:search` also return the most recent *past* membership; render "Expired — Gym Only — Monthly, ended 31 Jan 2024" versus a distinct "No membership on record".
 
-**Screenshot.** `staff/45-members-active-vs-expired.png`
 
 ---
 
@@ -220,7 +210,6 @@ Reception cannot answer "when did yours run out?" or "what were you on?" — the
 
 **Suggested fix.** Add a "Clear order" ghost button in the cart header calling `setCart([])`, with a confirm step once the cart is non-trivial. Label it distinctly from "Clear search".
 
-**Screenshot.** `staff/72-pos-line-removed.png`
 
 ---
 
@@ -243,7 +232,6 @@ Compare `handlePrint` at `:337-350`, which checks `result?.success` and sets `pr
 
 **Suggested fix.** Mirror `handlePrint`: check `success`, reuse the existing `printError` alert, clear it at call start. Add a "Card sent to printer" confirmation, since silent success and silent failure currently look identical.
 
-**Screenshot.** `staff/92-print-card-result.png`
 
 ---
 

@@ -1,40 +1,40 @@
 # Refresh Manager
 
-Desktop management software for **Refresh Recreation Center**, Boudha, Kathmandu. Built with Electron + React, runs entirely offline with a local SQLite database.
+Desktop management software for **Refresh Recreation Center**, Boudha, Kathmandu. Electron + React, running entirely offline against a local SQLite database.
+
+One machine at the reception desk runs the whole business: pool and gym entry, memberships, a restaurant till, stock for both, event bookings, and the owner's reporting and settings.
+
+> **New to this codebase?** Read [ABOUT.md](ABOUT.md) — it covers what was built, every bug found and fixed, and the reasoning behind the decisions that aren't obvious from the code.
 
 ---
 
 ## Features
 
-### Staff
-- **New transaction** — sell day passes, day packages, or memberships in a 5-step wizard with optional member photo
-- **Member search** — look up any member by name or phone, see active membership and expiry
-- **Today's log** — live list of all transactions for the current shift
-- **End of day** — cash reconciliation followed by a WhatsApp summary sent to the admin
-- **Inventory** — read-only view of pool stock levels with low-stock alerts
-- **Bookings** — upcoming event bookings for the next 14 days
-- **Restaurant POS** — tap-to-add menu order, choose payment method, one-tap checkout
+### Staff (front desk)
+
+- **New transaction** — day passes, day packages and memberships in a 5-step wizard, with an optional member photo. When the customer looks like someone already on file, it offers to add the membership to that record instead of creating a duplicate.
+- **Member search** — by name or phone; shows the active membership and expiry, or what a lapsed member last held and when it ended.
+- **Today's log** — every transaction of the current shift, with a running total.
+- **End of day** — cash reconciliation, then a WhatsApp summary to the admin. The itemised breakdown always reconciles to the headline total.
+- **Restaurant POS** — tap to add, adjust quantities, pick a payment method, one-tap checkout. Linked stock draws down automatically.
+- **Sell item** — pool stock (goggles, caps, costumes) sold over the counter.
+- **Inventory** — read-only stock levels with low-stock alerts.
+- **Bookings** — upcoming events for the next 14 days.
 
 ### Admin
-- **Dashboard** — daily KPIs (pool + restaurant revenue), recent transactions, backup status, renewal reminders, and low-stock alerts at a glance
-- **Transactions** — full transaction history with filters (date, type, staff, payment); void any transaction with reason
-- **Members** — complete member list with status filters, membership history, and one-click WhatsApp renewal reminders
-- **Bookings** — create and manage event/group bookings with deposit tracking
-- **Pool inventory** — restock, adjust, or add items; full transaction history per item
-- **Restaurant** — manage restaurant inventory separately from pool inventory
-- **Reports** — seven report types (daily, monthly, custom range, member retention, inventory turnover, bookings, staff activity) with one-click Excel export
-- **Settings**
-  - Pricing manager — update product prices with change history
-  - Staff & Admins — add/deactivate staff PINs and admin accounts, change admin passwords
-  - WhatsApp number — admin number for EOD reports and renewal reminders
-  - Renewal reminder template — customisable Nepali WhatsApp message
-  - Restaurant menu — add/edit/toggle menu items for staff POS
-  - Backup settings — folder path, daily schedule, auto-backup toggle
-  - Business info — name, address, phone (used on printed tickets)
+
+- **Dashboard** — daily KPIs (pool and restaurant revenue, footfall), alerts for renewals, low stock, upcoming bookings and backup health. Alerts navigate to the screen that resolves them.
+- **Transactions** — full history with filters for date range (including custom), type, staff and payment method; pagination; an optional view of voided rows. Void with a reason, or refund in full or part.
+- **Members** — list with status filters including Paused, membership history, pause/resume, and one-click WhatsApp renewal reminders.
+- **Bookings** — create and manage events with deposit tracking and balance due. Cancelling asks first and states what happens to the deposit.
+- **Inventory** (pool and restaurant, separately) — restock, adjust stock with a mandatory reason, set selling prices, and a per-item movement history showing every change, who made it and why.
+- **Restaurant menu** — items, prices, availability, and the link from a menu item to the stock it consumes.
+- **Reports** — seven types (daily, monthly, custom range, member retention, inventory turnover, bookings, staff activity) with Excel export.
+- **Settings** — pricing with change history, staff and admin accounts, WhatsApp number, renewal-reminder template, backup schedule and encryption, business details, and an audit log.
 
 ---
 
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |---|---|
@@ -46,185 +46,117 @@ Desktop management software for **Refresh Recreation Center**, Boudha, Kathmandu
 | Reports | ExcelJS |
 | Auth | bcryptjs |
 | Scheduler | node-cron |
+| Tests | Vitest (unit/IPC), Playwright (end-to-end, drives the real app) |
 
 ---
 
-## Getting Started
+## Getting started
 
-### Prerequisites
-
-- Node.js 20+
-- npm 10+
-
-### Install
+**Prerequisites:** Node.js 20+, npm 10+
 
 ```bash
 npm install
-```
-
-### Development
-
-```bash
 npm run dev
 ```
 
-The app opens in a frameless window. Press **Esc** at any time to return to the login screen.
+The app opens in a frameless window. Press **Esc** to return to the login screen (except while typing in a field).
 
-### Lint & Format
+On first launch a setup wizard creates the admin account and the first staff PIN. There is no password reset, so record those credentials somewhere safe.
 
-```bash
-npm run lint
-npm run format
-```
+### Commands
 
----
-
-## Building
-
-```bash
-# Windows (.exe installer)
-npm run build:win
-
-# macOS (.dmg)
-npm run build:mac
-
-# Linux (.AppImage / .deb / .snap)
-npm run build:linux
-```
-
-Output goes to `dist-app/`.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Run in development |
+| `npm run build` | Build the bundle into `out/` |
+| `npm test` | Unit + IPC suite (Vitest) |
+| `npm run lint` / `npm run format` | ESLint / Prettier |
+| `npm run build:mac` / `build:win` / `build:linux` | Package for distribution |
 
 ---
 
-## Project Structure
+## Architecture
 
 ```
 src/
-├── main/                   # Electron main process
-│   ├── index.js            # App entry, window creation, backup scheduler
-│   ├── session.js          # In-memory session (admin role is 'owner' internally)
+├── main/                  # Electron main process — owns the database
+│   ├── index.js           # Window, single-instance lock, cron backup
 │   ├── db/
-│   │   ├── schema.js       # CREATE TABLE statements
-│   │   ├── seed.js         # Default products, inventory items, settings
-│   │   ├── migrations.js   # Additive schema migrations
-│   │   └── index.js        # DB init, WAL mode
-│   └── ipc/
-│       ├── index.js        # Registers all IPC handlers
-│       ├── auth.js         # Login, setup wizard, staff & admin management
-│       ├── transactions.js # Create, list, void, today summary
-│       ├── members.js      # Members, memberships, expiry queries
-│       ├── products.js     # List, price update, price history
-│       ├── bookings.js     # Event bookings CRUD
-│       ├── inventory-pool.js        # Pool stock in/out/adjust
-│       ├── inventory-restaurant.js  # Restaurant stock in/out/adjust
-│       ├── restaurant-menu.js       # Menu items + POS checkout
-│       ├── reports.js      # All reports + Excel export
-│       ├── whatsapp.js     # EOD message via wa.me deep link
-│       ├── reminders.js    # Membership renewal WhatsApp reminders
-│       ├── tickets.js      # Print receipt + membership card
-│       ├── photos.js       # Save / retrieve member photos
-│       ├── reconciliation.js # Cash reconciliation records
-│       ├── backup.js       # DB backup / restore
-│       ├── settings.js     # Key-value settings store
-│       └── utils.js        # Shared date / formatting helpers
-│
-├── preload/
-│   └── index.js            # Exposes typed window.api to renderer
-│
-└── renderer/
-    ├── index.html          # App shell with stage scaler
-    ├── ticket.html         # Printable receipt template
-    ├── membership-card.html # Printable membership card template
-    └── src/
-        ├── App.jsx         # Root: setup wizard, login, staff/admin router
-        ├── app.css         # All styles (design tokens, components, layout)
-        ├── main.jsx        # React root mount
-        ├── components/
-        │   ├── ui.jsx      # Icon, Badge, Avatar, Window, AppHeader, SectionHead
-        │   └── ScreenErrorBoundary.jsx
-        ├── lib/
-        │   ├── api.js      # Typed wrappers around window.api IPC calls
-        │   ├── format.js   # fmt(), todayLocal(), date formatters
-        │   └── validate.js # PIN, phone, price, date validators
-        ├── data/
-        │   └── mock.js     # Static UI config (settings cards, report cards)
-        └── screens/
-            ├── staff.jsx           # StaffHome tiles + barrel export
-            ├── staff-transaction.jsx
-            ├── staff-members.jsx
-            ├── staff-log.jsx
-            ├── staff-eod.jsx
-            ├── staff-bookings.jsx
-            ├── staff-restaurant-pos.jsx
-            ├── owner.jsx           # Admin screens barrel export
-            ├── owner-dashboard.jsx
-            ├── owner-transactions.jsx
-            ├── owner-members.jsx
-            ├── owner-bookings.jsx
-            ├── owner-inventory.jsx
-            ├── owner-restaurant.jsx
-            ├── owner-reports.jsx
-            ├── owner-settings-main.jsx
-            ├── owner-settings-pricing.jsx
-            ├── owner-settings-staff.jsx
-            ├── owner-settings-extras.jsx
-            ├── owner-settings-backup.jsx
-            └── owner-settings-restaurant-menu.jsx
+│   │   ├── schema.js      # Base tables (safe on every startup)
+│   │   ├── migrations.js  # Versioned via PRAGMA user_version
+│   │   ├── update-safety.js # Snapshot + rollback around migrations
+│   │   └── seed.js        # Default products, stock and settings
+│   ├── ipc/               # One module per domain; all business logic
+│   ├── session.js         # In-memory session (admin role is 'owner' internally)
+│   ├── audit.js           # Append-only audit trail
+│   └── diagnostics.js     # Persistent log for support
+├── preload/index.js       # The ONLY bridge: a curated, typed API surface
+├── shared/                # Imported by BOTH processes — keep electron-free
+│   └── transaction-types.js
+└── renderer/src/
+    ├── App.jsx            # Setup wizard, login, staff/admin router
+    ├── lib/api.js         # Thin wrapper over the preload bridge
+    ├── components/ui.jsx  # Shared primitives
+    └── screens/           # staff-*.jsx and owner-*.jsx
 ```
 
----
+### Rules this codebase holds to
 
-## Database
+These are not style preferences — several were learned from bugs that reached a working tree.
 
-The SQLite database lives at the Electron `userData` path:
-
-- **Windows:** `%APPDATA%\refresh-manager\refresh.db`
-- **macOS:** `~/Library/Application Support/refresh-manager/refresh.db`
-
-Member photos are stored alongside it in a `photos/` subfolder.
-
-Backups are plain `.db` file copies placed in whichever folder is configured in Settings → Backup. Up to 30 backups are kept; older ones are pruned automatically.
+1. **Money and identity are derived in main, never accepted from the renderer.** Handlers re-read the price from the product catalogue and take `staff_id` from the session. A payload's `amount` or `staffId` is ignored. A buggy or tampered renderer cannot mis-price a sale or attribute it to someone else.
+2. **Handlers validate their own input.** The main process is the last line of defence: blank names, negative money, text in numeric columns and absurd quantities are rejected there, not only in a form.
+3. **Multi-write operations run in one `db.transaction()`.** A failure must leave nothing behind — no orphaned member, no stock movement without its sale.
+4. **All timestamps are local** (`datetime('now','localtime')`). The business closes at midnight Kathmandu time, not midnight UTC.
+5. **No silent no-ops.** Every early return in a click path either shows a message or corresponds to a visibly disabled control.
+6. **Anything both processes need lives in `src/shared/`.** Parallel copies drift — that is how the End of Day screen and the WhatsApp report came to disagree about the same day.
 
 ---
 
-## First Run
+## Testing
 
-On first launch a setup wizard collects:
+Two layers, because they catch different things.
 
-1. **Admin name** — becomes the login username
-2. **Admin password** — hashed with bcrypt (min 4 characters)
-3. **First staff name + 4-digit PIN**
+```bash
+npm test                                  # 183 unit/IPC tests
+npx electron-rebuild -f -w better-sqlite3 # switch the native module back
+node test/e2e/verify-fixes.mjs            # and the other suites
+```
 
-After setup the app seeds default products (memberships, day packages, day passes), pool inventory items, and restaurant inventory items with prices set to Rs. 0. Set real prices in **Settings → Pricing manager** before going live.
+**Unit/IPC (Vitest, 23 files).** Exercises the real handlers against a temp database using a small Electron mock. Covers money derivation, refunds and voids, backup and restore, migrations, security and reports.
+
+**End-to-end (Playwright, 6 suites, 96 checks).** Launches the built Electron app and drives the actual UI. Each launch gets its own `--user-data-dir`, so runs never touch real data and several can run at once.
+
+This second layer exists for a specific reason: both of the worst bugs ever found in this app lived in the payload the renderer sent to main. Every handler test passed while the app was unusable. **Unit-green does not mean working.**
+
+### ⚠️ The ABI trap
+
+`better-sqlite3` is a native module and must be compiled for **Node's** ABI to run Vitest, but for **Electron's** ABI to run the app or any E2E script. These states are mutually exclusive.
+
+- `npm test` rebuilds for Node automatically (its `pretest` hook).
+- Afterwards, before running the app or E2E: `npx electron-rebuild -f -w better-sqlite3`.
+- **Do not rely on `electron-builder install-app-deps`** — it has been observed reporting success without actually rebuilding. `electron-rebuild -f` is the reliable command.
+
+If the app starts and immediately reports a database error mentioning `NODE_MODULE_VERSION`, this is why.
 
 ---
 
-## Authentication
+## Data and safety
 
-| Role | Credential | Access |
-|---|---|---|
-| Staff | 4-digit PIN | Transactions, member search, EOD, bookings, restaurant POS |
-| Admin | Name + password | Everything above + reports, settings, void, inventory management |
-
-The session auto-expires after an idle timeout (default 30 minutes, configurable in Settings). Press **Esc** to log out immediately.
+- The database lives at `app.getPath('userData')/refresh.db` — outside the repo, never in it.
+- **Backups** run on a schedule and can be encrypted (AES-GCM, authenticated). A restore verifies the file is a valid SQLite database before replacing anything, and is gated behind an admin password.
+- **Migrations** snapshot a populated database first and roll back on failure, refusing to start rather than running against half-migrated data. A database written by a newer version is refused outright.
+- **Uniqueness constraints** that existing data already violates are skipped and logged rather than forced — the app will not delete a customer record to satisfy an index.
 
 ---
 
 ## Documentation
 
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** — reception-PC setup and operations runbook.
-- **[docs/PROGRESS.md](docs/PROGRESS.md)** — running log of what has changed, why, and how to work on this codebase safely (**start here if you're picking this up**).
-- **[docs/VERIFICATION.md](docs/VERIFICATION.md)** / **[docs/SAFETY_AUDIT.md](docs/SAFETY_AUDIT.md)** — verification matrix and security/correctness audit (incl. the multi-agent review round).
-- **[docs/](docs/)** — original + Phase-2 engineering work orders and follow-up notes.
-
-### Developer quickstart
-
-```bash
-npm install
-npm run dev      # runs the app (auto-rebuilds better-sqlite3 for Electron)
-npm test         # full suite (auto-rebuilds better-sqlite3 for Node)
-npm run lint     # 0 errors expected
-npm run build    # production bundle
-```
-
-> `better-sqlite3` is native; Electron and Node use different ABIs. The `predev`/`prestart` and `pretest` scripts rebuild it automatically for each — see `docs/PROGRESS.md` if you hit a `NODE_MODULE_VERSION` error.
+| File | Contents |
+|---|---|
+| [ABOUT.md](ABOUT.md) | Project history, every bug found and fixed, and the decisions taken |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Packaging and installation on the venue machine |
+| [docs/qa/QA_REPORT.md](docs/qa/QA_REPORT.md) | The full QA sweep — 55 bugs with root cause and `file:line` |
+| [docs/qa/MONEY_AUDIT.md](docs/qa/MONEY_AUDIT.md) | Adversarial audit of every cash and stock path |
+| [docs/qa/SHIP_READINESS.md](docs/qa/SHIP_READINESS.md) | Test plan, fix status, and what still needs a human |
+| [docs/qa/findings-staff.md](docs/qa/findings-staff.md) | Detailed staff-screen findings |
