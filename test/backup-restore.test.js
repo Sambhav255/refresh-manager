@@ -161,11 +161,11 @@ describe('P0-3 — backup restore is a safe close/replace/relaunch', () => {
     expect(countTxns(db)).toBe(1)
   })
 
-  it('rejects a wrong owner password', async () => {
+  it('rejects a wrong admin password', async () => {
     const backupDir = mkdtempSync(join(tmpdir(), 'refresh-bak-'))
     const { filePath } = performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
     const res = await __invoke('backup:restore', { backupFilePath: filePath, password: 'wrong' })
     expect(res.success).toBe(false)
-    expect(res.error).toMatch(/incorrect owner password/i)
+    expect(res.error).toMatch(/incorrect admin password/i)
   })
 })

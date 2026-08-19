@@ -10,3 +10,7 @@ out
 # QA evidence: ~94MB of run artefacts. Reports in docs/qa/*.md reference
 # these paths; the images themselves are regenerable and stay out of history.
 docs/qa/screenshots
+
+# One-off reproduction scripts from the August QA sweep. Superseded by the
+# maintained verify-fixes*/sweep-* suites; kept locally as evidence only.
+test/e2e/area-*.mjs

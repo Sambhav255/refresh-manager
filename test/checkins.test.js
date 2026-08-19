@@ -38,12 +38,23 @@ describe('3-A — check-ins / footfall', () => {
 
   it('computes footfall totals and a daily average over a range', async () => {
     loginOwner(ids)
-    const m = addMember('Gita')
-    // three check-ins today
-    for (let i = 0; i < 3; i++) await __invoke('checkins:create', { memberId: m })
+    // Three DIFFERENT visitors today. This used to check the same member in
+    // three times and expect 3 — which was the footfall-inflation bug itself
+    // (checkins:create now counts a member once per day).
+    for (const name of ['Gita', 'Bimala', 'Sunita']) {
+      await __invoke('checkins:create', { memberId: addMember(name) })
+    }
     const ff = await __invoke('checkins:footfall', {})
     expect(ff.total).toBe(3)
     expect(ff.dailyAverage).toBeGreaterThanOrEqual(1)
+  })
+
+  it('counts a member once per day however many times they are checked in', async () => {
+    loginOwner(ids)
+    const m = addMember('Gita')
+    for (let i = 0; i < 3; i++) await __invoke('checkins:create', { memberId: m })
+    const ff = await __invoke('checkins:footfall', {})
+    expect(ff.total).toBe(1)
   })
 
   it('not-seen lists an active member with no recent check-in, excludes a visitor', async () => {

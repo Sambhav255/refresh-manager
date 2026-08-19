@@ -20,6 +20,7 @@ import { registerReportHandlers } from '../src/main/ipc/reports.js'
 import { registerPhotoHandlers } from '../src/main/ipc/photos.js'
 import { registerAuthHandlers } from '../src/main/ipc/auth.js'
 import { registerRestaurantInventoryHandlers } from '../src/main/ipc/inventory-restaurant.js'
+import { registerProductHandlers } from '../src/main/ipc/products.js'
 
 let registered = false
 function registerAll() {
@@ -39,6 +40,7 @@ function registerAll() {
   registerPhotoHandlers()
   registerAuthHandlers()
   registerRestaurantInventoryHandlers()
+  registerProductHandlers()
   registered = true
 }
 
