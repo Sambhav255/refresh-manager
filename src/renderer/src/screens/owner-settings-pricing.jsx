@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { fmt } from '../lib/format'
 import { Icon, SectionHead } from '../components/ui'
+import { validatePrice, validateRequired } from '../lib/validate'
 
 export function PricingManager({ back }) {
   const [products, setProducts] = useState([])
@@ -9,6 +10,7 @@ export function PricingManager({ back }) {
   const [history, setHistory] = useState([])
   const [editId, setEditId] = useState(null)
   const [newPrice, setNewPrice] = useState('')
+  const [error, setError] = useState('')
 
   const load = () =>
     api.listProducts({ activeOnly: false }).then((r) => setProducts(r.products || []))
@@ -17,15 +19,29 @@ export function PricingManager({ back }) {
   }, [])
 
   const savePrice = async (id) => {
-    await api.updatePrice({ productId: id, newPrice: Number(newPrice) })
+    setError('')
+    const invalid = validateRequired(newPrice, 'Price') || validatePrice(newPrice)
+    if (invalid) {
+      setError(invalid)
+      return
+    }
+    const r = await api.updatePrice({ productId: id, newPrice: Number(newPrice) })
+    if (r?.success === false) {
+      setError(r.error || 'Could not update price')
+      return
+    }
     setEditId(null)
     setNewPrice('')
     load()
   }
 
   const showHistory = async (id) => {
+    setError('')
     setHistoryId(id)
     const r = await api.priceHistory({ productId: id })
+    // A failed lookup used to render as an empty history card, indistinguishable
+    // from a product whose price has genuinely never changed.
+    if (r.error) setError(r.error)
     setHistory(r.history || [])
   }
 
@@ -36,6 +52,11 @@ export function PricingManager({ back }) {
           <Icon name="chevron-left" size={15} /> Back
         </button>
       </SectionHead>
+      {error && (
+        <div className="alert red" style={{ marginBottom: 12 }}>
+          <div className="a-desc">{error}</div>
+        </div>
+      )}
       <table className="tbl">
         <thead>
           <tr>
@@ -80,6 +101,7 @@ export function PricingManager({ back }) {
                       className="btn btn-ghost"
                       style={{ padding: '4px 8px', fontSize: 11 }}
                       onClick={() => {
+                        setError('')
                         setEditId(p.id)
                         setNewPrice(String(p.price))
                       }}
@@ -103,6 +125,7 @@ export function PricingManager({ back }) {
       {historyId && (
         <div className="card" style={{ marginTop: 14, padding: 14 }}>
           <div style={{ fontWeight: 500, marginBottom: 8 }}>Price history</div>
+          {history.length === 0 && <div className="sub">No price changes recorded yet.</div>}
           {history.map((h) => (
             <div
               key={h.id}

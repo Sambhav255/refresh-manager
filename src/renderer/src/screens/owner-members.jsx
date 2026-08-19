@@ -79,12 +79,24 @@ export function OwnerMembers() {
     await reload()
   }
 
-  const filtered = members.filter((m) => {
+  // Single source of truth for a member's displayed status. The filter used to
+  // derive this without the paused check while the row renderer included it,
+  // so paused members were listed under "Expired" with a "Paused" badge.
+  const memberStatus = (m) => {
     const mem = m.activeMembership
-    const status = mem?.uiStatus || 'Expired'
+    if (!mem && m.pausedMembership) return 'Paused'
+    return mem?.uiStatus || 'Expired'
+  }
+
+  const filtered = members.filter((m) => {
+    const needle = q.trim().toLowerCase()
+    // Match the fields independently: concatenating them made "rai9841" match
+    // a string that exists in neither the name nor the phone.
     const matchQ =
-      !q.trim() || (m.name + (m.phone || '')).toLowerCase().includes(q.trim().toLowerCase())
-    const matchStatus = !statusFilter || status === statusFilter
+      !needle ||
+      m.name.toLowerCase().includes(needle) ||
+      (m.phone || '').toLowerCase().includes(needle)
+    const matchStatus = !statusFilter || memberStatus(m) === statusFilter
     return matchQ && matchStatus
   })
 
@@ -121,6 +133,7 @@ export function OwnerMembers() {
           <option value="">All statuses</option>
           <option>Active</option>
           <option>Expiring soon</option>
+          <option>Paused</option>
           <option>Expired</option>
         </select>
       </div>
@@ -140,8 +153,9 @@ export function OwnerMembers() {
             const paused = x.pausedMembership
             const isPaused = !mem && !!paused
             const status = isPaused ? 'Paused' : mem?.uiStatus || 'Expired'
-            const type = (mem || paused)?.productName || '—'
-            const expiry = (mem || paused)?.endDisplay || '—'
+            const last = x.lastMembership
+            const type = (mem || paused)?.productName || last?.productName || '—'
+            const expiry = (mem || paused)?.endDisplay || (last ? `ended ${last.endDisplay}` : '—')
             return (
               <tr key={x.id}>
                 <td>

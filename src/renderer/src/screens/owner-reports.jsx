@@ -4,6 +4,51 @@ import { fmt, todayLocal } from '../lib/format'
 import { Icon, SectionHead } from '../components/ui'
 import { reports } from '../data/mock'
 
+// Local-timezone ISO date (yyyy-mm-dd), matching todayLocal's format.
+function isoLocal(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// Quick date-range presets for the custom range inputs. Each returns [from, to].
+const DATE_PRESETS = [
+  {
+    label: 'Today',
+    range: () => {
+      const t = new Date()
+      return [isoLocal(t), isoLocal(t)]
+    }
+  },
+  {
+    label: 'Last 7 days',
+    range: () => {
+      const t = new Date()
+      const f = new Date(t)
+      f.setDate(t.getDate() - 6)
+      return [isoLocal(f), isoLocal(t)]
+    }
+  },
+  {
+    label: 'This month',
+    range: () => {
+      const t = new Date()
+      return [isoLocal(new Date(t.getFullYear(), t.getMonth(), 1)), isoLocal(t)]
+    }
+  },
+  {
+    label: 'Last month',
+    range: () => {
+      const t = new Date()
+      return [
+        isoLocal(new Date(t.getFullYear(), t.getMonth() - 1, 1)),
+        isoLocal(new Date(t.getFullYear(), t.getMonth(), 0))
+      ]
+    }
+  }
+]
+
 const ADVANCED = [
   {
     key: 'retention',
@@ -111,8 +156,29 @@ export function OwnerReports() {
       {(busy === 'custom' || busy === 'staff-activity' || busy === 'reconciliation') && (
         <div
           className="card"
-          style={{ padding: 14, marginBottom: 14, display: 'flex', gap: 10, alignItems: 'center' }}
+          style={{
+            padding: 14,
+            marginBottom: 14,
+            display: 'flex',
+            gap: 10,
+            alignItems: 'center',
+            flexWrap: 'wrap'
+          }}
         >
+          {DATE_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              className="btn btn-ghost"
+              style={{ padding: '5px 10px', fontSize: 12 }}
+              onClick={() => {
+                const [from, to] = p.range()
+                setCustomFrom(from)
+                setCustomTo(to)
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
           <input
             className="input"
             type="date"

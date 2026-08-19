@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
 import { fmt, todayLocal, formatDateDisplay } from '../lib/format'
 import { Icon, PayBadge, SectionHead } from '../components/ui'
 
-export function OwnerDashboard() {
+export function OwnerDashboard({ go }) {
   const [pool, setPool] = useState(null)
   const [restaurant, setRestaurant] = useState(null)
   const [combined, setCombined] = useState(null)
@@ -16,19 +16,23 @@ export function OwnerDashboard() {
   const [backupStale, setBackupStale] = useState(false)
   const [footfall, setFootfall] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [sendingReminders, setSendingReminders] = useState(false)
   const today = todayLocal()
 
-  useEffect(() => {
-    Promise.all([
+  const loadData = useCallback(() => {
+    return Promise.all([
       api.todaySummary({ source: 'pool' }),
       api.todaySummary({ source: 'restaurant' }),
       api.todaySummary(),
       api.listTransactions({ dateFrom: today, dateTo: today }),
       api.upcomingBookings({ days: 14 }),
       api.poolLowStock(),
-      api.expiringSoon({ days: 5 }),
-      api.getExpiringReminders({ days: 5 }),
+      // Omit `days` so both handlers fall back to the expiry_warning_days
+      // setting, which the Members screen already honours. Hardcoding 5 made
+      // the two screens disagree about who is expiring.
+      api.expiringSoon({}),
+      api.getExpiringReminders({}),
       api.getBackupStatus(),
       api.getTodayCheckins()
     ]).then(([p, r, c, t, b, l, e, rem, bk, ci]) => {
@@ -51,13 +55,29 @@ export function OwnerDashboard() {
     })
   }, [today])
 
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  // Manual refresh — keeps current data on screen (no flash back to the
+  // loading placeholder) while fresh numbers are fetched.
+  const refresh = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      await loadData()
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   // P1-5: guided one-at-a-time flow — open (and mark sent) only the next
   // pending member's WhatsApp chat, never a burst of tabs.
   const sendNextReminder = async () => {
     if (!reminders.length) return
     setSendingReminders(true)
     await api.sendReminder({ membershipId: reminders[0].membershipId })
-    const rem = await api.getExpiringReminders({ days: 5 })
+    const rem = await api.getExpiringReminders({})
     setReminders(rem.members || [])
     setSendingReminders(false)
   }
@@ -109,39 +129,54 @@ export function OwnerDashboard() {
       c: 'amber',
       icon: 'calendar-clock',
       t: expiring.length + ' memberships expiring',
-      d: 'Within next 5 days'
+      d: 'Within your renewal warning window',
+      goTo: 'members'
     })
   // 6-C: flag a stale backup (no success in >36h) so it's noticed early.
   const lastBk = backupStatus?.lastBackupAt
   if (backupStatus?.status === 'failed')
-    alerts.push({ c: 'red', icon: 'folder', t: 'Backup failed', d: 'Check backup settings' })
+    alerts.push({
+      c: 'red',
+      icon: 'folder',
+      t: 'Backup failed',
+      d: 'Check backup settings',
+      goTo: 'settings'
+    })
   else if (backupStale)
     alerts.push({
       c: 'red',
       icon: 'folder',
       t: 'Backup is stale',
-      d: lastBk ? 'Last success: ' + lastBk : 'No successful backup yet — set one up'
+      d: lastBk ? 'Last success: ' + lastBk : 'No successful backup yet — set one up',
+      goTo: 'settings'
     })
   else
     alerts.push({
       c: 'green',
       icon: 'folder',
       t: 'Last backup: ' + lastBk,
-      d: backupStatus.status === 'success' ? '✓ Success' : backupStatus.status || ''
+      d: backupStatus?.status === 'success' ? '✓ Success' : backupStatus?.status || ''
     })
   if (lowStock.length) {
     const d = lowStock
       .slice(0, 2)
       .map((i) => i.item + (i.variant !== '—' ? ' (' + i.variant + ')' : ''))
       .join(' · ')
-    alerts.push({ c: 'red', icon: 'alert-triangle', t: lowStock.length + ' items low stock', d })
+    alerts.push({
+      c: 'red',
+      icon: 'alert-triangle',
+      t: lowStock.length + ' items low stock',
+      d,
+      goTo: 'inventory'
+    })
   }
   if (bookings.length)
     alerts.push({
       c: 'green',
       icon: 'calendar-days',
       t: bookings.length + ' upcoming bookings',
-      d: 'Next 14 days'
+      d: 'Next 14 days',
+      goTo: 'bookings'
     })
 
   const total = tx.reduce((s, t) => s + t.amount, 0)
@@ -156,7 +191,16 @@ export function OwnerDashboard() {
 
   return (
     <div className="content fade-in">
-      <SectionHead title="Dashboard" date={formatDateDisplay(today)} />
+      <SectionHead title="Dashboard" date={formatDateDisplay(today)}>
+        <button
+          className="btn btn-ghost"
+          style={{ padding: '6px 12px', fontSize: 12 }}
+          disabled={refreshing}
+          onClick={refresh}
+        >
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </SectionHead>
       <div
         style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 18 }}
       >
@@ -208,8 +252,10 @@ export function OwnerDashboard() {
             </table>
           )}
           <div className="tbl-foot">
-            <span>{tx.length} shown · today</span>
-            <span className="total">Total: {fmt(total)}</span>
+            {/* This total covers the rows shown (top 5), not the whole day —
+                label it as such so it is not misread as today's takings. */}
+            <span>{tx.length} most recent</span>
+            <span className="total">Total of shown: {fmt(total)}</span>
           </div>
           {bookings.length > 0 && (
             <div style={{ marginTop: 18 }}>
@@ -231,7 +277,14 @@ export function OwnerDashboard() {
           <div style={{ fontSize: 14, fontWeight: 500, marginBottom: -1 }}>Alerts</div>
           {alerts.length ? (
             alerts.map((a) => (
-              <div key={a.t} className={'alert ' + a.c}>
+              // Alerts that name a problem elsewhere now navigate to it —
+              // "13 items low stock" used to be a dead end.
+              <div
+                key={a.t}
+                className={'alert ' + a.c}
+                style={a.goTo && go ? { cursor: 'pointer' } : undefined}
+                onClick={a.goTo && go ? () => go(a.goTo) : undefined}
+              >
                 <Icon name={a.icon} size={17} />
                 <div style={{ flex: 1 }}>
                   <div className="a-title">{a.t}</div>

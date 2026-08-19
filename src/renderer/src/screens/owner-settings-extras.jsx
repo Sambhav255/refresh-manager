@@ -5,6 +5,7 @@ import { Icon, SectionHead } from '../components/ui'
 export function WhatsAppSettings({ back }) {
   const [number, setNumber] = useState('')
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -15,7 +16,14 @@ export function WhatsAppSettings({ back }) {
   }, [])
 
   const save = async () => {
-    await api.setSetting({ key: 'whatsapp_owner_number', value: number })
+    setError('')
+    const r = await api.setSetting({ key: 'whatsapp_owner_number', value: number })
+    // The result used to be discarded, so a rejected write still flashed "Saved!"
+    // and the owner walked away believing the daily report would reach them.
+    if (r?.success === false) {
+      setError(r.error || 'Could not save the WhatsApp number')
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -47,6 +55,11 @@ export function WhatsAppSettings({ back }) {
         <button className="btn btn-primary" onClick={save}>
           {saved ? 'Saved!' : 'Save'}
         </button>
+        {error && (
+          <div className="alert red" style={{ marginTop: 10 }}>
+            <div className="a-desc">{error}</div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -60,6 +73,7 @@ export function BusinessInfo({ back }) {
     receipt_width: '80'
   })
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -76,8 +90,16 @@ export function BusinessInfo({ back }) {
   }, [])
 
   const save = async () => {
+    setError('')
     for (const [key, value] of Object.entries(form)) {
-      await api.setSetting({ key, value })
+      const r = await api.setSetting({ key, value })
+      // Stop at the first rejected field: a partially-written form that still
+      // reports "Saved!" is worse than an obvious failure, because the receipt
+      // header would keep printing the old value with nothing to explain it.
+      if (r?.success === false) {
+        setError(r.error || `Could not save ${key.replace(/_/g, ' ')}`)
+        return
+      }
     }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -131,6 +153,11 @@ export function BusinessInfo({ back }) {
         <button className="btn btn-primary" onClick={save}>
           {saved ? 'Saved!' : 'Save'}
         </button>
+        {error && (
+          <div className="alert red" style={{ marginTop: 10 }}>
+            <div className="a-desc">{error}</div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -140,6 +167,7 @@ export function RenewalTemplateSettings({ back }) {
   const [template, setTemplate] = useState('')
   const [timeout, setTimeout_] = useState('30')
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -151,8 +179,15 @@ export function RenewalTemplateSettings({ back }) {
   }, [])
 
   const save = async () => {
-    await api.setSetting({ key: 'renewal_reminder_template', value: template })
-    await api.setSetting({ key: 'session_timeout_minutes', value: timeout })
+    setError('')
+    const a = await api.setSetting({ key: 'renewal_reminder_template', value: template })
+    const b = await api.setSetting({ key: 'session_timeout_minutes', value: timeout })
+    // Both writes used to be fire-and-forget, so a failure still showed "Saved!".
+    const failed = [a, b].find((r) => r?.success === false)
+    if (failed) {
+      setError(failed.error || 'Could not save reminder settings')
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -198,6 +233,11 @@ export function RenewalTemplateSettings({ back }) {
         <button className="btn btn-primary" onClick={save}>
           {saved ? 'Saved!' : 'Save'}
         </button>
+        {error && (
+          <div className="alert red" style={{ marginTop: 10 }}>
+            <div className="a-desc">{error}</div>
+          </div>
+        )}
       </div>
     </div>
   )

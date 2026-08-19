@@ -15,6 +15,7 @@ export function BackupSettings({ back }) {
   const [restorePassphrase, setRestorePassphrase] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [restored, setRestored] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -39,15 +40,34 @@ export function BackupSettings({ back }) {
     else if (!r?.cancelled) setError(r?.error || 'Failed to pick folder')
   }
 
+  // "Save settings" used to write three settings, discard every result, and give
+  // no confirmation at all — success and total failure looked identical. Returns
+  // whether the write landed so the "Backup now" path can stop rather than back
+  // up under a schedule the owner thinks they just changed.
   const saveSettings = async () => {
-    await api.setSetting({ key: 'backup_schedule', value: schedule })
-    await api.setSetting({ key: 'backup_auto_enabled', value: autoEnabled ? 'true' : 'false' })
+    setError('')
+    setSaved(false)
+    const a = await api.setSetting({ key: 'backup_schedule', value: schedule })
+    const b = await api.setSetting({
+      key: 'backup_auto_enabled',
+      value: autoEnabled ? 'true' : 'false'
+    })
     // Only overwrite the passphrase when the owner typed a new one.
+    const c = passphrase
+      ? await api.setSetting({ key: 'backup_passphrase', value: passphrase })
+      : null
+    const failed = [a, b, c].find((r) => r?.success === false)
+    if (failed) {
+      setError(failed.error || 'Could not save backup settings')
+      return false
+    }
     if (passphrase) {
-      await api.setSetting({ key: 'backup_passphrase', value: passphrase })
       setPassphrase('')
       load()
     }
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+    return true
   }
 
   const backupNow = async () => {
@@ -175,7 +195,7 @@ export function BackupSettings({ back }) {
             {busy === 'backup' ? 'Backing up…' : 'Backup now'}
           </button>
           <button className="btn btn-ghost" disabled={!!busy} onClick={saveSettings}>
-            Save settings
+            {saved ? 'Saved ✓' : 'Save settings'}
           </button>
         </div>
         {status?.lastBackupAt && (
