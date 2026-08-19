@@ -201,8 +201,21 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // Names of the active accounts, for the pickers. This is the one call that
+  // must work before anyone has signed in, so it carries names and ids only.
+  const [roster, setRoster] = useState({ staff: [], admins: [] })
+  const [picked, setPicked] = useState(null)
   const pinInputRef = useRef(null)
   const loginInFlight = useRef(false)
+
+  useEffect(() => {
+    api.listLoginRoster().then((r) => {
+      // On failure leave the roster empty: both modals fall back to the plain
+      // PIN / typed-username form, so a broken roster can never block sign-in.
+      if (!r || r.success === false) return
+      setRoster({ staff: r.staff || [], admins: r.admins || [] })
+    })
+  }, [])
 
   // Close the open modal on Escape.
   useEffect(() => {
@@ -219,6 +232,9 @@ function Login({ onLogin }) {
     loginInFlight.current = true
     setError('')
     setLoading(true)
+    // Deliberately still just the PIN. The picked name is a label for the
+    // person at the desk; the PIN is what proves who they are and what every
+    // sale is attributed to, so the picker cannot weaken or bypass the check.
     const result = await api.login({ pin: pinValue })
     loginInFlight.current = false
     setLoading(false)
@@ -245,6 +261,10 @@ function Login({ onLogin }) {
     }
     onLogin(result.user)
   }
+
+  // With one staff member on the roster there is nobody to choose between, so
+  // go straight to the keypad — the desk should not gain an extra tap.
+  const needsStaffPick = roster.staff.length > 1
 
   return (
     <div
@@ -282,6 +302,7 @@ function Login({ onLogin }) {
               setModal('staff')
               setError('')
               setPin('')
+              setPicked(null)
             }}
           >
             <Icon name="user" size={18} /> Staff Login
@@ -292,7 +313,8 @@ function Login({ onLogin }) {
             onClick={() => {
               setModal('owner')
               setError('')
-              setUsername('')
+              // One admin means one possible answer — preselect it.
+              setUsername(roster.admins.length === 1 ? roster.admins[0].name : '')
               setPassword('')
             }}
           >
@@ -301,54 +323,125 @@ function Login({ onLogin }) {
         </div>
       </div>
       {modal === 'staff' && (
-        <Modal title="Staff PIN" onClose={() => setModal(null)}>
-          <div className="field">
-            <label>Enter 4-digit PIN</label>
-            <input
-              ref={pinInputRef}
-              className="input"
-              type="password"
-              inputMode="numeric"
-              value={pin}
-              onChange={(e) => {
-                const digits = e.target.value.replace(/\D/g, '').slice(0, 4)
-                setPin(digits)
-                if (digits.length === 4) submitStaff(digits)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submitStaff()
-              }}
-              maxLength={4}
-              autoFocus
-            />
-          </div>
-          {error && (
-            <div className="alert red" style={{ marginBottom: 10 }}>
-              <div className="a-desc">{error}</div>
-            </div>
+        <Modal
+          title={picked ? picked.name : 'Staff login'}
+          onClose={() => {
+            setModal(null)
+            setPicked(null)
+          }}
+        >
+          {needsStaffPick && !picked ? (
+            <>
+              <div className="sub" style={{ marginBottom: 10 }}>
+                Tap your name
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  maxHeight: 300,
+                  overflowY: 'auto'
+                }}
+              >
+                {roster.staff.map((s) => (
+                  <button
+                    key={s.id}
+                    className="btn btn-ghost btn-block"
+                    style={{ padding: 12, fontSize: 14 }}
+                    onClick={() => {
+                      setPicked(s)
+                      setPin('')
+                      setError('')
+                    }}
+                  >
+                    <Icon name="user" size={16} /> {s.name}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="field">
+                <label>Enter 4-digit PIN</label>
+                <input
+                  ref={pinInputRef}
+                  className="input"
+                  type="password"
+                  inputMode="numeric"
+                  value={pin}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 4)
+                    setPin(digits)
+                    if (digits.length === 4) submitStaff(digits)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') submitStaff()
+                  }}
+                  maxLength={4}
+                  autoFocus
+                />
+              </div>
+              {error && (
+                <div className="alert red" style={{ marginBottom: 10 }}>
+                  <div className="a-desc">{error}</div>
+                </div>
+              )}
+              <button
+                className="btn btn-primary btn-block"
+                disabled={loading}
+                onClick={() => submitStaff()}
+              >
+                {loading ? 'Signing in…' : 'Sign in'}
+              </button>
+              {needsStaffPick && (
+                <button
+                  className="btn btn-ghost btn-block"
+                  style={{ marginTop: 8 }}
+                  onClick={() => {
+                    setPicked(null)
+                    setPin('')
+                    setError('')
+                  }}
+                >
+                  <Icon name="chevron-left" size={15} /> Not you? Pick a different name
+                </button>
+              )}
+            </>
           )}
-          <button
-            className="btn btn-primary btn-block"
-            disabled={loading}
-            onClick={() => submitStaff()}
-          >
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
         </Modal>
       )}
       {modal === 'owner' && (
         <Modal title="Owner login" onClose={() => setModal(null)}>
           <div className="field">
             <label>Username</label>
-            <input
-              className="input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submitOwner()
-              }}
-              autoFocus
-            />
+            {roster.admins.length > 0 ? (
+              // Login matches the admin name exactly, so a typo reads as a wrong
+              // password. Picking from the roster removes that failure mode.
+              <select
+                className="input"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoFocus
+              >
+                <option value="">Select your name…</option>
+                {roster.admins.map((a) => (
+                  <option key={a.id} value={a.name}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="input"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitOwner()
+                }}
+                autoFocus
+              />
+            )}
           </div>
           <div className="field">
             <label>Password</label>
@@ -447,26 +540,131 @@ function StaffInventory({ back }) {
   )
 }
 
+// The owner asked for a separate "staff login – swimming" and "staff login –
+// restaurant". A station chosen after sign-in gets that separation out of one
+// build: it picks the landing screen, the bottom nav, and which home tiles are
+// shown. It is a layout choice, not a permission boundary — every staff screen
+// is still reachable, which is what makes it safe to reverse if it turns out
+// the desks want each other's tools after all.
+const STATIONS = {
+  pool: {
+    label: 'Pool desk',
+    icon: 'home',
+    hint: 'Day passes, memberships, bookings and pool items',
+    landing: 'home',
+    hiddenTiles: ['Restaurant POS'],
+    tabs: [
+      { k: 'home', icon: 'home', label: 'Home' },
+      { k: 'new', icon: 'plus-circle', label: 'New Transaction' },
+      { k: 'members', icon: 'users', label: 'Members' },
+      { k: 'log', icon: 'list', label: "Today's Log" },
+      { k: 'eod', icon: 'send', label: 'End of Day' }
+    ]
+  },
+  restaurant: {
+    label: 'Restaurant',
+    icon: 'utensils',
+    hint: 'Menu orders and checkout for the cafe',
+    landing: 'restaurant',
+    hiddenTiles: ['New Transaction', 'Inventory', 'Bookings', 'Sell Item'],
+    tabs: [
+      { k: 'restaurant', icon: 'utensils', label: 'Restaurant' },
+      { k: 'home', icon: 'home', label: 'Home' },
+      { k: 'members', icon: 'users', label: 'Members' },
+      { k: 'log', icon: 'list', label: "Today's Log" },
+      { k: 'eod', icon: 'send', label: 'End of Day' }
+    ]
+  }
+}
+
+// Per-user and per-window: two people sharing a machine each keep their own
+// station across a logout, and closing the app clears it so a workstation that
+// gets moved does not silently keep yesterday's role. No schema change.
+const stationKey = (userId) => `refresh.station.${userId ?? 'anon'}`
+function readStation(userId) {
+  try {
+    const saved = window.sessionStorage?.getItem(stationKey(userId))
+    return STATIONS[saved] ? saved : null
+  } catch {
+    return null
+  }
+}
+function writeStation(userId, station) {
+  try {
+    window.sessionStorage?.setItem(stationKey(userId), station)
+  } catch {
+    /* storage unavailable — the station just won't survive a logout */
+  }
+}
+
+function StationPicker({ session, onPick, onLogout }) {
+  return (
+    <div className="app">
+      <AppHeader role="staff" session={session} onLogout={onLogout} />
+      <div className="body-wrap">
+        <div className="content fade-in" style={{ maxWidth: 680, margin: '0 auto' }}>
+          <SectionHead title={`Hello ${session?.name || ''} — where are you working?`} />
+          <div className="sub" style={{ marginBottom: 16 }}>
+            This sets your home screen. You can switch at any time without signing out.
+          </div>
+          <div className="tiles">
+            {Object.entries(STATIONS).map(([k, st]) => (
+              <div key={k} className="tile" onClick={() => onPick(k)}>
+                <div
+                  className="t-icon"
+                  style={{ background: k === 'pool' ? '#E6F1FB' : '#fef3c7' }}
+                >
+                  <Icon name={st.icon} size={22} color={k === 'pool' ? '#185FA5' : '#b45309'} />
+                </div>
+                <div>
+                  <div className="t-title">{st.label}</div>
+                  <div className="t-sub" style={{ marginTop: 3 }}>
+                    {st.hint}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// StaffHome renders a fixed tile grid and takes no station prop, so the station
+// trims the grid here by tile title rather than threading a prop through every
+// staff screen. The observer re-applies it because StaffHome re-renders as its
+// counts arrive; watching childList only means writing `style` cannot retrigger
+// this callback.
+function StationHome({ station, go }) {
+  const gridRef = useRef(null)
+  const hidden = STATIONS[station]?.hiddenTiles
+
+  useEffect(() => {
+    const root = gridRef.current
+    if (!root || !hidden?.length) return
+    const apply = () => {
+      root.querySelectorAll('.tile').forEach((el) => {
+        const title = el.querySelector('.t-title')?.textContent?.trim()
+        el.style.display = hidden.includes(title) ? 'none' : ''
+      })
+    }
+    apply()
+    const observer = new MutationObserver(apply)
+    observer.observe(root, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [hidden])
+
+  return (
+    <div ref={gridRef} style={{ display: 'contents' }}>
+      <StaffHome go={go} />
+    </div>
+  )
+}
+
 function StaffApp({ session, onLogout }) {
-  const [tab, setTab] = useState('home')
-  const tabs = [
-    { k: 'home', icon: 'home', label: 'Home' },
-    { k: 'new', icon: 'plus-circle', label: 'New Transaction' },
-    { k: 'members', icon: 'users', label: 'Members' },
-    { k: 'log', icon: 'list', label: "Today's Log" },
-    { k: 'eod', icon: 'send', label: 'End of Day' }
-  ]
-  let screen
-  if (tab === 'home') screen = <StaffHome key="home" go={setTab} />
-  else if (tab === 'new') screen = <NewTransaction key="new" session={session} onDone={setTab} />
-  else if (tab === 'members') screen = <MemberSearch key="members" />
-  else if (tab === 'log') screen = <TodaysLog key="log" />
-  else if (tab === 'eod') screen = <EndOfDay key="eod" session={session} />
-  else if (tab === 'inv') screen = <StaffInventory key="inv" back={() => setTab('home')} />
-  else if (tab === 'bookings') screen = <StaffBookings key="bookings" back={() => setTab('home')} />
-  else if (tab === 'restaurant')
-    screen = <StaffRestaurantPos session={session} back={() => setTab('home')} />
-  else if (tab === 'sellitem') screen = <SellItem key="sellitem" back={() => setTab('home')} />
+  const [station, setStation] = useState(() => readStation(session?.userId))
+  const [tab, setTab] = useState(() => STATIONS[readStation(session?.userId)]?.landing || 'home')
 
   useEffect(() => {
     const onKey = (e) => {
@@ -484,18 +682,61 @@ function StaffApp({ session, onLogout }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const navActive = (k) =>
-    k === tab ||
-    (tab === 'inv' && k === 'home') ||
-    (tab === 'bookings' && k === 'home') ||
-    (tab === 'restaurant' && k === 'home') ||
-    (tab === 'sellitem' && k === 'home')
+  // Switching station mid-shift lands you on that station's home rather than
+  // leaving you on a screen the other desk was using.
+  const chooseStation = (next) => {
+    setStation(next)
+    writeStation(session?.userId, next)
+    setTab(STATIONS[next].landing)
+  }
+
+  if (!station)
+    return <StationPicker session={session} onPick={chooseStation} onLogout={onLogout} />
+
+  const tabs = STATIONS[station].tabs
+  let screen
+  if (tab === 'home') screen = <StationHome key="home" station={station} go={setTab} />
+  else if (tab === 'new') screen = <NewTransaction key="new" session={session} onDone={setTab} />
+  else if (tab === 'members') screen = <MemberSearch key="members" />
+  else if (tab === 'log') screen = <TodaysLog key="log" />
+  else if (tab === 'eod') screen = <EndOfDay key="eod" session={session} />
+  else if (tab === 'inv') screen = <StaffInventory key="inv" back={() => setTab('home')} />
+  else if (tab === 'bookings') screen = <StaffBookings key="bookings" back={() => setTab('home')} />
+  else if (tab === 'restaurant')
+    screen = <StaffRestaurantPos session={session} back={() => setTab(STATIONS[station].landing)} />
+  else if (tab === 'sellitem') screen = <SellItem key="sellitem" back={() => setTab('home')} />
+
+  // Screens opened from a tile have no nav entry of their own, so they light up
+  // Home — the place they were opened from.
+  const navKeys = tabs.map((t) => t.k)
+  const navActive = (k) => (navKeys.includes(tab) ? k === tab : k === 'home')
 
   return (
     <div className="app">
       <AppHeader role="staff" session={session} onLogout={onLogout} />
       <div className="body-wrap">
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 18px 0',
+              flexWrap: 'wrap'
+            }}
+          >
+            <span className="sub">Station</span>
+            {Object.entries(STATIONS).map(([k, st]) => (
+              <button
+                key={k}
+                className={'btn ' + (k === station ? 'btn-primary' : 'btn-ghost')}
+                style={{ padding: '5px 10px', fontSize: 12 }}
+                onClick={() => chooseStation(k)}
+              >
+                <Icon name={st.icon} size={13} /> {st.label}
+              </button>
+            ))}
+          </div>
           <ScreenErrorBoundary key={tab}>{screen}</ScreenErrorBoundary>
         </div>
       </div>

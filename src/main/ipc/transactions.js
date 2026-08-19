@@ -212,39 +212,118 @@ export function registerTransactionHandlers() {
 
   ipcMain.handle(
     'transactions:today-summary',
+    // The breakdown is derived from LINES, and cash/QR from PAYMENTS, not from
+    // the header columns.
+    //
+    // A sale can now hold several kinds of thing and be settled with more than
+    // one method, but the header still carries a single transaction_type and a
+    // single payment_method for backward compatibility. Reading those meant a
+    // day pass rung up with a pair of goggles reported the goggles as entry
+    // revenue, and a sale split 100 cash / 100 QR reported 200 cash — which
+    // would have had the End-of-Day cash count short by the QR half on every
+    // split payment.
+    //
+    // Transactions with no lines/payments of their own (refunds, and anything
+    // written before the sale model) fall back to their header, so nothing
+    // drops out of the totals.
     wrap(({ source } = {}) => {
       requireStaffOrOwner()
       const today = todayLocal()
-      let sql = `
-        SELECT transaction_type, source, payment_method, SUM(amount) as total, COUNT(*) as count
-        FROM transactions
-        WHERE is_voided = 0 AND date(created_at) = ?
-      `
-      const params = [today]
-      if (source) {
-        sql += ' AND source = ?'
-        params.push(source)
-      }
-      sql += ' GROUP BY transaction_type, source, payment_method'
-      const rows = getDb()
-        .prepare(sql)
-        .all(...params)
+      const db = getDb()
+      const filter = source ? ' AND t.source = ?' : ''
+      const params = source ? [today, source] : [today]
 
-      let total = 0
       let cash = 0
       let qr = 0
       const byType = {}
       const bySource = { pool: 0, restaurant: 0 }
 
-      for (const r of rows) {
-        total += r.total
-        if (r.payment_method === 'cash') cash += r.total
-        else qr += r.total
-        byType[r.transaction_type] = (byType[r.transaction_type] || 0) + r.total
-        bySource[r.source] = (bySource[r.source] || 0) + r.total
+      // Header rows: the sale totals and the count are still authoritative.
+      const headers = db
+        .prepare(
+          `SELECT t.id, t.transaction_type, t.source, t.payment_method, t.amount
+           FROM transactions t
+           WHERE t.is_voided = 0 AND date(t.created_at) = ?${filter}`
+        )
+        .all(...params)
+
+      const grand = headers.reduce((s, h) => s + h.amount, 0)
+      for (const h of headers) bySource[h.source] = (bySource[h.source] || 0) + h.amount
+
+      // Revenue by kind, from the lines where a sale has them.
+      const lineRows = db
+        .prepare(
+          `SELECT l.kind, l.ref_id, p.category, SUM(l.line_total) AS amount
+           FROM transaction_lines l
+           JOIN transactions t ON t.id = l.transaction_id
+           LEFT JOIN products p ON p.id = l.ref_id AND l.kind IN ('product','membership')
+           WHERE t.is_voided = 0 AND date(t.created_at) = ?${filter}
+           GROUP BY l.kind, l.ref_id, p.category`
+        )
+        .all(...params)
+      for (const r of lineRows) {
+        // A catalogue line reports under the product's own category (day_pass,
+        // day_package, membership); stock and menu lines under their own kind.
+        const type =
+          r.kind === 'pool_item'
+            ? 'pool_inventory'
+            : r.kind === 'menu_item'
+              ? 'restaurant'
+              : r.category || r.kind
+        byType[type] = (byType[type] || 0) + r.amount
       }
 
-      return { total, cash, qr, byType, bySource, count: rows.reduce((s, r) => s + r.count, 0) }
+      // Anything with no lines keeps reporting under its header type.
+      const unlined = db
+        .prepare(
+          `SELECT t.transaction_type, SUM(t.amount) AS amount
+           FROM transactions t
+           WHERE t.is_voided = 0 AND date(t.created_at) = ?${filter}
+             AND NOT EXISTS (SELECT 1 FROM transaction_lines l WHERE l.transaction_id = t.id)
+           GROUP BY t.transaction_type`
+        )
+        .all(...params)
+      for (const r of unlined)
+        byType[r.transaction_type] = (byType[r.transaction_type] || 0) + r.amount
+
+      // Cash/QR from the payments actually taken.
+      const payRows = db
+        .prepare(
+          `SELECT pm.payment_method, SUM(pm.amount) AS amount
+           FROM transaction_payments pm
+           JOIN transactions t ON t.id = pm.transaction_id
+           WHERE t.is_voided = 0 AND date(t.created_at) = ?${filter}
+           GROUP BY pm.payment_method`
+        )
+        .all(...params)
+      for (const r of payRows) {
+        if (r.payment_method === 'cash') cash += r.amount
+        else qr += r.amount
+      }
+
+      // …and from the header for rows that predate the sale model, and for
+      // refunds (negative, and they carry no payment row).
+      //
+      // Keyed on having no LINES, not on having no payments: a sale-model sale
+      // deliberately taken on account has no payment rows yet, and must count
+      // as zero collected — falling back to its header would put uncollected
+      // money in the drawer count.
+      const unpaid = db
+        .prepare(
+          `SELECT t.payment_method, SUM(t.amount) AS amount
+           FROM transactions t
+           WHERE t.is_voided = 0 AND date(t.created_at) = ?${filter}
+             AND NOT EXISTS (SELECT 1 FROM transaction_lines l WHERE l.transaction_id = t.id)
+             AND NOT EXISTS (SELECT 1 FROM transaction_payments pm WHERE pm.transaction_id = t.id)
+           GROUP BY t.payment_method`
+        )
+        .all(...params)
+      for (const r of unpaid) {
+        if (r.payment_method === 'cash') cash += r.amount
+        else qr += r.amount
+      }
+
+      return { total: grand, cash, qr, byType, bySource, count: headers.length }
     })
   )
 

@@ -3,6 +3,15 @@ import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
 import { requireAmount, requireRestockQuantity, requireText } from './utils.js'
 
+// 0/1 gate for `is_active`. A stray '' or 'false' from the renderer must not
+// land in the column as text — SQLite would store it verbatim and every
+// `is_active = 1` filter would then quietly drop the row.
+function requireFlag(value, label) {
+  if (value === 0 || value === '0' || value === false) return 0
+  if (value === 1 || value === '1' || value === true) return 1
+  throw new Error(`${label} must be 0 or 1`)
+}
+
 function wrap(handler) {
   return async (_event, payload) => {
     try {
@@ -14,7 +23,10 @@ function wrap(handler) {
 }
 
 function mapRestaurantItem(row) {
-  const low = row.current_stock <= row.reorder_level
+  const retired = !row.is_active
+  // A retired item is never "low" — nobody is going to reorder it, and
+  // colouring it red in the retired list reads as an alert that needs action.
+  const low = !retired && row.current_stock <= row.reorder_level
   return {
     id: row.id,
     item: row.name,
@@ -27,6 +39,8 @@ function mapRestaurantItem(row) {
     reorder_level: row.reorder_level,
     price: row.selling_price,
     selling_price: row.selling_price,
+    isActive: !retired,
+    retired,
     low
   }
 }
@@ -90,15 +104,23 @@ function mapMovements(rows, currentStock) {
 export function registerRestaurantInventoryHandlers() {
   ipcMain.handle(
     'restaurant-inventory:list',
-    wrap(({ category } = {}) => {
+    // `includeRetired` is additive and defaults to false: every existing caller
+    // (the till, menu linking, reports) must keep seeing only what is actually
+    // stocked. Only the owner's "Show retired" toggle asks for more.
+    wrap(({ category, includeRetired } = {}) => {
       requireStaffOrOwner()
-      let sql = 'SELECT * FROM restaurant_inventory_items WHERE is_active = 1'
+      let sql = 'SELECT * FROM restaurant_inventory_items'
       const params = []
+      const where = []
+      if (!includeRetired) where.push('is_active = 1')
       if (category) {
-        sql += ' AND category = ?'
+        where.push('category = ?')
         params.push(category)
       }
-      sql += ' ORDER BY category, name'
+      if (where.length) sql += ' WHERE ' + where.join(' AND ')
+      // Retired rows sink to the bottom so the working catalogue stays on top
+      // even when the owner is looking at everything.
+      sql += ' ORDER BY is_active DESC, category, name'
       const items = getDb()
         .prepare(sql)
         .all(...params)
@@ -143,9 +165,15 @@ export function registerRestaurantInventoryHandlers() {
       const db = getDb()
       const tx = db.transaction(() => {
         const item = db
-          .prepare('SELECT current_stock, name FROM restaurant_inventory_items WHERE id = ?')
+          .prepare(
+            'SELECT current_stock, name, is_active FROM restaurant_inventory_items WHERE id = ?'
+          )
           .get(itemId)
         if (!item) throw new Error('Item not found')
+        // A retired item shows in no list and no low-stock alert, so letting it
+        // sell would drain stock nobody is watching — restaurant:checkout
+        // already refuses this for menu-linked lines; the direct path must too.
+        if (!item.is_active) throw new Error(`${item.name} is no longer stocked`)
         if (qty > item.current_stock) {
           throw new Error(`Not enough stock: only ${item.current_stock} left`)
         }
@@ -218,23 +246,58 @@ export function registerRestaurantInventoryHandlers() {
 
   ipcMain.handle(
     'restaurant-inventory:update',
+    // Also the retire/restore path: `is_active` 0 hides an item from the till
+    // and every list while leaving its sales and stock movements on the record.
+    // A hard DELETE would orphan those rows and silently rewrite past reports,
+    // so there is deliberately no handler that removes an item.
     wrap(({ itemId, fields }) => {
       requireOwner()
       const allowed = ['name', 'category', 'unit', 'reorder_level', 'selling_price', 'is_active']
       const sets = []
       const vals = []
+      let restoring = false
       for (const [k, v] of Object.entries(fields || {})) {
         const col = k.replace(/([A-Z])/g, '_$1').toLowerCase()
-        if (allowed.includes(col)) {
-          sets.push(`${col} = ?`)
-          vals.push(v)
+        if (!allowed.includes(col)) continue
+        let value = v
+        if (col === 'is_active') {
+          value = requireFlag(v, 'Active')
+          restoring = value === 1
         }
+        sets.push(`${col} = ?`)
+        vals.push(value)
       }
       if (!sets.length) return { success: true }
+
+      const db = getDb()
+      const current = db
+        .prepare('SELECT * FROM restaurant_inventory_items WHERE id = ?')
+        .get(itemId)
+      // Silently reporting success for a row that does not exist told the owner
+      // an item had been retired when nothing had happened at all.
+      if (!current) throw new Error('Item not found')
+      // Only ACTIVE rows are unique on name. Restoring an item whose name was
+      // re-used while it was retired would hit a raw UNIQUE constraint error;
+      // say what actually happened instead.
+      if (restoring && !current.is_active) {
+        const name = fields.name ? requireText(fields.name, 'Item name') : current.name
+        const clash = db
+          .prepare(
+            `SELECT id FROM restaurant_inventory_items WHERE is_active = 1 AND id != ? AND name = ?`
+          )
+          .get(itemId, name)
+        if (clash) {
+          throw new Error(
+            `"${name}" is already back in the list — rename this one before restoring it.`
+          )
+        }
+      }
+
       vals.push(itemId)
-      getDb()
+      const res = db
         .prepare(`UPDATE restaurant_inventory_items SET ${sets.join(', ')} WHERE id = ?`)
         .run(...vals)
+      if (res.changes === 0) throw new Error('Item not found')
       return { success: true }
     })
   )

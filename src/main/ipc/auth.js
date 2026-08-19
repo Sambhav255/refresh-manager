@@ -364,4 +364,113 @@ export function registerAuthHandlers() {
       return { success: true }
     })
   )
+
+  // ---- Recovery: password / PIN resets ----------------------------------
+  // Before this existed the only way back into an install whose admin password
+  // had been forgotten was editing users.password_hash by hand — the setup
+  // wizard refuses to run a second time once any user exists. These two
+  // handlers give an admin who IS signed in a way to restore access for
+  // everyone else, without ever weakening the credential checks themselves.
+
+  ipcMain.handle(
+    'auth:reset-admin-password',
+    wrap(async ({ userId, newPassword }) => {
+      const session = requireOwner()
+      if (!newPassword || newPassword.length < 4) {
+        throw new Error('New password must be at least 4 characters')
+      }
+      // Resetting your OWN password here would be the one move that can strand
+      // the install: this path does not ask for the current password, so an
+      // unattended session could be used to change the credential the operator
+      // actually knows. Own-password changes go through
+      // auth:change-admin-password, which proves the current one first. The
+      // consequence is the anti-lockout invariant — the actor's account is
+      // never touched, so a working admin login always survives a reset.
+      if (Number(userId) === Number(session.userId)) {
+        throw new Error('Use "Change my password" to change your own password.')
+      }
+      const db = getDb()
+      const target = db
+        .prepare(`SELECT id, name, is_active FROM users WHERE id = ? AND role = 'owner'`)
+        .get(userId)
+      if (!target) throw new Error('Admin not found')
+      // A deactivated account cannot log in at all, so resetting its password
+      // hands back nothing — say so rather than let it look like a recovery.
+      if (!target.is_active) {
+        throw new Error('That admin is deactivated and cannot sign in.')
+      }
+      const hash = await bcrypt.hash(newPassword, 10)
+      db.prepare(`UPDATE users SET password_hash = ? WHERE id = ? AND role = 'owner'`).run(
+        hash,
+        userId
+      )
+      // A forgotten password usually means failed attempts, which may have armed
+      // the shared cooldown. Recovery that makes you wait a minute is not
+      // recovery, and the actor already holds full admin rights.
+      failedPasswordAttempts = 0
+      passwordLockedUntil = 0
+      writeAudit(session.userId, 'admin:reset-password', {
+        userId: target.id,
+        name: target.name,
+        actorName: session.name
+      })
+      return { success: true }
+    })
+  )
+
+  ipcMain.handle(
+    'auth:reset-staff-pin',
+    wrap(async ({ userId, newPin }) => {
+      const session = requireOwner()
+      if (!/^\d{4}$/.test(String(newPin ?? ''))) throw new Error('PIN must be 4 digits')
+      const db = getDb()
+      const target = db
+        .prepare(`SELECT id, name, is_active FROM users WHERE id = ? AND role = 'staff'`)
+        .get(userId)
+      if (!target) throw new Error('Staff member not found')
+      if (!target.is_active) {
+        throw new Error('That staff member is deactivated and cannot sign in.')
+      }
+      // Same uniqueness rule as add-staff/change-pin: PINs are the only thing
+      // that identifies a staff member at login, so a collision would silently
+      // attribute one person's sales to another.
+      await assertPinUnique(db, newPin, userId)
+      const pinHash = await bcrypt.hash(newPin, 10)
+      db.prepare(`UPDATE users SET pin_hash = ? WHERE id = ? AND role = 'staff'`).run(
+        pinHash,
+        userId
+      )
+      failedPinAttempts = 0
+      lockedUntil = 0
+      writeAudit(session.userId, 'staff:reset-pin', {
+        userId: target.id,
+        name: target.name,
+        actorName: session.name
+      })
+      return { success: true }
+    })
+  )
+
+  // ---- Login roster ------------------------------------------------------
+  // Deliberately unauthenticated: the login screen needs it *before* anyone has
+  // signed in, so it can only ever return what is safe to show on a locked
+  // till. That means ids and display names of active accounts and nothing
+  // else — no hashes, no PINs, no timestamps, no members, no money. Picking a
+  // name does not authenticate anyone; the PIN/password check is unchanged.
+  ipcMain.handle(
+    'auth:login-roster',
+    wrap(() => {
+      const rows = getDb()
+        .prepare(
+          `SELECT id, name, role FROM users WHERE is_active = 1 AND role IN ('staff','owner') ORDER BY name`
+        )
+        .all()
+      // Grouped rather than role-tagged: the picker needs to know which list a
+      // name belongs to, and nothing finer than that.
+      return {
+        staff: rows.filter((r) => r.role === 'staff').map((r) => ({ id: r.id, name: r.name })),
+        admins: rows.filter((r) => r.role === 'owner').map((r) => ({ id: r.id, name: r.name }))
+      }
+    })
+  )
 }

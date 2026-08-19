@@ -1,4 +1,4 @@
-const products = [
+const sampleProducts = [
   {
     name: 'Beginner Training',
     category: 'membership',
@@ -96,7 +96,7 @@ const products = [
   }
 ]
 
-const poolItems = [
+const samplePoolItems = [
   {
     name: 'Ladies Costume',
     category: 'Swimwear',
@@ -195,7 +195,7 @@ const poolItems = [
   }
 ]
 
-const restaurantItems = [
+const sampleRestaurantItems = [
   {
     name: 'Tea',
     category: 'Beverages',
@@ -250,33 +250,79 @@ const defaultSettings = [
   { key: 'seeded', value: 'true' }
 ]
 
+// The sample catalogue is kept — it is a reasonable starter list for a pool and
+// a kitchen — but it is no longer inflicted on every new install. A future
+// "Load sample data" button can call loadSampleCatalogue(); nothing calls it
+// today.
+export const sampleCatalogue = {
+  products: sampleProducts,
+  poolItems: samplePoolItems,
+  restaurantItems: sampleRestaurantItems
+}
+
+// Opt-in loader for the sample catalogue. Every row is checked first, so
+// running it on a database that already holds some of these names adds only
+// what is missing instead of creating the duplicate rows staff then have to
+// choose between. Returns how many rows of each kind were actually inserted.
+export function loadSampleCatalogue(db) {
+  const counts = { products: 0, poolItems: 0, restaurantItems: 0 }
+
+  const productExists = db.prepare(
+    `SELECT id FROM products
+     WHERE name = @name AND category = @category
+       AND IFNULL(sub_category, '') = IFNULL(@sub_category, '')
+       AND IFNULL(duration_days, -1) = IFNULL(@duration_days, -1)`
+  )
+  const insertProduct = db.prepare(
+    `INSERT INTO products (name, category, sub_category, duration_days, price)
+     VALUES (@name, @category, @sub_category, @duration_days, @price)`
+  )
+  const poolExists = db.prepare(
+    `SELECT id FROM pool_inventory_items
+     WHERE is_active = 1 AND name = @name AND IFNULL(variant, '') = IFNULL(@variant, '')`
+  )
+  const insertPool = db.prepare(
+    `INSERT INTO pool_inventory_items (name, category, variant, current_stock, reorder_level, selling_price)
+     VALUES (@name, @category, @variant, @current_stock, @reorder_level, @selling_price)`
+  )
+  const restaurantExists = db.prepare(
+    `SELECT id FROM restaurant_inventory_items WHERE is_active = 1 AND name = @name`
+  )
+  const insertRestaurant = db.prepare(
+    `INSERT INTO restaurant_inventory_items (name, category, unit, current_stock, reorder_level, selling_price)
+     VALUES (@name, @category, @unit, @current_stock, @reorder_level, @selling_price)`
+  )
+
+  const load = db.transaction(() => {
+    for (const p of sampleProducts) {
+      if (productExists.get(p)) continue
+      insertProduct.run(p)
+      counts.products += 1
+    }
+    for (const item of samplePoolItems) {
+      if (poolExists.get(item)) continue
+      insertPool.run(item)
+      counts.poolItems += 1
+    }
+    for (const item of sampleRestaurantItems) {
+      if (restaurantExists.get(item)) continue
+      insertRestaurant.run(item)
+      counts.restaurantItems += 1
+    }
+  })
+  load()
+  return counts
+}
+
+// A new database gets its settings and NOTHING else. The 34 catalogue rows that
+// used to ship here were all priced 0, which both buried the owner in items
+// nobody had chosen and left the staff Sell Item screen permanently empty (it
+// only lists items priced above 0). The `seeded` guard is what protects a live
+// install: seedData returns immediately, so an upgrade can neither re-insert
+// this data nor overwrite settings the owner has since changed.
 export function seedData(db) {
   const seeded = db.prepare("SELECT value FROM settings WHERE key = 'seeded'").get()
   if (seeded?.value === 'true') return
-
-  const insertProduct = db.prepare(`
-    INSERT INTO products (name, category, sub_category, duration_days, price)
-    VALUES (@name, @category, @sub_category, @duration_days, @price)
-  `)
-  for (const p of products) {
-    insertProduct.run(p)
-  }
-
-  const insertPool = db.prepare(`
-    INSERT INTO pool_inventory_items (name, category, variant, current_stock, reorder_level, selling_price)
-    VALUES (@name, @category, @variant, @current_stock, @reorder_level, @selling_price)
-  `)
-  for (const item of poolItems) {
-    insertPool.run(item)
-  }
-
-  const insertRestaurant = db.prepare(`
-    INSERT INTO restaurant_inventory_items (name, category, unit, current_stock, reorder_level, selling_price)
-    VALUES (@name, @category, @unit, @current_stock, @reorder_level, @selling_price)
-  `)
-  for (const item of restaurantItems) {
-    insertRestaurant.run(item)
-  }
 
   const insertSetting = db.prepare(
     'INSERT OR REPLACE INTO settings (key, value) VALUES (@key, @value)'

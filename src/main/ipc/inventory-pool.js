@@ -3,6 +3,15 @@ import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
 import { requireAmount, requireRestockQuantity, requireText } from './utils.js'
 
+// 0/1 gate for `is_active`. A stray '' or 'false' from the renderer must not
+// land in the column as text — SQLite would store it verbatim and every
+// `is_active = 1` filter would then quietly drop the row.
+function requireFlag(value, label) {
+  if (value === 0 || value === '0' || value === false) return 0
+  if (value === 1 || value === '1' || value === true) return 1
+  throw new Error(`${label} must be 0 or 1`)
+}
+
 function wrap(handler) {
   return async (_event, payload) => {
     try {
@@ -14,7 +23,10 @@ function wrap(handler) {
 }
 
 function mapPoolItem(row) {
-  const low = row.current_stock <= row.reorder_level
+  const retired = !row.is_active
+  // A retired item is never "low" — nobody is going to reorder it, and
+  // colouring it red in the retired list reads as an alert that needs action.
+  const low = !retired && row.current_stock <= row.reorder_level
   return {
     id: row.id,
     item: row.name,
@@ -27,6 +39,8 @@ function mapPoolItem(row) {
     reorder_level: row.reorder_level,
     price: row.selling_price,
     selling_price: row.selling_price,
+    isActive: !retired,
+    retired,
     low
   }
 }
@@ -89,15 +103,23 @@ function mapMovements(rows, currentStock) {
 export function registerPoolInventoryHandlers() {
   ipcMain.handle(
     'pool-inventory:list',
-    wrap(({ category } = {}) => {
+    // `includeRetired` is additive and defaults to false: every existing caller
+    // (staff Sell Item, the dashboard, reports) must keep seeing only what is
+    // actually on sale. Only the owner's "Show retired" toggle asks for more.
+    wrap(({ category, includeRetired } = {}) => {
       requireStaffOrOwner()
-      let sql = 'SELECT * FROM pool_inventory_items WHERE is_active = 1'
+      let sql = 'SELECT * FROM pool_inventory_items'
       const params = []
+      const where = []
+      if (!includeRetired) where.push('is_active = 1')
       if (category) {
-        sql += ' AND category = ?'
+        where.push('category = ?')
         params.push(category)
       }
-      sql += ' ORDER BY category, name, variant'
+      if (where.length) sql += ' WHERE ' + where.join(' AND ')
+      // Retired rows sink to the bottom so the working catalogue stays on top
+      // even when the owner is looking at everything.
+      sql += ' ORDER BY is_active DESC, category, name, variant'
       const items = getDb()
         .prepare(sql)
         .all(...params)
@@ -250,11 +272,16 @@ export function registerPoolInventoryHandlers() {
 
   ipcMain.handle(
     'pool-inventory:update',
+    // Also the retire/restore path: `is_active` 0 hides an item from the till
+    // and every list while leaving its sales and stock movements on the record.
+    // A hard DELETE would orphan those rows and silently rewrite past reports,
+    // so there is deliberately no handler that removes an item.
     wrap(({ itemId, fields }) => {
       requireOwner()
       const allowed = ['name', 'category', 'variant', 'reorder_level', 'selling_price', 'is_active']
       const sets = []
       const vals = []
+      let restoring = false
       for (const [k, v] of Object.entries(fields || {})) {
         const col = k.replace(/([A-Z])/g, '_$1').toLowerCase()
         if (!allowed.includes(col)) continue
@@ -263,12 +290,40 @@ export function registerPoolInventoryHandlers() {
         else if (col === 'reorder_level') value = requireAmount(v, 'Reorder level')
         else if (col === 'name') value = requireText(v, 'Item name')
         else if (col === 'category') value = requireText(v, 'Category')
+        else if (col === 'is_active') {
+          value = requireFlag(v, 'Active')
+          restoring = value === 1
+        }
         sets.push(`${col} = ?`)
         vals.push(value)
       }
       if (!sets.length) return { success: true }
+
+      const db = getDb()
+      const current = db.prepare('SELECT * FROM pool_inventory_items WHERE id = ?').get(itemId)
+      if (!current) throw new Error('Item not found')
+      // Only ACTIVE rows are unique on (name, variant). Restoring an item whose
+      // name was re-used while it was retired would hit a raw UNIQUE constraint
+      // error; say what actually happened instead.
+      if (restoring && !current.is_active) {
+        const name = fields.name ? requireText(fields.name, 'Item name') : current.name
+        const variant =
+          'variant' in (fields || {}) ? fields.variant?.trim() || null : current.variant
+        const clash = db
+          .prepare(
+            `SELECT id FROM pool_inventory_items
+             WHERE is_active = 1 AND id != ? AND name = ? AND IFNULL(variant, '') = IFNULL(?, '')`
+          )
+          .get(itemId, name, variant)
+        if (clash) {
+          throw new Error(
+            `"${name}"${variant ? ` (${variant})` : ''} is already back in the list — rename this one before restoring it.`
+          )
+        }
+      }
+
       vals.push(itemId)
-      const res = getDb()
+      const res = db
         .prepare(`UPDATE pool_inventory_items SET ${sets.join(', ')} WHERE id = ?`)
         .run(...vals)
       if (res.changes === 0) throw new Error('Item not found')

@@ -18,6 +18,8 @@ import { registerAuditHandlers } from './audit.js'
 import { registerCheckinHandlers } from './checkins.js'
 import { registerDiagnosticsHandlers } from './diagnostics.js'
 import { registerWindowHandlers } from './window.js'
+import { registerPricingHandlers } from './pricing.js'
+import { registerSalesHandlers } from './sales.js'
 
 export function registerAllHandlers() {
   registerAuthHandlers()
@@ -40,4 +42,7 @@ export function registerAllHandlers() {
   registerCheckinHandlers()
   registerDiagnosticsHandlers()
   registerWindowHandlers()
+  // Sale model: pricing must register before sales, which resolves through it.
+  registerPricingHandlers()
+  registerSalesHandlers()
 }

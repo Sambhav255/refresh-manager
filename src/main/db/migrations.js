@@ -14,6 +14,7 @@
 // final version. Every v1 step is individually guarded/idempotent.
 
 import { logWarn, logInfo } from '../diagnostics.js'
+import { SALE_MODEL_SQL } from './schema.js'
 
 function hasColumn(db, table, column) {
   return db
@@ -396,6 +397,87 @@ function addUniquenessConstraints(db) {
   ensureUniquenessIndexes(db)
 }
 
+// ── v8: the sale model (lines + payments + price rules) ─────────────────────
+//
+// A sale used to BE one product and one amount, so three tickets in one go, a
+// day pass mixed with goggles, an adult and a child on the same sale, a
+// discount, and part-payment now with the rest later were all impossible — the
+// same missing concept five times over. transaction_lines and
+// transaction_payments supply it; price_rules lets the owner say what a child
+// or a Saturday costs instead of that living in code.
+//
+// `transactions` is deliberately NOT touched: amount stays the sale total,
+// denormalised from the lines, because every report, the EOD breakdown and the
+// WhatsApp message read it. The DDL is shared with schema.js (SALE_MODEL_SQL)
+// so a fresh database and an upgraded one cannot drift apart.
+function addSaleModel(db) {
+  // Every real database has `transactions` (schema.js creates it before any
+  // migration runs); a partial one is a fixture. Guarding rather than throwing
+  // keeps this step in line with every other migration here, which no-ops on
+  // what it cannot find instead of failing an upgrade.
+  if (!tableExists(db, 'transactions')) return
+  db.exec(SALE_MODEL_SQL)
+  // One rule per product/tier/day/start-date, so pricing:set-rule is an upsert
+  // and two writes racing cannot leave two rules fighting over the same slot.
+  // A UNIQUE index can only throw on data that already violates it, and this
+  // table is created empty a line above — so unlike the v7 indexes it needs no
+  // probe. It lives here rather than in schema.js because schema.js runs
+  // outside the snapshot/rollback window (see the note at the top of it).
+  // IFNULL maps the "any tier"/"any day" wildcards onto values, since SQLite
+  // treats NULLs in a unique index as distinct from each other.
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_price_rules_key
+      ON price_rules(product_id, IFNULL(tier, ''), IFNULL(day_of_week, -1), active_from)
+  `)
+  backfillSaleLines(db)
+}
+
+// Give every pre-sale-model transaction exactly one line and one payment, so
+// the history renders through the same code path as anything sold from now on
+// (a sale with no lines would otherwise show as an empty basket, and one with
+// no payments would show as unpaid — permanently outstanding).
+//
+// Idempotent by construction: both statements skip any transaction that already
+// has a row, so re-running back-fills only what a later import left behind.
+function backfillSaleLines(db) {
+  // Historic pool/restaurant sales stored no item id at all — only a note like
+  // "Tea x2" — so ref_id is whatever product_id the row had (often NULL) and
+  // the description falls back to the note. Reconstructing item ids from that
+  // free text would be a guess, and a wrong guess is worse than an honest gap.
+  // The product name is the best description available, but a database old
+  // enough to predate the products table has to back-fill from the note alone.
+  const describe = tableExists(db, 'products')
+    ? `COALESCE((SELECT p.name FROM products p WHERE p.id = t.product_id), NULLIF(t.notes, ''), t.transaction_type)`
+    : `COALESCE(NULLIF(t.notes, ''), t.transaction_type)`
+  db.exec(`
+    INSERT INTO transaction_lines
+      (transaction_id, kind, ref_id, description, quantity, unit_price, line_discount, line_total, created_at)
+    SELECT t.id,
+           CASE WHEN t.transaction_type = 'membership' THEN 'membership' ELSE 'product' END,
+           t.product_id,
+           ${describe},
+           1, t.amount, 0, t.amount, t.created_at
+    FROM transactions t
+    WHERE NOT EXISTS (SELECT 1 FROM transaction_lines l WHERE l.transaction_id = t.id)
+  `)
+
+  // The old model could only record money that had already been taken, so every
+  // historic sale is paid in full, by the method and on the date of the header.
+  // staff_id is dropped (NULL) rather than carried over for the handful of rows
+  // whose staff user no longer exists — a foreign-key failure here would roll
+  // back the entire upgrade over a name nobody will read.
+  const staffExpr = tableExists(db, 'users')
+    ? `(SELECT u.id FROM users u WHERE u.id = t.staff_id)`
+    : 'NULL'
+  db.exec(`
+    INSERT INTO transaction_payments (transaction_id, amount, payment_method, paid_at, staff_id)
+    SELECT t.id, t.amount, t.payment_method, t.created_at,
+           ${staffExpr}
+    FROM transactions t
+    WHERE NOT EXISTS (SELECT 1 FROM transaction_payments tp WHERE tp.transaction_id = t.id)
+  `)
+}
+
 const MIGRATIONS = [
   {
     name: 'v1: baseline additive backfill + booking_deposit CHECK',
@@ -481,6 +563,13 @@ const MIGRATIONS = [
     name: 'v7: uniqueness indexes + check-in de-duplication',
     rebuildsReferencedTable: false,
     up: addUniquenessConstraints
+  },
+  {
+    // Purely additive: three new tables plus a back-fill. Nothing existing is
+    // altered, so no table rebuild and no foreign-key toggling.
+    name: 'v8: sale lines, payments and price rules',
+    rebuildsReferencedTable: false,
+    up: addSaleModel
   }
 ]
 

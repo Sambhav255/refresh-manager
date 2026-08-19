@@ -22,6 +22,72 @@ function requirePartySize(value) {
   return n
 }
 
+// Time slots are free text the owner types ("11am-12pm", "1pm-2pm", "09:00").
+// Sorting that text puts "9am" after "11am", which scrambles a day's running
+// order — the one thing a day-by-day view has to get right. Parse a real start
+// time so back-to-back slots read in the order they actually happen.
+function parseSlotStartMinutes(slot) {
+  const text = typeof slot === 'string' ? slot.trim() : ''
+  if (!text) return null
+  const m = text.match(/(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?/i)
+  if (!m) return null
+  let hour = Number(m[1])
+  const mins = Number(m[2] || 0)
+  const suffix = (m[3] || '').toLowerCase().replace(/\./g, '')
+  if (suffix.startsWith('p')) hour = hour === 12 ? 12 : hour + 12
+  else if (suffix.startsWith('a')) hour = hour === 12 ? 0 : hour
+  if (hour > 23 || mins > 59) return null
+  return hour * 60 + mins
+}
+
+// A slot with no parseable time sorts to the end of its day rather than
+// jumping to 00:00 and pretending to be the first thing that morning.
+function bySchedule(a, b) {
+  if (a.bookingDate !== b.bookingDate) return a.bookingDate < b.bookingDate ? -1 : 1
+  if (a.startMinutes !== b.startMinutes) {
+    if (a.startMinutes == null) return 1
+    if (b.startMinutes == null) return -1
+    return a.startMinutes - b.startMinutes
+  }
+  return a.id - b.id
+}
+
+// A repeating booking ("every Tuesday and Thursday until end of term") is
+// stored as ordinary independent rows, one per occurrence — no schema change,
+// so every existing query, report and the deposit logic keep working. The cap
+// is what stops a mistyped end date from writing thousands of rows.
+const MAX_SERIES_OCCURRENCES = 200
+
+function dayOfWeek(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+}
+
+export function expandSeriesDates(startDate, weekdays, untilDate) {
+  const days = [...new Set((weekdays || []).map(Number))].filter(
+    (n) => Number.isInteger(n) && n >= 0 && n <= 6
+  )
+  if (!days.length) throw new Error('Pick at least one day of the week to repeat on')
+  const start = requireBookingDate(startDate)
+  const until = requireBookingDate(untilDate)
+  if (until < start) throw new Error('Repeat-until date must be on or after the first booking date')
+
+  const dates = []
+  for (let cursor = start; cursor <= until; cursor = addDays(cursor, 1)) {
+    if (!days.includes(dayOfWeek(cursor))) continue
+    dates.push(cursor)
+    // Bail as soon as the cap is passed — the loop can never run away because
+    // one of the chosen weekdays comes round at least once every 7 days.
+    if (dates.length > MAX_SERIES_OCCURRENCES) {
+      throw new Error(
+        `A repeating booking can create at most ${MAX_SERIES_OCCURRENCES} bookings — shorten the date range`
+      )
+    }
+  }
+  if (!dates.length) throw new Error('That date range does not contain any of the chosen days')
+  return dates
+}
+
 function wrap(handler) {
   return async (_event, payload) => {
     try {
@@ -98,6 +164,7 @@ function mapBooking(row) {
     bookingDate: row.booking_date,
     dateDisplay: formatShortDate(row.booking_date),
     timeSlot: row.time_slot,
+    startMinutes: parseSlotStartMinutes(row.time_slot),
     numPeople: row.num_people,
     facilitiesBooked: row.facilities_booked,
     status: row.status,
@@ -136,11 +203,14 @@ export function registerBookingHandlers() {
         sql += ' AND b.booking_date <= ?'
         params.push(dateTo)
       }
-      sql += ' ORDER BY b.booking_date, b.time_slot'
+      sql += ' ORDER BY b.booking_date, b.time_slot, b.id'
+      // dateFrom/dateTo is what the calendar's month view asks for. Final order
+      // is settled in JS because SQLite can only sort time_slot as text.
       const bookings = getDb()
         .prepare(sql)
         .all(...params)
         .map(mapBooking)
+        .sort(bySchedule)
       return { bookings }
     })
   )
@@ -162,6 +232,7 @@ export function registerBookingHandlers() {
         )
         .all(today, end)
         .map(mapBooking)
+        .sort(bySchedule)
       return { bookings }
     })
   )
@@ -181,42 +252,69 @@ export function registerBookingHandlers() {
         depositMethod,
         totalExpected,
         notes,
-        createdBy
+        createdBy,
+        repeat
       }) => {
         const session = requireOwner()
         const name = requireText(bookingName, 'Booking name')
         const date = requireBookingDate(bookingDate)
         const people = requirePartySize(numPeople)
+        // Fallback 0 on both: deposit and total are genuinely optional, so a
+        // blank field must save rather than being rejected as "required".
         const deposit = requireAmount(depositPaid, 'Deposit', 0)
         const expected = requireAmount(totalExpected, 'Total expected', 0)
+
+        // "Every Tuesday and Thursday until end of term" becomes one ordinary
+        // booking row per date. Dates are resolved before the write so a bad
+        // range or an over-cap series fails without touching the database.
+        const dates =
+          repeat && repeat.weekdays
+            ? expandSeriesDates(date, repeat.weekdays, repeat.until)
+            : [date]
+
         const db = getDb()
-        const bookingId = db.transaction(() => {
-          const result = db
-            .prepare(
-              `INSERT INTO bookings
-               (booking_name, contact_person, contact_phone, booking_date, time_slot, num_people,
-                facilities_booked, deposit_paid, deposit_method, total_expected, notes, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            )
-            .run(
+        const insert = db.prepare(
+          `INSERT INTO bookings
+           (booking_name, contact_person, contact_phone, booking_date, time_slot, num_people,
+            facilities_booked, deposit_paid, deposit_method, total_expected, notes, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        // One transaction around the whole series: a school gets all of its
+        // dates or none of them, never half a term of bookings.
+        const bookingIds = db.transaction(() => {
+          const ids = []
+          for (const occurrence of dates) {
+            // A deposit is paid once for the whole arrangement. Copying it onto
+            // every occurrence would book the same money N times over, so only
+            // the first date carries it (and its deposit transaction).
+            const first = ids.length === 0
+            const result = insert.run(
               name,
               contactPerson || null,
               contactPhone || null,
-              date,
+              occurrence,
               timeSlot || null,
               people,
               facilitiesBooked || null,
-              deposit,
-              depositMethod || null,
+              first ? deposit : 0,
+              first ? depositMethod || null : null,
               expected,
               notes || null,
               createdBy || session.userId
             )
-          const id = result.lastInsertRowid
-          syncDepositTransaction(db, id, session.userId)
-          return id
+            const id = result.lastInsertRowid
+            syncDepositTransaction(db, id, session.userId)
+            ids.push(id)
+          }
+          return ids
         })()
-        return { success: true, bookingId }
+        return {
+          success: true,
+          bookingId: bookingIds[0],
+          bookingIds,
+          dates,
+          count: bookingIds.length
+        }
       }
     )
   )

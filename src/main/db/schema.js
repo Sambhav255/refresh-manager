@@ -10,6 +10,74 @@
 // snapshot/rollback window. The migration runner creates them for fresh and
 // upgraded databases alike, de-duplicating or skipping as appropriate.
 
+// ── Sale model: a sale is a header + lines + payments ────────────────────────
+//
+// `transactions` holds one product and one amount, which cannot express three
+// tickets in one go, a day pass mixed with goggles, a child priced differently
+// from an adult on the same sale, a discount, or part-payment now with the rest
+// later — all the same missing concept. These three tables add it WITHOUT
+// changing `transactions`: the header stays exactly as it is (amount is still
+// the sale total, denormalised from the lines) so every existing report, the
+// EOD breakdown and the WhatsApp message keep reading the column they read now.
+//
+// The DDL lives in its own constant because migrations.js must create the same
+// tables on an already-populated database; two copies would drift apart.
+export const SALE_MODEL_SQL = `
+CREATE TABLE IF NOT EXISTS transaction_lines (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id  INTEGER NOT NULL REFERENCES transactions(id),
+  -- What was sold. ref_id points into products / pool_inventory_items /
+  -- restaurant_menu_items accordingly; it is nullable because a back-filled
+  -- historic line (a pre-sale-model restaurant or pool sale) recorded only a
+  -- note, never an item id.
+  kind            TEXT NOT NULL CHECK(kind IN ('product','pool_item','menu_item','membership')),
+  ref_id          INTEGER,
+  -- Frozen at sale time: renaming a product later must not rewrite history.
+  description     TEXT NOT NULL,
+  tier            TEXT CHECK(tier IN ('adult','child') OR tier IS NULL),
+  quantity        INTEGER NOT NULL DEFAULT 1 CHECK(quantity > 0),
+  unit_price      REAL NOT NULL DEFAULT 0,
+  -- Absolute rupees off this line (never a percentage, never per unit), with
+  -- the reason the handler insists on. line_total = unit_price * quantity
+  -- - line_discount, and may only be negative on a back-filled refund row.
+  line_discount   REAL NOT NULL DEFAULT 0 CHECK(line_discount >= 0),
+  discount_reason TEXT,
+  line_total      REAL NOT NULL DEFAULT 0,
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS transaction_payments (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+  -- Negative only on back-filled refunds (money out); handlers reject <= 0.
+  amount         REAL NOT NULL,
+  payment_method TEXT NOT NULL CHECK(payment_method IN ('cash','qr')),
+  paid_at        TEXT DEFAULT (datetime('now','localtime')),
+  -- Who took the money — the session user, never the payload. Nullable ONLY so
+  -- the migration back-fill of a legacy row whose staff user has since vanished
+  -- cannot fail an upgrade; every row the handlers write has it set.
+  staff_id       INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS price_rules (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id  INTEGER NOT NULL REFERENCES products(id),
+  -- NULL tier = everyone; NULL day_of_week = every day (0 = Sunday … 6 = Sat).
+  tier        TEXT CHECK(tier IN ('adult','child') OR tier IS NULL),
+  day_of_week INTEGER CHECK(day_of_week IS NULL OR (day_of_week BETWEEN 0 AND 6)),
+  price       REAL NOT NULL CHECK(price >= 0),
+  -- A rule applies from this date on, so a price change can be entered ahead of
+  -- time without rewriting what yesterday's sales were charged.
+  active_from TEXT NOT NULL DEFAULT (date('now','localtime')),
+  created_by  INTEGER REFERENCES users(id),
+  created_at  TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_txn_lines_txn ON transaction_lines(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_txn_payments_txn ON transaction_payments(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_price_rules_lookup ON price_rules(product_id, active_from);
+`
+
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,6 +228,7 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
+${SALE_MODEL_SQL}
 `
 
 export function initSchema(db) {

@@ -10,6 +10,7 @@ export function ManageStaff({ back }) {
   const [changeId, setChangeId] = useState(null)
   const [newPin, setNewPin] = useState('')
   const [error, setError] = useState('')
+  const [staffNotice, setStaffNotice] = useState('')
   // Admin accounts (there can be several; at least one must stay active)
   const [admins, setAdmins] = useState([])
   const [meId, setMeId] = useState(null)
@@ -23,6 +24,13 @@ export function ManageStaff({ back }) {
   const [pwNew, setPwNew] = useState('')
   const [pwConfirm, setPwConfirm] = useState('')
   const [pwMsg, setPwMsg] = useState(null)
+  // Recovery for an admin who has forgotten their password. Kept separate from
+  // "change my password": that one proves the current password, this one does
+  // not and so is only ever allowed against *another* admin.
+  const [resetAdminId, setResetAdminId] = useState(null)
+  const [resetPw, setResetPw] = useState('')
+  const [resetPwConfirm, setResetPwConfirm] = useState('')
+  const [adminNotice, setAdminNotice] = useState('')
 
   const load = () => {
     api.listStaff().then((r) => setStaff(r.users || []))
@@ -67,6 +75,33 @@ export function ManageStaff({ back }) {
       return
     }
     load()
+  }
+
+  const resetAdminPassword = async () => {
+    setAdminError('')
+    setAdminNotice('')
+    if ((resetPw || '').length < 4) {
+      setAdminError('New password must be at least 4 characters')
+      return
+    }
+    if (resetPw !== resetPwConfirm) {
+      setAdminError('Passwords do not match')
+      return
+    }
+    const who = admins.find((a) => a.id === resetAdminId)?.name || 'that admin'
+    const r = await api.resetAdminPassword({ userId: resetAdminId, newPassword: resetPw })
+    if (r?.success === false) {
+      setAdminError(r.error || 'Failed to reset password')
+      return
+    }
+    setResetAdminId(null)
+    setResetPw('')
+    setResetPwConfirm('')
+    // The password is never recoverable from the database afterwards, so the
+    // person doing the reset has to hand it over now.
+    setAdminNotice(
+      `Password reset for ${who}. Give them the new password now — it cannot be shown again.`
+    )
   }
 
   const changeMyPassword = async () => {
@@ -122,20 +157,26 @@ export function ManageStaff({ back }) {
     load()
   }
 
-  const changePin = async () => {
+  // Doubles as forgotten-PIN recovery: an admin can set any active staff PIN
+  // without knowing the old one, which is the only way back for a staff member
+  // who cannot remember theirs.
+  const resetPin = async () => {
     setError('')
+    setStaffNotice('')
     const pinErr = validatePin(newPin)
     if (pinErr) {
       setError(pinErr)
       return
     }
-    const r = await api.changePin({ userId: changeId, newPin })
+    const who = staff.find((s2) => s2.id === changeId)?.name || 'that staff member'
+    const r = await api.resetStaffPin({ userId: changeId, newPin })
     if (r?.success === false) {
-      setError(r.error || 'Failed to change PIN')
+      setError(r.error || 'Failed to reset PIN')
       return
     }
     setChangeId(null)
     setNewPin('')
+    setStaffNotice(`PIN reset for ${who}. Give them the new PIN now — it cannot be shown again.`)
   }
 
   return (
@@ -148,6 +189,11 @@ export function ManageStaff({ back }) {
       {error && (
         <div className="alert red" style={{ marginBottom: 12 }}>
           <div className="a-desc">{error}</div>
+        </div>
+      )}
+      {staffNotice && (
+        <div className="alert green" style={{ marginBottom: 12 }}>
+          <div className="a-desc">{staffNotice}</div>
         </div>
       )}
       <div className="card" style={{ padding: 14, marginBottom: 14 }}>
@@ -214,9 +260,13 @@ export function ManageStaff({ back }) {
                       <button
                         className="btn btn-ghost"
                         style={{ padding: '4px 8px', fontSize: 11 }}
-                        onClick={() => setChangeId(s.id)}
+                        onClick={() => {
+                          setChangeId(s.id)
+                          setNewPin('')
+                          setStaffNotice('')
+                        }}
                       >
-                        Change PIN
+                        Reset PIN
                       </button>
                       <button
                         className="btn btn-ghost"
@@ -234,20 +284,36 @@ export function ManageStaff({ back }) {
       </table>
       {changeId && (
         <div className="card" style={{ marginTop: 14, padding: 14 }}>
-          <div style={{ fontWeight: 500, marginBottom: 8 }}>New PIN</div>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>
+            Reset PIN for {staff.find((s2) => s2.id === changeId)?.name || 'staff member'}
+          </div>
+          <div className="sub" style={{ marginBottom: 8 }}>
+            You do not need their old PIN. It must be 4 digits and not already used by another
+            active staff member.
+          </div>
           <input
             className="input"
             value={newPin}
-            onChange={(e) => setNewPin(e.target.value)}
+            onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') resetPin()
+            }}
             maxLength={4}
             placeholder="4-digit PIN"
             style={{ width: 140 }}
+            autoFocus
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button className="btn btn-primary" onClick={changePin}>
+            <button className="btn btn-primary" onClick={resetPin}>
               Save PIN
             </button>
-            <button className="btn btn-ghost" onClick={() => setChangeId(null)}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setChangeId(null)
+                setNewPin('')
+              }}
+            >
               Cancel
             </button>
           </div>
@@ -260,6 +326,11 @@ export function ManageStaff({ back }) {
       {adminError && (
         <div className="alert red" style={{ marginBottom: 12 }}>
           <div className="a-desc">{adminError}</div>
+        </div>
+      )}
+      {adminNotice && (
+        <div className="alert green" style={{ marginBottom: 12 }}>
+          <div className="a-desc">{adminNotice}</div>
         </div>
       )}
       <div className="card" style={{ padding: 14, marginBottom: 14 }}>
@@ -302,7 +373,7 @@ export function ManageStaff({ back }) {
           <tr>
             <th>Name</th>
             <th style={{ width: 100 }}>Status</th>
-            <th style={{ width: 220 }}></th>
+            <th style={{ width: 280 }}></th>
           </tr>
         </thead>
         <tbody>
@@ -343,19 +414,84 @@ export function ManageStaff({ back }) {
                       </button>
                     </>
                   ) : (
-                    <button
-                      className="btn btn-ghost"
-                      style={{ padding: '4px 8px', fontSize: 11 }}
-                      onClick={() => setConfirmDeactivateId(a.id)}
-                    >
-                      Deactivate
-                    </button>
+                    <>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 8px', fontSize: 11 }}
+                        onClick={() => {
+                          setResetAdminId(a.id)
+                          setResetPw('')
+                          setResetPwConfirm('')
+                          setAdminError('')
+                          setAdminNotice('')
+                        }}
+                      >
+                        Reset password
+                      </button>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 8px', fontSize: 11 }}
+                        onClick={() => setConfirmDeactivateId(a.id)}
+                      >
+                        Deactivate
+                      </button>
+                    </>
                   ))}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {resetAdminId && (
+        <div className="card" style={{ marginTop: 14, padding: 14 }}>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>
+            Reset password for {admins.find((a) => a.id === resetAdminId)?.name || 'admin'}
+          </div>
+          <div className="sub" style={{ marginBottom: 8 }}>
+            For an admin who has forgotten their password. You do not need their old one. You cannot
+            reset your own here — use &ldquo;Change my password&rdquo; below.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              className="input"
+              type="password"
+              value={resetPw}
+              onChange={(e) => setResetPw(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') resetAdminPassword()
+              }}
+              placeholder="New password"
+              style={{ minWidth: 150 }}
+              autoFocus
+            />
+            <input
+              className="input"
+              type="password"
+              value={resetPwConfirm}
+              onChange={(e) => setResetPwConfirm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') resetAdminPassword()
+              }}
+              placeholder="Confirm new password"
+              style={{ minWidth: 160 }}
+            />
+            <button className="btn btn-primary" onClick={resetAdminPassword}>
+              Reset password
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setResetAdminId(null)
+                setResetPw('')
+                setResetPwConfirm('')
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="card" style={{ marginTop: 14, padding: 14 }}>
         <div style={{ fontWeight: 500, marginBottom: 8 }}>Change my password</div>
