@@ -16,6 +16,8 @@ import { registerReconciliationHandlers } from './reconciliation.js'
 import { registerRestaurantMenuHandlers } from './restaurant-menu.js'
 import { registerAuditHandlers } from './audit.js'
 import { registerCheckinHandlers } from './checkins.js'
+import { registerDiagnosticsHandlers } from './diagnostics.js'
+import { registerWindowHandlers } from './window.js'
 
 export function registerAllHandlers() {
   registerAuthHandlers()
@@ -36,4 +38,6 @@ export function registerAllHandlers() {
   registerRestaurantMenuHandlers()
   registerAuditHandlers()
   registerCheckinHandlers()
+  registerDiagnosticsHandlers()
+  registerWindowHandlers()
 }

@@ -7,6 +7,7 @@ import { registerAllHandlers } from './ipc/index.js'
 import { performBackup } from './ipc/backup.js'
 import { expireLapsedMemberships } from './ipc/maintenance.js'
 import { clearSession } from './session.js'
+import { initDiagnostics, logInfo, logError } from './diagnostics.js'
 
 let dbLossReported = false
 
@@ -15,6 +16,7 @@ let dbLossReported = false
 function reportDatabaseLoss() {
   if (dbLossReported) return
   dbLossReported = true
+  logError('db', 'Database connection lost at runtime')
   dialog.showErrorBox(
     'Database connection lost',
     'Refresh Manager cannot reach its database file. Check that the drive it is stored on is connected, then restart the app.'
@@ -125,6 +127,10 @@ function startMaintenanceScheduler() {
 }
 
 app.whenReady().then(() => {
+  // Start diagnostics first so even database/startup failures are captured to
+  // the on-disk log (there is no visible console in a packaged build).
+  initDiagnostics()
+
   electronApp.setAppUserModelId('com.refreshrecreation.manager')
 
   app.on('browser-window-created', (_, window) => {
@@ -137,6 +143,7 @@ app.whenReady().then(() => {
   try {
     initDatabase()
   } catch (err) {
+    logError('db-init', err)
     console.error('Database initialization failed:', err)
     const title = 'Refresh Manager — cannot start'
     const detail =
@@ -151,6 +158,7 @@ app.whenReady().then(() => {
   registerAllHandlers()
   startBackupScheduler()
   startMaintenanceScheduler()
+  logInfo('app', 'startup complete — handlers registered, database ready')
 
   ipcMain.on('ping', () => console.log('pong'))
 
@@ -170,6 +178,7 @@ app.on('window-all-closed', () => {
 // P2-2: never die silently. If an unexpected error escapes (often a lost DB
 // handle), tell the user how to recover instead of leaving a frozen window.
 function handleFatal(err) {
+  logError('uncaught', err)
   console.error('Uncaught error in main process:', err)
   if (!isDatabaseHealthy()) {
     reportDatabaseLoss()
