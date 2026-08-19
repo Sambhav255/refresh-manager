@@ -11,6 +11,21 @@ export class ScreenErrorBoundary extends Component {
     return { error }
   }
 
+  componentDidCatch(error, info) {
+    // Record the crash to the diagnostics log so it survives the demo even
+    // though the boundary shows a friendly "Try again" screen to the user.
+    try {
+      window.api?.logDiagnostic?.({
+        level: 'ERROR',
+        source: 'react-boundary',
+        message: error?.message || String(error),
+        extra: { stack: error?.stack, componentStack: info?.componentStack }
+      })
+    } catch {
+      /* ignore */
+    }
+  }
+
   render() {
     if (this.state.error) {
       return (

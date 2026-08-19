@@ -34,6 +34,7 @@ export const api = {
   listProducts: async (data) => unwrap(await invoke('listProducts', data), { products: [] }),
   updatePrice: (data) => invoke('updatePrice', data),
   priceHistory: async (data) => unwrap(await invoke('priceHistory', data), { history: [] }),
+  productPopularity: async () => unwrap(await invoke('productPopularity'), { counts: [] }),
 
   createTransaction: (data) => invoke('createTransaction', data),
   listTransactions: async (data) =>
@@ -63,12 +64,20 @@ export const api = {
   addPoolItem: (data) => invoke('addPoolItem', data),
   restockPoolItem: (data) => invoke('restockPoolItem', data),
   sellPoolItem: (data) => invoke('sellPoolItem', data),
+  updatePoolItem: (data) => invoke('updatePoolItem', data),
+  adjustPoolItem: (data) => invoke('adjustPoolItem', data),
+  poolItemHistory: (data) => invoke('poolItemHistory', data),
+  restaurantItemHistory: (data) => invoke('restaurantItemHistory', data),
+  createMemberWithMembership: (data) => invoke('createMemberWithMembership', data),
+  findMemberMatches: (data) => invoke('findMemberMatches', data),
 
   listRestaurantInventory: async (data) =>
     unwrap(await invoke('listRestaurantInventory', data), { items: [] }),
   restaurantLowStock: async () => unwrap(await invoke('restaurantLowStock'), { items: [] }),
   addRestaurantItem: (data) => invoke('addRestaurantItem', data),
   restockRestaurantItem: (data) => invoke('restockRestaurantItem', data),
+  updateRestaurantItem: (data) => invoke('updateRestaurantItem', data),
+  adjustRestaurantItem: (data) => invoke('adjustRestaurantItem', data),
 
   upcomingBookings: async (data) =>
     unwrap(await invoke('upcomingBookings', data), { bookings: [] }),
@@ -146,5 +155,10 @@ export const api = {
   listStaff: async () => unwrap(await invoke('listStaff'), { users: [] }),
   addStaff: (data) => invoke('addStaff', data),
   deactivateUser: (data) => invoke('deactivateUser', data),
-  changePin: (data) => invoke('changePin', data)
+  changePin: (data) => invoke('changePin', data),
+
+  listAdmins: async () => unwrap(await invoke('listAdmins'), { users: [] }),
+  addAdmin: (data) => invoke('addAdmin', data),
+  deactivateAdmin: (data) => invoke('deactivateAdmin', data),
+  changeAdminPassword: (data) => invoke('changeAdminPassword', data)
 }

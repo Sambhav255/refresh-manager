@@ -13,6 +13,10 @@ const api = {
   listStaff: () => invoke('auth:list-staff'),
   deactivateUser: (data) => invoke('auth:deactivate-user', data),
   changePin: (data) => invoke('auth:change-pin', data),
+  addAdmin: (data) => invoke('auth:add-admin', data),
+  listAdmins: () => invoke('auth:list-admins'),
+  deactivateAdmin: (data) => invoke('auth:deactivate-admin', data),
+  changeAdminPassword: (data) => invoke('auth:change-admin-password', data),
 
   // Transactions
   createTransaction: (data) => invoke('transactions:create', data),
@@ -26,6 +30,8 @@ const api = {
   searchMembers: (data) => invoke('members:search', data),
   getMember: (data) => invoke('members:get', data),
   addMembership: (data) => invoke('members:add-membership', data),
+  createMemberWithMembership: (data) => invoke('members:create-with-membership', data),
+  findMemberMatches: (data) => invoke('members:find-matches', data),
   renewMembership: (data) => invoke('members:renew', data),
   pauseMembership: (data) => invoke('members:pause-membership', data),
   resumeMembership: (data) => invoke('members:resume-membership', data),
@@ -38,12 +44,14 @@ const api = {
   addProduct: (data) => invoke('products:add', data),
   toggleProduct: (data) => invoke('products:toggle-active', data),
   priceHistory: (data) => invoke('products:price-history', data),
+  productPopularity: () => invoke('products:popularity'),
 
   // Pool inventory
   listPoolInventory: (data) => invoke('pool-inventory:list', data),
   restockPoolItem: (data) => invoke('pool-inventory:restock', data),
   sellPoolItem: (data) => invoke('pool-inventory:sell-item', data),
   adjustPoolItem: (data) => invoke('pool-inventory:adjust', data),
+  poolItemHistory: (data) => invoke('pool-inventory:history', data),
   addPoolItem: (data) => invoke('pool-inventory:add-item', data),
   updatePoolItem: (data) => invoke('pool-inventory:update', data),
   poolLowStock: () => invoke('pool-inventory:low-stock'),
@@ -53,6 +61,7 @@ const api = {
   restockRestaurantItem: (data) => invoke('restaurant-inventory:restock', data),
   sellRestaurantItem: (data) => invoke('restaurant-inventory:sell', data),
   adjustRestaurantItem: (data) => invoke('restaurant-inventory:adjust', data),
+  restaurantItemHistory: (data) => invoke('restaurant-inventory:history', data),
   addRestaurantItem: (data) => invoke('restaurant-inventory:add-item', data),
   updateRestaurantItem: (data) => invoke('restaurant-inventory:update', data),
   restaurantLowStock: () => invoke('restaurant-inventory:low-stock'),
@@ -121,7 +130,16 @@ const api = {
 
   // Tickets
   printTicket: (data) => invoke('tickets:print', data),
-  printMembershipCard: (data) => invoke('tickets:print-membership-card', data)
+  printMembershipCard: (data) => invoke('tickets:print-membership-card', data),
+
+  // Diagnostics
+  logDiagnostic: (data) => invoke('diagnostics:log', data),
+  getDiagnosticsInfo: () => invoke('diagnostics:get-info'),
+  openDiagnosticsFolder: () => invoke('diagnostics:open-folder'),
+
+  // Frameless window: the custom title-bar buttons are the only chrome.
+  minimizeWindow: () => invoke('window:minimize'),
+  toggleMaximizeWindow: () => invoke('window:toggle-maximize')
 }
 
 // Least privilege: only the curated `api` object is exposed. The raw toolkit

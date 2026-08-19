@@ -158,12 +158,12 @@ export function Window({ children, onClose }) {
           <span className="tb-title">Refresh Manager</span>
         </div>
         <div className="win-controls">
-          <button title="Minimize">
+          <button title="Minimize" onClick={() => window.api?.minimizeWindow?.()}>
             <svg className="gl" viewBox="0 0 10 10">
               <line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" strokeWidth="1" />
             </svg>
           </button>
-          <button title="Maximize">
+          <button title="Maximize" onClick={() => window.api?.toggleMaximizeWindow?.()}>
             <svg className="gl" viewBox="0 0 10 10">
               <rect
                 x="1.2"

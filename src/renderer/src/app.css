@@ -92,7 +92,11 @@
   .hdr-logo { width: 30px; height: 30px; display: grid; place-items: center; }
   .hdr-name { font-size: 15px; font-weight: 500; letter-spacing: .2px; }
   .hdr-right { display: flex; align-items: center; gap: 14px; }
-  .hdr-user { display: flex; align-items: center; gap: 7px; font-size: 13px; color: #bcd4ee; }
+  /* min-width/overflow keep a long account name from refusing to shrink and
+     pushing the Log out button off the edge of the window. */
+  .hdr-user { display: flex; align-items: center; gap: 7px; font-size: 13px; color: #bcd4ee;
+    min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .ghost-btn { flex: none; }
   .ghost-btn {
     display: flex; align-items: center; gap: 6px;
     background: transparent; color: #bcd4ee;
