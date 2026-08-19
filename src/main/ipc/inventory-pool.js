@@ -132,38 +132,6 @@ export function registerPoolInventoryHandlers() {
   )
 
   ipcMain.handle(
-    'pool-inventory:sell',
-    // P0-1: staff id from session. P0-4: refuse to drive stock negative.
-    wrap(({ itemId, quantity, transactionId }) => {
-      const session = requireStaffOrOwner()
-      const staffId = session.userId
-      const qty = Number(quantity)
-      if (!Number.isInteger(qty) || qty <= 0) throw new Error('Invalid quantity')
-      const db = getDb()
-      const tx = db.transaction(() => {
-        const item = db
-          .prepare(
-            'SELECT current_stock, name, selling_price FROM pool_inventory_items WHERE id = ?'
-          )
-          .get(itemId)
-        if (!item) throw new Error('Item not found')
-        if (qty > item.current_stock) {
-          throw new Error(`Not enough stock: only ${item.current_stock} left`)
-        }
-        db.prepare(
-          `INSERT INTO pool_inventory_transactions (item_id, txn_type, quantity, transaction_id, staff_id, unit_price)
-           VALUES (?, 'out', ?, ?, ?, ?)`
-        ).run(itemId, qty, transactionId || null, staffId, item.selling_price ?? null)
-        db.prepare(
-          `UPDATE pool_inventory_items SET current_stock = current_stock - ? WHERE id = ?`
-        ).run(qty, itemId)
-      })
-      tx()
-      return { success: true }
-    })
-  )
-
-  ipcMain.handle(
     'pool-inventory:sell-item',
     // P2-1: staff-facing sale of a pool inventory item (goggles, caps, …).
     // Creates the money transaction AND the stock draw-down in ONE DB

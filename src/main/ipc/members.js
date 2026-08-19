@@ -51,7 +51,10 @@ function mapMembership(row, warningDays) {
     productName: productDisplayName(product),
     startDisplay: formatShortDate(row.start_date),
     endDisplay: formatShortDate(row.end_date),
-    uiStatus: membershipStatus(row.end_date, warningDays)
+    uiStatus: membershipStatus(row.end_date, warningDays),
+    // Lets the UI tell "not reminded yet" from "reminded, and re-sending needs
+    // the flag cleared first" — without it the owner could not see either.
+    reminderSentAt: row.reminder_sent_at || null
   }
 }
 

@@ -30,6 +30,7 @@ export function OwnerMembers() {
   const [pauseTarget, setPauseTarget] = useState(null) // { membershipId, name }
   const [pauseReason, setPauseReason] = useState('')
   const [error, setError] = useState('')
+  const [history, setHistory] = useState(null)
 
   useEffect(() => {
     api.listAllMembers().then((r) => {
@@ -45,8 +46,39 @@ export function OwnerMembers() {
 
   const sendReminder = async (membershipId) => {
     setBusy(membershipId)
-    await api.sendReminder({ membershipId })
+    const res = await api.sendReminder({ membershipId })
     setBusy(null)
+    if (res?.success === false) {
+      setError(res.error || 'Could not send the reminder')
+      return
+    }
+    setError('')
+    reload()
+  }
+
+  // Sending marks the membership so it drops out of the pending list. Clearing
+  // that mark is the only way to send a second time — the handler and its audit
+  // trail existed from the start, but nothing in the UI ever called them, so a
+  // reminder that did not reach the member could not be re-sent.
+  const allowResend = async (membershipId) => {
+    setBusy(membershipId)
+    const res = await api.clearReminder({ membershipId })
+    setBusy(null)
+    if (res?.success === false) {
+      setError(res.error || 'Could not clear the reminder')
+      return
+    }
+    setError('')
+    reload()
+  }
+
+  const toggleHistory = async () => {
+    if (history) {
+      setHistory(null)
+      return
+    }
+    const r = await api.getReminderHistory({ limit: 50 })
+    setHistory(r.history || [])
   }
 
   const confirmPause = async () => {
@@ -102,7 +134,41 @@ export function OwnerMembers() {
 
   return (
     <div className="content fade-in">
-      <SectionHead title="Members" />
+      <SectionHead title="Members">
+        <button className="btn btn-ghost" onClick={toggleHistory}>
+          <Icon name="message-circle" size={15} />
+          {history ? 'Hide reminder history' : 'Reminder history'}
+        </button>
+      </SectionHead>
+      {history && (
+        <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>Renewal reminders sent</div>
+          {history.length === 0 ? (
+            <div className="sub">No reminders have been sent yet.</div>
+          ) : (
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th style={{ width: 130 }}>Phone</th>
+                  <th style={{ width: 170 }}>Sent</th>
+                  <th style={{ width: 120 }}>By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 500 }}>{h.member || '—'}</td>
+                    <td style={{ color: '#64748b' }}>{h.phone || '—'}</td>
+                    <td style={{ color: '#64748b' }}>{h.sentAt}</td>
+                    <td style={{ color: '#64748b' }}>{h.sentBy || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
         <div style={{ position: 'relative', width: 260 }}>
           <span
@@ -187,16 +253,32 @@ export function OwnerMembers() {
                 </td>
                 <td>
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {status === 'Expiring soon' && x.phone && mem?.id && (
-                      <button
-                        className="btn btn-ghost"
-                        style={{ padding: '4px 8px', fontSize: 11 }}
-                        disabled={busy === mem.id}
-                        onClick={() => sendReminder(mem.id)}
-                      >
-                        {busy === mem.id ? '…' : 'Send reminder'}
-                      </button>
-                    )}
+                    {status === 'Expiring soon' &&
+                      x.phone &&
+                      mem?.id &&
+                      (mem.reminderSentAt ? (
+                        // Already reminded. Re-sending needs the flag cleared,
+                        // so offer that rather than a button that silently
+                        // does the same thing twice.
+                        <button
+                          className="btn btn-ghost"
+                          style={{ padding: '4px 8px', fontSize: 11 }}
+                          disabled={busy === mem.id}
+                          title={`Reminder sent ${mem.reminderSentAt}`}
+                          onClick={() => allowResend(mem.id)}
+                        >
+                          {busy === mem.id ? '…' : 'Allow re-send'}
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-ghost"
+                          style={{ padding: '4px 8px', fontSize: 11 }}
+                          disabled={busy === mem.id}
+                          onClick={() => sendReminder(mem.id)}
+                        >
+                          {busy === mem.id ? '…' : 'Send reminder'}
+                        </button>
+                      ))}
                     {mem?.id && status !== 'Expired' && (
                       <button
                         className="btn btn-ghost"
