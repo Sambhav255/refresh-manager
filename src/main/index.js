@@ -91,7 +91,10 @@ function shouldRunCatchupBackup(db) {
   const last = db.prepare(`SELECT value FROM settings WHERE key = 'last_backup_at'`).get()
   if (!last?.value) return true
   const lastDate = last.value.slice(0, 10)
-  const today = new Date().toISOString().slice(0, 10)
+  // Both sides local. last_backup_at is written with datetime('now','localtime'),
+  // so comparing it against a UTC date meant that between midnight and 05:45 in
+  // Kathmandu a due catch-up backup did not look due yet.
+  const today = db.prepare(`SELECT date('now','localtime') AS d`).get().d
   return lastDate < today
 }
 

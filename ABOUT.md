@@ -83,9 +83,7 @@ Grouped by what they would have cost the business:
 
 After the fixes, every path that moves cash or stock was audited adversarially — assuming a hostile caller and bad luck. Findings were **reproduced against a running app**, not inferred. Full report: [docs/qa/MONEY_AUDIT.md](docs/qa/MONEY_AUDIT.md).
 
-**Verdict: the money is trustworthy. The stock is not.**
-
-Cash arithmetic survived everything. What did not:
+**Original verdict: the money is trustworthy, the stock is not.** Cash arithmetic survived everything; three real defects were found and **all are now fixed and covered by tests**. What they were:
 
 **Voiding a sale reverses the money but not the stock.** Sell 3 goggles (20 → 17), void the sale: money correctly returns to zero, stock stays at 17. The refund path restores stock correctly; the void path does not. Same business event, two different outcomes depending on which button is pressed. Since voiding a mis-rung sale is routine, the shelf count drifts down permanently — causing false low-stock alerts and re-ordering of stock already on the shelf.
 
@@ -95,7 +93,9 @@ Cash arithmetic survived everything. What did not:
 
 Plus float drift on fractional restaurant stock, and one backup check comparing a local date against a UTC one.
 
-**These five are documented and unfixed.** They are the top of the remaining work.
+**All five are fixed**, with regression tests in `test/money-audit.test.js`. The void/stock tests were confirmed red against the old code before the fix landed, so they are known to catch a recurrence.
+
+The fix for the stock bug reuses the reversal logic the refund path already had, now shared by both. A void writes reversing `'in'` movements rather than silently adjusting the count, so the movement history still shows that stock went out and came back — an adjustment that erased the history would have been cheaper and much less auditable.
 
 Worth stating equally plainly — what resisted attack: every money handler is role-gated (46/46 across seven files); prices and staff identity are genuinely derived server-side, so a tampered payload cannot mis-price or mis-attribute; all three double-reversal guards hold in main rather than only in the UI; neither inventory can be driven negative by any route tried, including the same item twice in one cart; and the day breakdown reconciles exactly to its own total.
 
@@ -149,7 +149,7 @@ Both P0s passed every handler test that existed. The E2E suites exist specifical
 
 **Green:** 183 unit tests, 96 end-to-end checks across 6 suites, 0 lint errors, no runtime console errors.
 
-**Known and unfixed — five money-audit findings.** The stock-on-void bug is the one that matters; its fix can reuse logic the refund path already has.
+**All money-audit findings are fixed** and covered by regression tests.
 
 **Never tested against real data.** The uniqueness migration de-duplicates historical check-ins and has only ever run against synthetic databases. **Before installing over an existing production database, copy it and run the new build against the copy.** This is the single largest untested risk in the project.
 

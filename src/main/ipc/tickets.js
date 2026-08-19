@@ -50,7 +50,11 @@ export function registerTicketHandlers() {
 
       const payLabel = paymentMethod?.toLowerCase() === 'qr' ? 'QR' : 'Cash'
       const payment = amount != null ? `${payLabel} · Rs. ${amount}` : payLabel
-      const dt = datetime || new Date().toISOString()
+      // Local time, like every other timestamp in the app. This used to fall
+      // back to toISOString() — UTC — and the fallback always ran because no
+      // caller passed a datetime, so a receipt printed at 2:30pm in Kathmandu
+      // printed 8:45am and disagreed with the log, the reports and the database.
+      const dt = datetime || getDb().prepare(`SELECT datetime('now','localtime') AS n`).get().n
       const datePart = dt.includes('T') ? dt.slice(0, 10) : dt.slice(0, 10)
       const timePart = formatTime(dt.replace('T', ' ').slice(0, 19))
 

@@ -121,7 +121,7 @@ export function registerRestaurantInventoryHandlers() {
            VALUES (?, 'in', ?, 'Restock', ?)`
         ).run(itemId, qty, session.userId)
         db.prepare(
-          `UPDATE restaurant_inventory_items SET current_stock = current_stock + ? WHERE id = ?`
+          `UPDATE restaurant_inventory_items SET current_stock = ROUND(current_stock + ?, 3) WHERE id = ?`
         ).run(qty, itemId)
       })
       tx()
@@ -154,7 +154,7 @@ export function registerRestaurantInventoryHandlers() {
            VALUES (?, 'out', ?, ?, ?)`
         ).run(itemId, qty, transactionId || null, session.userId)
         db.prepare(
-          `UPDATE restaurant_inventory_items SET current_stock = current_stock - ? WHERE id = ?`
+          `UPDATE restaurant_inventory_items SET current_stock = ROUND(current_stock - ?, 3) WHERE id = ?`
         ).run(qty, itemId)
       })
       tx()
@@ -182,7 +182,7 @@ export function registerRestaurantInventoryHandlers() {
           `INSERT INTO restaurant_inventory_transactions (item_id, txn_type, quantity, reason, staff_id)
            VALUES (?, 'adjustment', ?, ?, ?)`
         ).run(itemId, diff, adjustReason, session.userId)
-        db.prepare(`UPDATE restaurant_inventory_items SET current_stock = ? WHERE id = ?`).run(
+        db.prepare(`UPDATE restaurant_inventory_items SET current_stock = ROUND(?, 3) WHERE id = ?`).run(
           target,
           itemId
         )

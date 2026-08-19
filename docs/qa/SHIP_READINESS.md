@@ -21,7 +21,7 @@ One consistency bug was found while wiring this: the printed membership card com
 
 ## 1. Test inventory and how to run it
 
-**Status as of 2026-08-19: every item on the QA backlog is implemented and verified. 183 unit tests + 96 E2E checks, 0 failures, 0 skips, 0 lint errors, no runtime console errors. The Reports & Settings sweep — the last untested area — is now covered.**
+**Status as of 2026-08-19: every item on the QA backlog is implemented and verified. 193 unit tests + 97 E2E checks, 0 failures, 0 skips, 0 lint errors, no runtime console errors. The Reports & Settings sweep — the last untested area — is now covered.**
 
 | Suite | Files | What it proves | Run with |
 |---|---|---|---|

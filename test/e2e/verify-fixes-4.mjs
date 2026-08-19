@@ -92,11 +92,37 @@ try {
     (await page.locator('select').first().locator('option').allInnerTexts())
   check('custom date range offered', hasCustom.includes('Custom range…'), hasCustom.join('/'))
 
-  // Void the deposit, then confirm the toggle reveals it struck through.
-  await page.evaluate(async () => {
+  // A booking deposit may NOT be voided directly — it belongs to its booking,
+  // which would carry on claiming the money had been paid. Sell something
+  // voidable instead, then confirm the toggle reveals it struck through.
+  const depositGuard = await page.evaluate(async () => {
     const tx = (await window.api.listTransactions({})).transactions
-    await window.api.voidTransaction({ transactionId: tx[0].id, reason: 'qa check' })
+    const deposit = tx.find((t) => t.type === 'booking_deposit')
+    const refused = await window.api.voidTransaction({
+      transactionId: deposit.id,
+      reason: 'qa check'
+    })
+
+    const prods = (await window.api.listProducts()).products || []
+    const dayPass = prods.find((p) => p.category === 'day_pass')
+    await window.api.updatePrice({ productId: dayPass.id, newPrice: 300 })
+    await window.api.createTransaction({
+      type: 'day_pass',
+      productId: dayPass.id,
+      customerName: 'ToVoid',
+      paymentMethod: 'cash'
+    })
+    const sale = (await window.api.listTransactions({})).transactions.find(
+      (t) => t.customer === 'ToVoid'
+    )
+    await window.api.voidTransaction({ transactionId: sale.id, reason: 'qa check' })
+    return { refused: refused?.success === false, error: refused?.error }
   })
+  check(
+    'a booking deposit cannot be voided out from under its booking',
+    depositGuard.refused,
+    depositGuard.error
+  )
   await tab('Dashboard')
   await tab('Transactions')
   // Count real data rows only — the empty-state placeholder is also a <tr>.
@@ -108,7 +134,7 @@ try {
   const voidedLabel = await page.locator('td:has-text("voided")').count()
   check(
     'Show voided reveals the voided row',
-    beforeToggle === 0 && afterToggle === 1 && voidedLabel >= 1,
+    afterToggle === beforeToggle + 1 && voidedLabel === 1,
     `before=${beforeToggle} after=${afterToggle} label=${voidedLabel}`
   )
   await shot(page, 'verify4', '03-voided-visible')

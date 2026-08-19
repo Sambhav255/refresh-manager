@@ -3,20 +3,20 @@
 **Date:** 2026-08-19 · **Scope:** every path that moves cash or stock.
 **Method:** code reading plus empirical probes against the running app (isolated temp database). Every finding below was **reproduced**, not inferred — the observed numbers are quoted.
 
-**Verdict: the money is trustworthy; the stock is not.**
+**Verdict: sound. All five findings below are now FIXED and covered by tests** (`test/money-audit.test.js`, 10 tests; the void/stock tests were confirmed to fail against the old code before the fix landed).
 
-Cash arithmetic survived everything I threw at it. Every rupee figure I could produce reconciled. But **voiding a sale reverses the money and leaves the stock decremented**, so the shelf count drifts down every time a mis-rung sale is voided — and voiding a mis-rung sale is one of the most common operations at any till.
+The original verdict was *the money is trustworthy, the stock is not*: cash arithmetic survived everything, but voiding a sale reversed the money and left the stock decremented — and voiding a mis-rung sale is one of the most common operations at any till. That, and the four findings under it, are resolved. The findings are kept in full below because the reasoning still applies to anyone changing these paths.
 
-| Severity | Count |
-|---|---|
-| P0 — money can be wrong | **0** |
-| P1 — stock/records can be wrong | **2** |
-| P2 — customer-facing wrong data | **1** |
-| P3 — cosmetic / drift | **2** |
+| Severity | Count | Status |
+|---|---|---|
+| P0 — money can be wrong | **0** | — |
+| P1 — stock/records can be wrong | **2** | ✅ fixed |
+| P2 — customer-facing wrong data | **1** | ✅ fixed |
+| P3 — cosmetic / drift | **2** | ✅ fixed |
 
 ---
 
-## P1-A — Voiding a sale does not return the stock
+## ✅ P1-A — Voiding a sale did not return the stock
 
 **What happens.** `transactions:void` reverses the money and nothing else. Stock sold on that transaction stays deducted forever. Both inventories are affected.
 
@@ -44,11 +44,11 @@ db.prepare(
 
 **Books vs reality.** A voided sale of 3 goggles: revenue correct at Rs. 0, shelf says 17, reality is 20. Three goggles the owner physically has but the system says are gone. Repeated over months this triggers false low-stock alerts and re-ordering of stock already on the shelf, and it silently corrupts the inventory-turnover report.
 
-**Fix.** Restore stock in the void handler, inside the same transaction, reusing the reversal logic the refund path already has (a shared `restoreStockFor(db, transactionId, staffId, reason)` used by both). A void means "this sale never happened", so unlike a partial refund there is no ambiguity about quantity — the whole movement reverses. Note the reversal rows should be written, not the original rows deleted, so the movement history stays auditable.
+**Fixed.** Stock is restored in the void handler, inside the same transaction, reusing the reversal logic the refund path already has (a shared `restoreStockFor(db, transactionId, staffId, reason)` used by both). A void means "this sale never happened", so unlike a partial refund there is no ambiguity about quantity — the whole movement reverses. Note the reversal rows should be written, not the original rows deleted, so the movement history stays auditable.
 
 ---
 
-## P1-B — Voiding a booking deposit leaves the booking claiming it was paid
+## ✅ P1-B — Voiding a booking deposit left the booking claiming it was paid
 
 **What happens.** The deposit's money transaction is voided (correctly removed from revenue), but the booking row still says `deposit_paid = 3000`.
 
@@ -58,11 +58,11 @@ db.prepare(
 
 **Why.** `bookings.js` has `syncDepositTransaction`, which reconciles the deposit transaction *when the booking changes*. Nothing runs in the other direction: voiding the transaction directly never touches the booking.
 
-**Fix.** Either refuse to void a `booking_deposit` transaction directly (point the owner at the booking, which is the record of intent — this mirrors the existing "cannot void a refund" guard and is the smaller change), or clear `deposit_paid`/`deposit_transaction_id` on the booking as part of the void. I lean toward refusing: the deposit belongs to the booking, and editing it there already works correctly.
+**Fixed** by refusing. The options were to refuse the void of a `booking_deposit` transaction directly (point the owner at the booking, which is the record of intent — this mirrors the existing "cannot void a refund" guard and is the smaller change), or clear `deposit_paid`/`deposit_transaction_id` on the booking as part of the void. I lean toward refusing: the deposit belongs to the booking, and editing it there already works correctly.
 
 ---
 
-## P2 — Every printed receipt shows the wrong time
+## ✅ P2 — Every printed receipt showed the wrong time
 
 **What happens.** Printed tickets carry a UTC timestamp. In Kathmandu (UTC+5:45) a receipt printed at **2:30 PM prints 8:45 AM**.
 
@@ -76,11 +76,11 @@ The fallback is UTC — and the fallback is always what runs, because the only c
 
 **Consequence.** Customer-facing and audit-relevant: the receipt in a customer's hand disagrees with Today's Log, the EOD report and the database by 5h45m. Any dispute ("I paid at 2:30") is unresolvable from the paper.
 
-**Fix.** Pass the transaction's stored `created_at` from the renderer (it is already on `savedTxn`), and change the fallback to local time so a missing value can never reintroduce the skew.
+**Fixed.** The fallback is now local time. A future reprint flow should also pass the transaction's stored `created_at` from the renderer (it is already on `savedTxn`), and change the fallback to local time so a missing value can never reintroduce the skew.
 
 ---
 
-## P3-A — Fractional restaurant stock accumulates float error
+## ✅ P3-A — Fractional restaurant stock accumulated float error
 
 **Reproduced:** set stock to 10, restocked 0.1 three times → stored value **10.299999999999999**.
 
@@ -88,9 +88,9 @@ Restaurant units are `REAL` (kg, litres) by design, so fractions are correct —
 
 It also makes the low-stock comparison `current_stock <= reorder_level` fire or not fire on an epsilon at exact boundaries.
 
-**Fix.** Round to 3dp on write in the restock/adjust/sell handlers (the display formatter already exists — `qtyText` in `owner-restaurant.jsx` — but rounding belongs at the write, not only the render). Money is unaffected: all cash amounts are whole rupees.
+**Fixed.** Rounded to 3dp on write in the restock/adjust/sell handlers (the display formatter already exists — `qtyText` in `owner-restaurant.jsx` — but rounding belongs at the write, not only the render). Money is unaffected: all cash amounts are whole rupees.
 
-## P3-B — Catch-up backup compares a local date against a UTC date
+## ✅ P3-B — Catch-up backup compared a local date against a UTC date
 
 `src/main/index.js:94`:
 
@@ -100,7 +100,7 @@ const today = new Date().toISOString().slice(0, 10) // UTC
 return lastDate < today
 ```
 
-Between 00:00 and 05:44 local the UTC date is still yesterday, so a catch-up backup that is due on a new local day won't fire until after 05:45. It is delayed, not lost (the 23:59 schedule still runs), so this is minor — but it is the same class of bug as the `last_backup_at` skew already fixed, and should use `todayLocal()` for consistency.
+Between 00:00 and 05:44 local the UTC date is still yesterday, so a catch-up backup that is due on a new local day won't fire until after 05:45. It is delayed, not lost (the 23:59 schedule still runs), so this is minor — but it is the same class of bug as the `last_backup_at` skew already fixed, and now uses a local date on both sides.
 
 ---
 
@@ -126,7 +126,7 @@ This matters as much as the findings — these are the paths the owner can rely 
 
 ---
 
-## Fix order
+## Fix order — all completed
 
 1. **P1-A — void restores stock.** Highest value: common operation, silent corruption, and the correct logic already exists in the refund path to reuse.
 2. **P1-B — booking deposit void.** Small change (a guard), removes a way for the business to lose Rs. 3,000 without noticing.

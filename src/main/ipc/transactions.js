@@ -44,6 +44,42 @@ function mapTransaction(row) {
   }
 }
 
+// Puts back every unit a transaction took off the shelf, as new 'in' rows
+// rather than by deleting the originals — the movement history has to keep
+// showing that stock went out and came back.
+//
+// Used by BOTH the refund path and the void path. Void previously did nothing
+// here, so a voided sale reversed the money and left the stock decremented
+// forever: the shelf count drifted down on what is a routine till correction.
+//
+// `linkTransactionId` is the row the reversal belongs to — the refund for a
+// refund, the original itself for a void (a void mints no new transaction).
+function restoreStockFor(db, { originalId, linkTransactionId, staffId, reason }) {
+  for (const table of ['pool_inventory_transactions', 'restaurant_inventory_transactions']) {
+    const items =
+      table === 'pool_inventory_transactions'
+        ? 'pool_inventory_items'
+        : 'restaurant_inventory_items'
+    const outs = db
+      .prepare(
+        `SELECT item_id, quantity, unit_price FROM ${table} WHERE transaction_id = ? AND txn_type = 'out'`
+      )
+      .all(originalId)
+    for (const o of outs) {
+      // Carry the original sale's unit price onto the reversal so the turnover
+      // report nets it at the price actually charged, not today's price.
+      db.prepare(
+        `INSERT INTO ${table} (item_id, txn_type, quantity, reason, transaction_id, staff_id, unit_price)
+         VALUES (?, 'in', ?, ?, ?, ?, ?)`
+      ).run(o.item_id, o.quantity, reason, linkTransactionId, staffId, o.unit_price ?? null)
+      db.prepare(`UPDATE ${items} SET current_stock = current_stock + ? WHERE id = ?`).run(
+        o.quantity,
+        o.item_id
+      )
+    }
+  }
+}
+
 export function registerTransactionHandlers() {
   ipcMain.handle(
     'transactions:create',
@@ -235,6 +271,18 @@ export function registerTransactionHandlers() {
         )
       }
 
+      // A booking deposit belongs to its booking, which stores deposit_paid and
+      // a link to this row. Voiding the transaction on its own removed the money
+      // from revenue while the booking carried on claiming the deposit had been
+      // paid — so staff would collect only the "balance" and the business would
+      // be short by the deposit, with nothing in the system disagreeing.
+      // Editing the deposit on the booking keeps both sides in step.
+      if (txn.transaction_type === 'booking_deposit') {
+        throw new Error(
+          'This is a booking deposit. Change or clear the deposit on the booking itself so the booking and the ledger stay in step.'
+        )
+      }
+
       // A transaction that has refunds must never be voided: the refund rows
       // stay live while the original drops out of WHERE is_voided = 0, so every
       // revenue total would double-reverse (net negative). The refund IS the
@@ -265,9 +313,25 @@ export function registerTransactionHandlers() {
         }
       }
 
-      db.prepare(
-        `UPDATE transactions SET is_voided = 1, void_reason = ?, void_by = ?, void_at = datetime('now','localtime') WHERE id = ?`
-      ).run(reason, session.userId, transactionId)
+      // Flag and stock reversal move together: a void that reversed the money
+      // but not the stock is what made the shelf count drift.
+      db.transaction(() => {
+        db.prepare(
+          `UPDATE transactions SET is_voided = 1, void_reason = ?, void_by = ?, void_at = datetime('now','localtime') WHERE id = ?`
+        ).run(reason, session.userId, transactionId)
+        // A void says the sale never happened, so the whole movement reverses —
+        // unlike a partial refund, there is no question of how much to put back.
+        restoreStockFor(db, {
+          originalId: transactionId,
+          linkTransactionId: transactionId,
+          staffId: session.userId,
+          reason: 'Void reversal'
+        })
+        // A voided membership sale must not leave the member with access.
+        db.prepare(
+          `UPDATE memberships SET status = 'cancelled' WHERE transaction_id = ? AND status != 'cancelled'`
+        ).run(transactionId)
+      })()
       writeAudit(session.userId, 'transaction:void', {
         transactionId,
         amount: txn.amount,
@@ -338,32 +402,12 @@ export function registerTransactionHandlers() {
             `UPDATE memberships SET status = 'cancelled' WHERE transaction_id = ? AND status != 'cancelled'`
           ).run(original.id)
 
-          for (const table of [
-            'pool_inventory_transactions',
-            'restaurant_inventory_transactions'
-          ]) {
-            const items =
-              table === 'pool_inventory_transactions'
-                ? 'pool_inventory_items'
-                : 'restaurant_inventory_items'
-            const outs = db
-              .prepare(
-                `SELECT item_id, quantity, unit_price FROM ${table} WHERE transaction_id = ? AND txn_type = 'out'`
-              )
-              .all(original.id)
-            for (const o of outs) {
-              // Carry the original sale's unit price onto the reversal so the
-              // turnover report nets the refund at the price actually charged.
-              db.prepare(
-                `INSERT INTO ${table} (item_id, txn_type, quantity, reason, transaction_id, staff_id, unit_price)
-                 VALUES (?, 'in', ?, 'Refund reversal', ?, ?, ?)`
-              ).run(o.item_id, o.quantity, refundId, session.userId, o.unit_price ?? null)
-              db.prepare(`UPDATE ${items} SET current_stock = current_stock + ? WHERE id = ?`).run(
-                o.quantity,
-                o.item_id
-              )
-            }
-          }
+          restoreStockFor(db, {
+            originalId: original.id,
+            linkTransactionId: refundId,
+            staffId: session.userId,
+            reason: 'Refund reversal'
+          })
         }
         return refundId
       })

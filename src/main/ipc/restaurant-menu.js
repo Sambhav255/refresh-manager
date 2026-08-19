@@ -163,7 +163,7 @@ export function registerRestaurantMenuHandlers() {
              VALUES (?, 'out', ?, ?, ?, ?)`
           ).run(menuItem.inventory_item_id, qty, transactionId, staffId, menuItem.price)
           db.prepare(
-            `UPDATE restaurant_inventory_items SET current_stock = current_stock - ? WHERE id = ?`
+            `UPDATE restaurant_inventory_items SET current_stock = ROUND(current_stock - ?, 3) WHERE id = ?`
           ).run(qty, menuItem.inventory_item_id)
         }
 
