@@ -10,12 +10,12 @@ Desktop management software for **Refresh Recreation Center**, Boudha, Kathmandu
 - **New transaction** — sell day passes, day packages, or memberships in a 5-step wizard with optional member photo
 - **Member search** — look up any member by name or phone, see active membership and expiry
 - **Today's log** — live list of all transactions for the current shift
-- **End of day** — cash reconciliation followed by a WhatsApp summary sent to the owner
+- **End of day** — cash reconciliation followed by a WhatsApp summary sent to the admin
 - **Inventory** — read-only view of pool stock levels with low-stock alerts
 - **Bookings** — upcoming event bookings for the next 14 days
 - **Restaurant POS** — tap-to-add menu order, choose payment method, one-tap checkout
 
-### Owner / Admin
+### Admin
 - **Dashboard** — daily KPIs (pool + restaurant revenue), recent transactions, backup status, renewal reminders, and low-stock alerts at a glance
 - **Transactions** — full transaction history with filters (date, type, staff, payment); void any transaction with reason
 - **Members** — complete member list with status filters, membership history, and one-click WhatsApp renewal reminders
@@ -25,8 +25,8 @@ Desktop management software for **Refresh Recreation Center**, Boudha, Kathmandu
 - **Reports** — seven report types (daily, monthly, custom range, member retention, inventory turnover, bookings, staff activity) with one-click Excel export
 - **Settings**
   - Pricing manager — update product prices with change history
-  - Staff PINs — add, deactivate, or re-PIN staff accounts
-  - WhatsApp number — owner number for EOD reports and renewal reminders
+  - Staff & Admins — add/deactivate staff PINs and admin accounts, change admin passwords
+  - WhatsApp number — admin number for EOD reports and renewal reminders
   - Renewal reminder template — customisable Nepali WhatsApp message
   - Restaurant menu — add/edit/toggle menu items for staff POS
   - Backup settings — folder path, daily schedule, auto-backup toggle
@@ -102,7 +102,7 @@ Output goes to `dist-app/`.
 src/
 ├── main/                   # Electron main process
 │   ├── index.js            # App entry, window creation, backup scheduler
-│   ├── session.js          # In-memory session (owner / staff)
+│   ├── session.js          # In-memory session (admin role is 'owner' internally)
 │   ├── db/
 │   │   ├── schema.js       # CREATE TABLE statements
 │   │   ├── seed.js         # Default products, inventory items, settings
@@ -110,7 +110,7 @@ src/
 │   │   └── index.js        # DB init, WAL mode
 │   └── ipc/
 │       ├── index.js        # Registers all IPC handlers
-│       ├── auth.js         # Login, setup wizard, staff management
+│       ├── auth.js         # Login, setup wizard, staff & admin management
 │       ├── transactions.js # Create, list, void, today summary
 │       ├── members.js      # Members, memberships, expiry queries
 │       ├── products.js     # List, price update, price history
@@ -136,7 +136,7 @@ src/
     ├── ticket.html         # Printable receipt template
     ├── membership-card.html # Printable membership card template
     └── src/
-        ├── App.jsx         # Root: setup wizard, login, staff/owner router
+        ├── App.jsx         # Root: setup wizard, login, staff/admin router
         ├── app.css         # All styles (design tokens, components, layout)
         ├── main.jsx        # React root mount
         ├── components/
@@ -156,7 +156,7 @@ src/
             ├── staff-eod.jsx
             ├── staff-bookings.jsx
             ├── staff-restaurant-pos.jsx
-            ├── owner.jsx           # Owner barrel export
+            ├── owner.jsx           # Admin screens barrel export
             ├── owner-dashboard.jsx
             ├── owner-transactions.jsx
             ├── owner-members.jsx
@@ -191,8 +191,8 @@ Backups are plain `.db` file copies placed in whichever folder is configured in 
 
 On first launch a setup wizard collects:
 
-1. **Owner name** — becomes the login username
-2. **Owner password** — hashed with bcrypt (min 4 characters)
+1. **Admin name** — becomes the login username
+2. **Admin password** — hashed with bcrypt (min 4 characters)
 3. **First staff name + 4-digit PIN**
 
 After setup the app seeds default products (memberships, day packages, day passes), pool inventory items, and restaurant inventory items with prices set to Rs. 0. Set real prices in **Settings → Pricing manager** before going live.
@@ -204,7 +204,7 @@ After setup the app seeds default products (memberships, day packages, day passe
 | Role | Credential | Access |
 |---|---|---|
 | Staff | 4-digit PIN | Transactions, member search, EOD, bookings, restaurant POS |
-| Owner | Name + password | Everything above + reports, settings, void, inventory management |
+| Admin | Name + password | Everything above + reports, settings, void, inventory management |
 
 The session auto-expires after an idle timeout (default 30 minutes, configurable in Settings). Press **Esc** to log out immediately.
 
@@ -222,7 +222,7 @@ The session auto-expires after an idle timeout (default 30 minutes, configurable
 ```bash
 npm install
 npm run dev      # runs the app (auto-rebuilds better-sqlite3 for Electron)
-npm test         # 59 tests (auto-rebuilds better-sqlite3 for Node)
+npm test         # full suite (auto-rebuilds better-sqlite3 for Node)
 npm run lint     # 0 errors expected
 npm run build    # production bundle
 ```

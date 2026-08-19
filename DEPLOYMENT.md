@@ -6,9 +6,9 @@ Do this on the reception PC after installing the .exe.
 
 1. Run Refresh Manager from the desktop shortcut
 2. Setup wizard appears
-3. Enter owner name and a strong password (write it down and keep it safe)
+3. Enter admin name and a strong password (write it down and keep it safe)
 4. Enter first staff member name and a 4-digit PIN
-5. Click Complete setup — owner dashboard opens
+5. Click Complete setup — admin dashboard opens
 
 ## Configure before first real transaction
 
@@ -23,7 +23,7 @@ Set real prices for every product. All are seeded at Rs. 0. Go through each:
 
 ### Settings → WhatsApp number
 
-Enter the owner's WhatsApp number in international format: 9779801010422
+Enter the admin's WhatsApp number in international format: 9779801010422
 (977 = Nepal country code, no + or spaces)
 
 ### Settings → Backup settings
@@ -35,9 +35,12 @@ Enable auto-backup (daily).
 
 Confirm name, address, phone are correct (pre-filled from seed data).
 
-### Settings → Manage Staff
+### Settings → Staff & Admins
 
-Add a PIN for each reception staff member who will use the app.
+Add a PIN for each reception staff member who will use the app. You can also add
+more admin accounts here (each with their own name + password), change your own
+admin password, and deactivate accounts. The app always keeps at least one
+active admin, and any active admin's password authorizes backup restores.
 
 ### Pool Inventory
 
@@ -59,7 +62,7 @@ Member signs up: New Transaction → Membership → fill name + phone → Confir
 
 Customer arrives: Search Member → confirm Active status → let in.
 
-End of shift: End of Day tab → review totals → Cash reconciliation → Send to owner via WhatsApp.
+End of shift: End of Day tab → review totals → Cash reconciliation → Send to admin via WhatsApp.
 
 Restaurant order: Restaurant POS tile → add items → checkout.
 
@@ -89,13 +92,33 @@ printer feeds blank paper after the receipt, that is tunable in `tickets.js`.
 
 ### Attendance / check-ins
 
-Staff can tap **Check in** on a member search result. The owner dashboard shows
+Staff can tap **Check in** on a member search result. The admin dashboard shows
 **Footfall today**; reports expose footfall over time and a "not seen in N days"
 churn-risk list for renewal outreach.
 
 ---
 
 # Operations & maintenance
+
+## Building a release on the Mac and moving it to the Windows PC
+
+The Windows installer is cross-built on the Mac — no Windows machine needed to build.
+
+```bash
+cd refresh-manager
+npm test                 # every test must pass
+npm run build:win        # produces dist-app/Refresh Manager-<version>-setup.exe
+cd dist-app
+zip -j "Refresh-Manager-<version>-windows.zip" "Refresh Manager-<version>-setup.exe"
+shasum -a 256 "Refresh Manager-<version>-setup.exe" > SHA256SUMS.txt
+```
+
+- **Do not use Finder's "Compress"** — it adds `__MACOSX` junk. Use the `zip -j` command above.
+- Transfer the zip by USB drive or Google Drive (Gmail blocks zips containing an .exe).
+- On the Windows PC, verify the copy wasn't corrupted:
+  `certutil -hashfile "Refresh Manager-<version>-setup.exe" SHA256` and compare with SHA256SUMS.txt.
+- Windows SmartScreen will warn because the app is unsigned: **More info → Run anyway**.
+- Install over the previous version; data is preserved (see "Upgrading" below).
 
 ## Upgrading to a new version (never lose data)
 
@@ -151,11 +174,11 @@ is ever distributed more widely, buy an OV/EV code-signing certificate and sign 
 
 ## Backup monitoring & quarterly restore drill
 
-- The owner dashboard flags a **stale backup** (no successful backup in over a day)
+- The admin dashboard flags a **stale backup** (no successful backup in over a day)
   so problems are noticed before they compound.
 - **Quarterly restore drill (do not skip):** on a spare machine, install the app,
-  copy a recent backup over, and restore it (Settings → Backup → Restore, owner
-  password + backup passphrase). Confirm members, transactions, and photos come
+  copy a recent backup over, and restore it (Settings → Backup → Restore, any
+  active admin password + backup passphrase). Confirm members, transactions, and photos come
   back. A backup you have never restored is not a backup you can trust. Restores
   are integrity-checked before they touch live data and are recorded in the audit
   log.
