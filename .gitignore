@@ -6,3 +6,7 @@ out
 .eslintcache
 .code-review-graph
 *.log*
+
+# QA evidence: ~94MB of run artefacts. Reports in docs/qa/*.md reference
+# these paths; the images themselves are regenerable and stay out of history.
+docs/qa/screenshots
