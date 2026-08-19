@@ -48,6 +48,11 @@ const api = {
   resetAdminPassword: (data) => invoke('auth:reset-admin-password', data),
   resetStaffPin: (data) => invoke('auth:reset-staff-pin', data),
   listLoginRoster: () => invoke('auth:login-roster'),
+  // Last-resort recovery for the single-admin case: a code issued in advance,
+  // stored hashed, usable once without being signed in.
+  hasRecoveryCode: () => invoke('auth:has-recovery-code'),
+  issueRecoveryCode: (data) => invoke('auth:issue-recovery-code', data),
+  recoverWithCode: (data) => invoke('auth:recover-with-code', data),
   findMemberMatches: (data) => invoke('members:find-matches', data),
   renewMembership: (data) => invoke('members:renew', data),
   pauseMembership: (data) => invoke('members:pause-membership', data),

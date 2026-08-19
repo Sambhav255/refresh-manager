@@ -80,6 +80,9 @@ export const api = {
   resetAdminPassword: (data) => invoke('resetAdminPassword', data),
   resetStaffPin: (data) => invoke('resetStaffPin', data),
   listLoginRoster: () => invoke('listLoginRoster'),
+  hasRecoveryCode: () => invoke('hasRecoveryCode'),
+  issueRecoveryCode: (data) => invoke('issueRecoveryCode', data),
+  recoverWithCode: (data) => invoke('recoverWithCode', data),
   findMemberMatches: (data) => invoke('findMemberMatches', data),
 
   listRestaurantInventory: async (data) =>
