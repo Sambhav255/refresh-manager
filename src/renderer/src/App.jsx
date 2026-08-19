@@ -31,25 +31,52 @@ function SetupWizard({ onDone }) {
   const [staffPin, setStaffPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const setupInFlight = useRef(false)
 
   const submit = async () => {
+    // A ref, not `loading`: setLoading is async, so disabled={loading} is not
+    // applied until React re-renders and a re-entrant submit could slip past.
+    if (loading || setupInFlight.current) return
     setError('')
+    // Check required fields FIRST — on a blank form '' === '' passed the
+    // password comparison vacuously and the user was told the PIN was wrong.
+    if (!ownerName.trim() || !password || !staffName.trim() || !staffPin) {
+      setError('All fields are required')
+      return
+    }
     if (password !== confirm) {
       setError('Passwords do not match')
+      return
+    }
+    if (password.length < 4) {
+      setError('Password must be at least 4 characters')
       return
     }
     if (!/^\d{4}$/.test(staffPin)) {
       setError('Staff PIN must be 4 digits')
       return
     }
+    setupInFlight.current = true
     setLoading(true)
-    const result = await api.setup({ ownerName, password, staffName, staffPin })
+    const result = await api.setup({
+      ownerName: ownerName.trim(),
+      password,
+      staffName: staffName.trim(),
+      staffPin
+    })
+    setupInFlight.current = false
     setLoading(false)
     if (result?.success === false) {
       setError(result.error || 'Setup failed')
       return
     }
     onDone(result.user)
+  }
+
+  // Both login modals submit on Enter; the wizard is the first screen a new
+  // user sees and was the only one that did not.
+  const onEnter = (e) => {
+    if (e.key === 'Enter') submit()
   }
 
   return (
@@ -76,6 +103,8 @@ function SetupWizard({ onDone }) {
             className="input"
             value={ownerName}
             onChange={(e) => setOwnerName(e.target.value)}
+            onKeyDown={onEnter}
+            maxLength={60}
           />
         </div>
         <div className="field">
@@ -85,6 +114,7 @@ function SetupWizard({ onDone }) {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={onEnter}
           />
         </div>
         <div className="field">
@@ -94,6 +124,7 @@ function SetupWizard({ onDone }) {
             type="password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
+            onKeyDown={onEnter}
           />
         </div>
         <div className="field">
@@ -102,14 +133,20 @@ function SetupWizard({ onDone }) {
             className="input"
             value={staffName}
             onChange={(e) => setStaffName(e.target.value)}
+            onKeyDown={onEnter}
+            maxLength={60}
           />
         </div>
         <div className="field">
           <label>Staff PIN (4 digits)</label>
           <input
             className="input"
+            inputMode="numeric"
             value={staffPin}
-            onChange={(e) => setStaffPin(e.target.value)}
+            // Strip non-digits as typed, matching the login PIN field — the
+            // wizard used to accept letters and only complain on submit.
+            onChange={(e) => setStaffPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            onKeyDown={onEnter}
             maxLength={4}
           />
         </div>
@@ -164,23 +201,43 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const pinInputRef = useRef(null)
+  const loginInFlight = useRef(false)
 
-  const submitStaff = async () => {
+  // Close the open modal on Escape.
+  useEffect(() => {
+    if (!modal) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') setModal(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [modal])
+
+  const submitStaff = async (pinValue = pin) => {
+    if (loading || loginInFlight.current) return
+    loginInFlight.current = true
     setError('')
     setLoading(true)
-    const result = await api.login({ pin })
+    const result = await api.login({ pin: pinValue })
+    loginInFlight.current = false
     setLoading(false)
     if (result?.success === false) {
       setError(result.error || 'Login failed')
+      setPin('')
+      pinInputRef.current?.focus()
       return
     }
     onLogin(result.user)
   }
 
   const submitOwner = async () => {
+    if (loading || loginInFlight.current) return
+    loginInFlight.current = true
     setError('')
     setLoading(true)
     const result = await api.login({ username, password })
+    loginInFlight.current = false
     setLoading(false)
     if (result?.success === false) {
       setError(result.error || 'Login failed')
@@ -248,9 +305,19 @@ function Login({ onLogin }) {
           <div className="field">
             <label>Enter 4-digit PIN</label>
             <input
+              ref={pinInputRef}
               className="input"
+              type="password"
+              inputMode="numeric"
               value={pin}
-              onChange={(e) => setPin(e.target.value)}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '').slice(0, 4)
+                setPin(digits)
+                if (digits.length === 4) submitStaff(digits)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitStaff()
+              }}
               maxLength={4}
               autoFocus
             />
@@ -260,7 +327,11 @@ function Login({ onLogin }) {
               <div className="a-desc">{error}</div>
             </div>
           )}
-          <button className="btn btn-primary btn-block" disabled={loading} onClick={submitStaff}>
+          <button
+            className="btn btn-primary btn-block"
+            disabled={loading}
+            onClick={() => submitStaff()}
+          >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </Modal>
@@ -273,6 +344,9 @@ function Login({ onLogin }) {
               className="input"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitOwner()
+              }}
               autoFocus
             />
           </div>
@@ -283,6 +357,9 @@ function Login({ onLogin }) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitOwner()
+              }}
             />
           </div>
           {error && (
@@ -319,7 +396,7 @@ function StaffInventory({ back }) {
         <div className="alert red" style={{ marginBottom: 14 }}>
           <Icon name="alert-triangle" size={17} />
           <div>
-            <div className="a-title">{lowStock.length} items below reorder threshold</div>
+            <div className="a-title">{lowStock.length} items at or below reorder level</div>
             <div className="a-desc">
               {lowStock
                 .map((r) => r.item + (r.variant !== '—' ? ' (' + r.variant + ')' : ''))
@@ -451,7 +528,7 @@ function OwnerApp({ session, onLogout }) {
     { k: 'settings', icon: 'settings', label: 'Settings' }
   ]
   let ownerScreen
-  if (tab === 'dashboard') ownerScreen = <OwnerDashboard key="dashboard" />
+  if (tab === 'dashboard') ownerScreen = <OwnerDashboard key="dashboard" go={setTab} />
   else if (tab === 'transactions') ownerScreen = <OwnerTransactions key="transactions" />
   else if (tab === 'members') ownerScreen = <OwnerMembers key="members" />
   else if (tab === 'bookings') ownerScreen = <OwnerBookings key="bookings" session={session} />
@@ -526,6 +603,9 @@ export default function App() {
 
   useEffect(() => {
     const onKey = async (e) => {
+      const t = e.target
+      const tag = t?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return
       if (e.key === 'Escape' && view !== 'login' && view !== 'loading' && view !== 'setup') {
         await api.logout()
         setSession(null)

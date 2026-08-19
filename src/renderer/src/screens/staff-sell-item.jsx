@@ -3,6 +3,65 @@ import { api } from '../lib/api'
 import { fmt } from '../lib/format'
 import { Icon, SectionHead } from '../components/ui'
 
+// Hoisted to module scope so it doesn't remount (losing input focus) on every
+// parent render. Supports both tap (+/−) and direct typing, clamped to
+// [min, max] — max is the available stock.
+function QtyStepper({ value, min = 1, max, disabled, onChange, onEnter }) {
+  const [text, setText] = useState(String(value))
+  // Resync the draft text when the committed value changes from outside
+  // (recommended adjust-state-during-render pattern, no effect needed).
+  const [lastValue, setLastValue] = useState(value)
+  if (value !== lastValue) {
+    setLastValue(value)
+    setText(String(value))
+  }
+  const clamp = (n) => Math.max(min, Math.min(max, n))
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <button
+        className="btn btn-ghost"
+        style={{ padding: '2px 10px' }}
+        disabled={disabled || value <= min}
+        aria-label="Decrease quantity"
+        onClick={() => onChange(clamp(value - 1))}
+      >
+        −
+      </button>
+      <input
+        className="input"
+        style={{ width: 56, padding: '4px 6px', textAlign: 'center' }}
+        inputMode="numeric"
+        value={text}
+        disabled={disabled}
+        onChange={(e) => {
+          const raw = e.target.value.replace(/[^0-9]/g, '')
+          setText(raw)
+          if (raw === '') return
+          const n = clamp(parseInt(raw, 10))
+          if (String(n) !== raw) setText(String(n))
+          onChange(n)
+        }}
+        onBlur={() => setText(String(value))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && onEnter) {
+            e.preventDefault()
+            onEnter()
+          }
+        }}
+      />
+      <button
+        className="btn btn-ghost"
+        style={{ padding: '2px 10px' }}
+        disabled={disabled || value >= max}
+        aria-label="Increase quantity"
+        onClick={() => onChange(clamp(value + 1))}
+      >
+        +
+      </button>
+    </div>
+  )
+}
+
 // P2-1: staff-facing sale of a pool inventory item (goggles, caps, bottled
 // water, …). Amount, staff, and stock draw-down are all handled server-side in
 // one atomic operation via api.sellPoolItem.
@@ -12,6 +71,7 @@ export function SellItem({ back }) {
   const [selected, setSelected] = useState(null)
   const [qty, setQty] = useState(1)
   const [pay, setPay] = useState('Cash')
+  const [q, setQ] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(null)
@@ -30,8 +90,20 @@ export function SellItem({ back }) {
 
   const total = selected ? selected.selling_price * qty : 0
 
+  const query = q.trim().toLowerCase()
+  const filteredItems = query
+    ? items.filter((i) => `${i.name || ''} ${i.variant || ''}`.toLowerCase().includes(query))
+    : items
+
+  const selectItem = (i) => {
+    if (i.current_stock <= 0) return
+    setSelected(i)
+    setQty(1)
+    setError('')
+  }
+
   const confirm = async () => {
-    if (!selected) return
+    if (!selected || saving) return
     setSaving(true)
     setError('')
     const r = await api.sellPoolItem({
@@ -45,10 +117,30 @@ export function SellItem({ back }) {
       return
     }
     setDone({ item: selected, qty, total: r.total, pay })
+    // Reset cleanly for the next customer.
     setSelected(null)
     setQty(1)
+    setQ('')
     load()
   }
+
+  // Enter = obvious primary action: confirm the sale (or dismiss the done
+  // screen). Inputs/buttons handle their own Enter, so skip those targets.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Enter') return
+      const tag = e.target?.tagName
+      if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'SELECT' || tag === 'TEXTAREA') return
+      e.preventDefault()
+      if (done) {
+        back()
+      } else if (selected) {
+        confirm()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   if (done) {
     return (
@@ -88,35 +180,75 @@ export function SellItem({ back }) {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-            {items.map((i) => (
-              <div
-                key={i.id}
-                className={'card' + (selected?.id === i.id ? ' sel' : '')}
+          <div>
+            <div style={{ position: 'relative', marginBottom: 10 }}>
+              <span
                 style={{
-                  padding: 12,
-                  cursor: i.current_stock > 0 ? 'pointer' : 'not-allowed',
-                  opacity: i.current_stock > 0 ? 1 : 0.5,
-                  outline: selected?.id === i.id ? '2px solid #185FA5' : 'none'
-                }}
-                onClick={() => {
-                  if (i.current_stock > 0) {
-                    setSelected(i)
-                    setQty(1)
-                    setError('')
-                  }
+                  position: 'absolute',
+                  left: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  display: 'flex'
                 }}
               >
-                <div style={{ fontWeight: 500, fontSize: 13 }}>{i.name}</div>
-                <div className="sub">
-                  {i.variant && i.variant !== '—' ? i.variant + ' · ' : ''}
-                  {fmt(i.selling_price)}
-                </div>
-                <div className="sub" style={{ color: i.low ? '#ef4444' : '#94a3b8' }}>
-                  {i.current_stock} in stock
-                </div>
+                <Icon name="search" size={16} color="#94a3b8" />
+              </span>
+              <input
+                className="input"
+                style={{ paddingLeft: 36 }}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search items…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setQ('')
+                  if (e.key === 'Enter' && filteredItems.length === 1) {
+                    e.preventDefault()
+                    selectItem(filteredItems[0])
+                  }
+                }}
+              />
+            </div>
+            {filteredItems.length === 0 ? (
+              <div className="sub" style={{ padding: '10px 2px' }}>
+                No items match “{q.trim()}”.{' '}
+                <button
+                  className="btn btn-ghost"
+                  style={{ padding: '2px 8px' }}
+                  onClick={() => setQ('')}
+                >
+                  Clear search
+                </button>
               </div>
-            ))}
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+                {filteredItems.map((i) => (
+                  <div
+                    key={i.id}
+                    className={'card' + (selected?.id === i.id ? ' sel' : '')}
+                    style={{
+                      padding: 12,
+                      cursor: i.current_stock > 0 ? 'pointer' : 'not-allowed',
+                      opacity: i.current_stock > 0 ? 1 : 0.5,
+                      outline: selected?.id === i.id ? '2px solid #185FA5' : 'none'
+                    }}
+                    title={i.current_stock > 0 ? undefined : 'Out of stock — cannot be sold'}
+                    onClick={() => selectItem(i)}
+                  >
+                    <div style={{ fontWeight: 500, fontSize: 13 }}>{i.name}</div>
+                    <div className="sub">
+                      {i.variant && i.variant !== '—' ? i.variant + ' · ' : ''}
+                      {fmt(i.selling_price)}
+                    </div>
+                    <div
+                      className="sub"
+                      style={{ color: i.current_stock <= 0 || i.low ? '#ef4444' : '#94a3b8' }}
+                    >
+                      {i.current_stock > 0 ? `${i.current_stock} in stock` : 'Out of stock'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="card" style={{ padding: 14 }}>
@@ -130,24 +262,15 @@ export function SellItem({ back }) {
                   {fmt(selected.selling_price)} each · {selected.current_stock} in stock
                 </div>
                 <label style={{ fontSize: 12, color: '#64748b' }}>Quantity</label>
-                <div
-                  style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '6px 0 12px' }}
-                >
-                  <button
-                    className="btn btn-ghost"
-                    style={{ padding: '2px 10px' }}
-                    onClick={() => setQty((q) => Math.max(1, q - 1))}
-                  >
-                    −
-                  </button>
-                  <span style={{ minWidth: 24, textAlign: 'center' }}>{qty}</span>
-                  <button
-                    className="btn btn-ghost"
-                    style={{ padding: '2px 10px' }}
-                    onClick={() => setQty((q) => Math.min(selected.current_stock, q + 1))}
-                  >
-                    +
-                  </button>
+                <div style={{ margin: '6px 0 12px' }}>
+                  <QtyStepper
+                    value={qty}
+                    min={1}
+                    max={Math.max(1, selected.current_stock)}
+                    disabled={saving}
+                    onChange={setQty}
+                    onEnter={confirm}
+                  />
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                   {['Cash', 'QR'].map((p) => (
@@ -155,6 +278,7 @@ export function SellItem({ back }) {
                       key={p}
                       className={'btn ' + (pay === p ? 'btn-primary' : 'btn-ghost')}
                       style={{ flex: 1 }}
+                      disabled={saving}
                       onClick={() => setPay(p)}
                     >
                       {p}
@@ -171,14 +295,14 @@ export function SellItem({ back }) {
                   Total: {fmt(total)}
                 </div>
                 {error && (
-                  <div className="sub" style={{ color: '#ef4444', marginTop: 8 }}>
+                  <div className="alert red" style={{ marginTop: 10 }}>
                     {error}
                   </div>
                 )}
                 <button
                   className="btn btn-teal btn-block"
                   style={{ marginTop: 12 }}
-                  disabled={saving}
+                  disabled={saving || selected.current_stock <= 0}
                   onClick={confirm}
                 >
                   {saving ? 'Saving…' : 'Confirm sale'}

@@ -7,11 +7,23 @@ export function MemberSearch() {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [checkedIn, setCheckedIn] = useState({})
+  const [error, setError] = useState('')
 
   const doCheckIn = async (m) => {
+    setError('')
     const res = await api.checkIn({ memberId: m.id, source: 'member' })
-    if (res?.success !== false) setCheckedIn((prev) => ({ ...prev, [m.id]: true }))
+    // A rejected check-in used to look exactly like a hung button: the tick never
+    // appeared and nothing said why, so reception would just keep tapping.
+    if (res?.success === false) {
+      setError(res.error || `Could not check in ${m.name}`)
+      return
+    }
+    setCheckedIn((prev) => ({ ...prev, [m.id]: true }))
   }
+
+  // Server-backed truth, so leaving the tab and coming back no longer offers a
+  // second check-in for someone already counted today.
+  const isCheckedIn = (m) => checkedIn[m.id] || m.checkedInToday
 
   useEffect(() => {
     if (!q.trim()) {
@@ -51,6 +63,11 @@ export function MemberSearch() {
           />
         </div>
       </div>
+      {error && (
+        <div className="alert red" style={{ marginBottom: 12 }}>
+          <div className="a-desc">{error}</div>
+        </div>
+      )}
       <div className="sub" style={{ marginBottom: 12 }}>
         {loading
           ? 'Searching...'
@@ -59,9 +76,13 @@ export function MemberSearch() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {results.map((m) => {
           const mem = m.activeMembership
+          const last = m.lastMembership
           const status = mem?.uiStatus || 'Expired'
-          const type = mem?.productName || 'No active membership'
-          const expiry = mem?.endDisplay || '—'
+          // A lapsed member and someone who never joined used to render
+          // identically. Show what they were on and when it ended — the two
+          // things reception needs to sell the renewal.
+          const type = mem?.productName || (last ? last.productName : 'No membership on record')
+          const expiry = mem?.endDisplay || (last ? `ended ${last.endDisplay}` : '—')
           return (
             <div
               key={m.id}
@@ -101,10 +122,10 @@ export function MemberSearch() {
                 <button
                   className="btn btn-ghost"
                   style={{ padding: '4px 10px', fontSize: 11.5 }}
-                  disabled={checkedIn[m.id]}
+                  disabled={isCheckedIn(m)}
                   onClick={() => doCheckIn(m)}
                 >
-                  {checkedIn[m.id] ? (
+                  {isCheckedIn(m) ? (
                     <>
                       <Icon name="check" size={13} /> Checked in
                     </>

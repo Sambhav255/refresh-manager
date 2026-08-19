@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { fmt, todayLocal, formatDateDisplay } from '../lib/format'
 import { Icon } from '../components/ui'
+import { orderedTypes, typeLabel } from '../../../shared/transaction-types'
 
 export function EndOfDay({ session }) {
   const [summary, setSummary] = useState(null)
@@ -63,13 +64,17 @@ export function EndOfDay({ session }) {
     setSent(true)
   }
 
+  // Built from the types actually present, so the itemised lines always
+  // reconcile to the headline total. The old hardcoded three-line list silently
+  // dropped restaurant, pool-item, booking-deposit and refund revenue.
   const rows = summary
     ? [
         { label: 'Cash', value: fmt(summary.cash) },
         { label: 'QR (eSewa / Khalti)', value: fmt(summary.qr) },
-        { label: 'Memberships sold', value: fmt(summary.byType?.membership || 0) },
-        { label: 'Day packages', value: fmt(summary.byType?.day_package || 0) },
-        { label: 'Day passes', value: fmt(summary.byType?.day_pass || 0) }
+        ...orderedTypes(summary.byType).map((t) => ({
+          label: typeLabel(t),
+          value: fmt(summary.byType[t] || 0)
+        }))
       ]
     : []
 
