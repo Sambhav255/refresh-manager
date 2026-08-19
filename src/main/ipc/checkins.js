@@ -24,10 +24,32 @@ export function registerCheckinHandlers() {
         const member = db.prepare('SELECT id FROM members WHERE id = ?').get(memberId)
         if (!member) throw new Error('Member not found')
       }
+      // One check-in per member per day. Reception re-searches a member all the
+      // time (to read their expiry), and the button's only guard was React
+      // state lost on unmount — so footfall crept up on every re-visit.
+      // A repeat is NOT an error: a double-tap must not raise a red alert.
+      if (memberId) {
+        const already = db
+          .prepare(
+            `SELECT id, checked_in_at FROM check_ins
+             WHERE member_id = ? AND date(checked_in_at) = date('now','localtime')
+             ORDER BY id DESC LIMIT 1`
+          )
+          .get(memberId)
+        if (already) {
+          return {
+            success: true,
+            id: already.id,
+            alreadyCheckedIn: true,
+            checkedInAt: already.checked_in_at
+          }
+        }
+      }
+
       const result = db
         .prepare(`INSERT INTO check_ins (member_id, staff_id, source) VALUES (?, ?, ?)`)
         .run(memberId || null, session.userId, source)
-      return { success: true, id: result.lastInsertRowid }
+      return { success: true, id: result.lastInsertRowid, alreadyCheckedIn: false }
     })
   )
 

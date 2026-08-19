@@ -28,6 +28,17 @@ const PASSWORD_COOLDOWN_MS = 60000
 let failedPasswordAttempts = 0
 let passwordLockedUntil = 0
 
+// Lockout copy derived from the real cooldown, so the message can never drift
+// from the constant (it used to say "a few seconds" for a 30-second lock).
+function secondsLeft(until) {
+  const s = Math.max(1, Math.ceil((until - Date.now()) / 1000))
+  if (s >= 60) {
+    const m = Math.round(s / 60)
+    return `${m} minute${m === 1 ? '' : 's'}`
+  }
+  return `${s} seconds`
+}
+
 // Reject a new PIN if it collides with any existing active staff PIN.
 // excludeUserId lets a staff member keep/re-set their own PIN without
 // colliding with themselves.
@@ -43,6 +54,19 @@ async function assertPinUnique(db, pin, excludeUserId = null) {
   }
 }
 
+// Admin login is name + password, so active admins must have distinct names
+// or the lookup would silently pick one of them.
+function assertAdminNameUnique(db, name, excludeUserId = null) {
+  const row = db
+    .prepare(
+      `SELECT id FROM users WHERE role = 'owner' AND is_active = 1 AND name = ? ${
+        excludeUserId != null ? 'AND id != ?' : ''
+      }`
+    )
+    .get(...(excludeUserId != null ? [name, excludeUserId] : [name]))
+  if (row) throw new Error('An admin with that name already exists.')
+}
+
 export function registerAuthHandlers() {
   ipcMain.handle(
     'auth:needs-setup',
@@ -53,8 +77,16 @@ export function registerAuthHandlers() {
     'auth:setup',
     wrap(async ({ ownerName, password, staffName, staffPin }) => {
       if (hasUsers()) throw new Error('Setup already completed')
-      if (!ownerName || !password || !staffName || !staffPin) {
+      // Names are trimmed before validation AND before insert: login matches on
+      // an exact name, so storing "  Owner  " would lock the owner out of a
+      // fresh install with no password-reset path. Matches auth:add-admin.
+      const owner = typeof ownerName === 'string' ? ownerName.trim() : ''
+      const staff = typeof staffName === 'string' ? staffName.trim() : ''
+      if (!owner || !password || !staff || !staffPin) {
         throw new Error('All fields are required')
+      }
+      if (owner.length > 60 || staff.length > 60) {
+        throw new Error('Names must be 60 characters or fewer')
       }
       if (password.length < 4) throw new Error('Password must be at least 4 characters')
       if (!/^\d{4}$/.test(staffPin)) throw new Error('Staff PIN must be 4 digits')
@@ -71,16 +103,23 @@ export function registerAuthHandlers() {
         `INSERT INTO users (name, role, pin_hash) VALUES (?, 'staff', ?)`
       )
 
+      // The hasUsers() check above is separated from these inserts by two
+      // awaited bcrypt hashes, so two concurrent submits could both pass it.
+      // Re-check inside the transaction, where it is atomic.
       const tx = db.transaction(() => {
-        const owner = insertOwner.run(ownerName, ownerHash)
-        insertStaff.run(staffName, pinHash)
-        return owner.lastInsertRowid
+        if (hasUsers()) throw new Error('Setup already completed')
+        const inserted = insertOwner.run(owner, ownerHash)
+        insertStaff.run(staff, pinHash)
+        return inserted.lastInsertRowid
       })
 
       const ownerId = tx()
-      const owner = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(ownerId)
-      setSession(owner)
-      return { success: true, user: { userId: owner.id, name: owner.name, role: owner.role } }
+      const created = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(ownerId)
+      setSession(created)
+      return {
+        success: true,
+        user: { userId: created.id, name: created.name, role: created.role }
+      }
     })
   )
 
@@ -91,7 +130,7 @@ export function registerAuthHandlers() {
 
       if (pin) {
         if (Date.now() < lockedUntil) {
-          throw new Error('Too many attempts. Please try again in a few seconds.')
+          throw new Error(`Too many attempts. Please try again in ${secondsLeft(lockedUntil)}.`)
         }
         const staff = db
           .prepare(
@@ -111,13 +150,25 @@ export function registerAuthHandlers() {
         if (failedPinAttempts >= MAX_PIN_ATTEMPTS) {
           lockedUntil = Date.now() + PIN_COOLDOWN_MS
           failedPinAttempts = 0
+          // Say so on the attempt that ARMS the lock — the user used to learn
+          // about it only on the next try, after the wait had already started.
+          throw new Error(
+            `Incorrect PIN. Too many attempts — please try again in ${secondsLeft(lockedUntil)}.`
+          )
         }
-        throw new Error('Incorrect PIN')
+        const left = MAX_PIN_ATTEMPTS - failedPinAttempts
+        throw new Error(
+          left <= 2
+            ? `Incorrect PIN. ${left} attempt${left === 1 ? '' : 's'} left.`
+            : 'Incorrect PIN'
+        )
       }
 
       if (username && password) {
         if (Date.now() < passwordLockedUntil) {
-          throw new Error('Too many attempts. Please try again in a minute.')
+          throw new Error(
+            `Too many attempts. Please try again in ${secondsLeft(passwordLockedUntil)}.`
+          )
         }
         const owner = db
           .prepare(
@@ -129,8 +180,16 @@ export function registerAuthHandlers() {
           if (failedPasswordAttempts >= MAX_PASSWORD_ATTEMPTS) {
             passwordLockedUntil = Date.now() + PASSWORD_COOLDOWN_MS
             failedPasswordAttempts = 0
+            throw new Error(
+              `Incorrect password. Too many attempts — please try again in ${secondsLeft(passwordLockedUntil)}.`
+            )
           }
-          throw new Error('Incorrect password')
+          const left = MAX_PASSWORD_ATTEMPTS - failedPasswordAttempts
+          throw new Error(
+            left <= 2
+              ? `Incorrect password. ${left} attempt${left === 1 ? '' : 's'} left.`
+              : 'Incorrect password'
+          )
         }
         failedPasswordAttempts = 0
         passwordLockedUntil = 0
@@ -139,6 +198,12 @@ export function registerAuthHandlers() {
         return { success: true, user: session }
       }
 
+      // Name the missing field. This fallback used to surface for every empty
+      // form, reading like a system fault rather than "you left a box blank".
+      if (!pin && !username && !password)
+        throw new Error('Enter your PIN, or a username and password')
+      if (username && !password) throw new Error('Enter your password')
+      if (password && !username) throw new Error('Enter your username')
       throw new Error('Invalid login credentials')
     })
   )
@@ -192,6 +257,93 @@ export function registerAuthHandlers() {
       const session = requireOwner()
       getDb().prepare(`UPDATE users SET is_active = 0 WHERE id = ? AND role = 'staff'`).run(userId)
       writeAudit(session.userId, 'staff:deactivate', { userId })
+      return { success: true }
+    })
+  )
+
+  // ---- Multi-admin management -------------------------------------------
+  // The business can have several admins (and several staff). Staff already
+  // scale (unique PINs, list/add/deactivate); these handlers give admins the
+  // same lifecycle, with two safety rails: you cannot deactivate yourself,
+  // and you cannot deactivate the last active admin.
+
+  ipcMain.handle(
+    'auth:add-admin',
+    wrap(async ({ name, password }) => {
+      const session = requireOwner()
+      if (!name || !name.trim()) throw new Error('Name is required')
+      if (!password || password.length < 4) {
+        throw new Error('Password must be at least 4 characters')
+      }
+      const db = getDb()
+      const trimmed = name.trim()
+      assertAdminNameUnique(db, trimmed)
+      const hash = await bcrypt.hash(password, 10)
+      const result = db
+        .prepare(`INSERT INTO users (name, role, password_hash) VALUES (?, 'owner', ?)`)
+        .run(trimmed, hash)
+      writeAudit(session.userId, 'admin:add', { userId: result.lastInsertRowid, name: trimmed })
+      return { success: true, userId: result.lastInsertRowid }
+    })
+  )
+
+  ipcMain.handle(
+    'auth:list-admins',
+    wrap(() => {
+      requireOwner()
+      const users = getDb()
+        .prepare(
+          `SELECT id, name, role, is_active, created_at FROM users WHERE role = 'owner' ORDER BY name`
+        )
+        .all()
+      return { users }
+    })
+  )
+
+  ipcMain.handle(
+    'auth:deactivate-admin',
+    wrap(({ userId }) => {
+      const session = requireOwner()
+      if (Number(userId) === Number(session.userId)) {
+        throw new Error('You cannot deactivate your own account.')
+      }
+      const db = getDb()
+      const tx = db.transaction(() => {
+        const target = db
+          .prepare(`SELECT id, is_active FROM users WHERE id = ? AND role = 'owner'`)
+          .get(userId)
+        if (!target) throw new Error('Admin not found')
+        const activeAdmins = db
+          .prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'owner' AND is_active = 1`)
+          .get().n
+        if (target.is_active && activeAdmins <= 1) {
+          throw new Error('At least one active admin is required.')
+        }
+        db.prepare(`UPDATE users SET is_active = 0 WHERE id = ? AND role = 'owner'`).run(userId)
+      })
+      tx()
+      writeAudit(session.userId, 'admin:deactivate', { userId })
+      return { success: true }
+    })
+  )
+
+  ipcMain.handle(
+    'auth:change-admin-password',
+    wrap(async ({ currentPassword, newPassword }) => {
+      const session = requireOwner()
+      if (!newPassword || newPassword.length < 4) {
+        throw new Error('New password must be at least 4 characters')
+      }
+      const db = getDb()
+      const me = db
+        .prepare(`SELECT id, password_hash FROM users WHERE id = ? AND role = 'owner'`)
+        .get(session.userId)
+      if (!me || !currentPassword || !(await bcrypt.compare(currentPassword, me.password_hash))) {
+        throw new Error('Current password is incorrect')
+      }
+      const hash = await bcrypt.hash(newPassword, 10)
+      db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, session.userId)
+      writeAudit(session.userId, 'admin:change-password', { userId: session.userId })
       return { success: true }
     })
   )

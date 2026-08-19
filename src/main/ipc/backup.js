@@ -135,7 +135,10 @@ function pruneOldBackups(folder) {
 }
 
 function updateBackupStatus(db, { status, filePath, encrypted }) {
-  const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+  // Local time, matching datetime('now','localtime') used everywhere else and
+  // the local stamp in the backup filename. toISOString() is UTC, which made a
+  // just-finished backup read as hours old and tripped the staleness check early.
+  const now = db.prepare(`SELECT datetime('now','localtime') AS now`).get().now
   const set = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`)
   set.run('last_backup_at', now)
   set.run('last_backup_status', status)
@@ -323,15 +326,22 @@ export function registerBackupHandlers() {
       if (!backupFilePath || !existsSync(backupFilePath)) {
         throw new Error('Backup file not found')
       }
-      if (!password) throw new Error('Owner password required')
+      if (!password) throw new Error('Admin password required')
 
       const db = getDb()
-      const owner = db
-        .prepare(`SELECT password_hash FROM users WHERE role = 'owner' AND is_active = 1 LIMIT 1`)
-        .get()
-      if (!owner || !(await bcrypt.compare(password, owner.password_hash))) {
-        throw new Error('Incorrect owner password')
+      // There may be several admins; any active admin's password authorizes a
+      // restore (the acting admin is already identified by the session above).
+      const admins = db
+        .prepare(`SELECT password_hash FROM users WHERE role = 'owner' AND is_active = 1`)
+        .all()
+      let authorized = false
+      for (const admin of admins) {
+        if (admin.password_hash && (await bcrypt.compare(password, admin.password_hash))) {
+          authorized = true
+          break
+        }
       }
+      if (!authorized) throw new Error('Incorrect admin password')
 
       const livePath = join(app.getPath('userData'), 'refresh.db')
       const fileBytes = readFileSync(backupFilePath)

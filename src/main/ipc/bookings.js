@@ -2,7 +2,25 @@ import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
 import { writeAudit } from '../audit.js'
-import { addDays, formatShortDate, todayLocal } from './utils.js'
+import { addDays, formatShortDate, requireAmount, requireText, todayLocal } from './utils.js'
+
+// A booking whose date is not a real YYYY-MM-DD never matches any ranged query,
+// so it becomes invisible in Upcoming and in every report. Reject it at write.
+function requireBookingDate(value) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(text))) {
+    throw new Error('Booking date must be a valid date')
+  }
+  return text
+}
+
+function requirePartySize(value) {
+  if (value === undefined || value === null || value === '') return null
+  const n = Number(value)
+  if (!Number.isInteger(n) || n <= 0)
+    throw new Error('Number of people must be a whole number above 0')
+  return n
+}
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -166,7 +184,11 @@ export function registerBookingHandlers() {
         createdBy
       }) => {
         const session = requireOwner()
-        if (!bookingName || !bookingDate) throw new Error('Booking name and date are required')
+        const name = requireText(bookingName, 'Booking name')
+        const date = requireBookingDate(bookingDate)
+        const people = requirePartySize(numPeople)
+        const deposit = requireAmount(depositPaid, 'Deposit', 0)
+        const expected = requireAmount(totalExpected, 'Total expected', 0)
         const db = getDb()
         const bookingId = db.transaction(() => {
           const result = db
@@ -177,16 +199,16 @@ export function registerBookingHandlers() {
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             )
             .run(
-              bookingName,
+              name,
               contactPerson || null,
               contactPhone || null,
-              bookingDate,
+              date,
               timeSlot || null,
-              numPeople ?? null,
+              people,
               facilitiesBooked || null,
-              depositPaid ?? 0,
+              deposit,
               depositMethod || null,
-              totalExpected ?? 0,
+              expected,
               notes || null,
               createdBy || session.userId
             )
@@ -221,17 +243,25 @@ export function registerBookingHandlers() {
       const vals = []
       for (const [k, v] of Object.entries(fields || {})) {
         const col = k.replace(/([A-Z])/g, '_$1').toLowerCase()
-        if (allowed.includes(col)) {
-          sets.push(`${col} = ?`)
-          vals.push(v)
-        }
+        if (!allowed.includes(col)) continue
+        // The allow-list only ever guarded column NAMES; values went through
+        // untouched, so a negative deposit or a garbage date could be written.
+        let value = v
+        if (col === 'deposit_paid') value = requireAmount(v, 'Deposit', 0)
+        else if (col === 'total_expected') value = requireAmount(v, 'Total expected', 0)
+        else if (col === 'num_people') value = requirePartySize(v)
+        else if (col === 'booking_date') value = requireBookingDate(v)
+        else if (col === 'booking_name') value = requireText(v, 'Booking name')
+        sets.push(`${col} = ?`)
+        vals.push(value)
       }
       if (!sets.length) return { success: true }
       sets.push(`updated_at = datetime('now','localtime')`)
       vals.push(bookingId)
       const db = getDb()
       db.transaction(() => {
-        db.prepare(`UPDATE bookings SET ${sets.join(', ')} WHERE id = ?`).run(...vals)
+        const res = db.prepare(`UPDATE bookings SET ${sets.join(', ')} WHERE id = ?`).run(...vals)
+        if (res.changes === 0) throw new Error('Booking not found')
         // P2-3: reconcile the linked deposit transaction with the new state.
         syncDepositTransaction(db, bookingId, session.userId)
       })()
@@ -245,14 +275,24 @@ export function registerBookingHandlers() {
       const session = requireStaffOrOwner()
       const allowed = ['pending', 'confirmed', 'completed', 'cancelled']
       if (!allowed.includes(status)) throw new Error('Invalid status')
-      getDb()
-        .prepare(
-          `UPDATE bookings SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?`
-        )
-        .run(status, bookingId)
+      const db = getDb()
+      const booking = db
+        .prepare(`SELECT deposit_paid, deposit_transaction_id FROM bookings WHERE id = ?`)
+        .get(bookingId)
+      if (!booking) throw new Error('Booking not found')
+
+      db.prepare(
+        `UPDATE bookings SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?`
+      ).run(status, bookingId)
       // Staff-reachable state change with reporting impact — keep it traceable.
       writeAudit(session.userId, 'booking:status', { bookingId, status })
-      return { success: true }
+
+      // Cancelling does NOT touch the deposit: a forfeited deposit is normal
+      // and reversing it automatically would destroy real revenue. But the
+      // money must not go unmentioned — hand it back so the caller can ask.
+      const outstandingDeposit =
+        status === 'cancelled' && booking.deposit_transaction_id ? booking.deposit_paid || 0 : 0
+      return { success: true, outstandingDeposit }
     })
   )
 }

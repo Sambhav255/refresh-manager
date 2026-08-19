@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
+import { requireAmount, requireText } from './utils.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -29,36 +30,59 @@ export function registerRestaurantMenuHandlers() {
     'restaurant-menu:add',
     wrap(({ name, category, price, sortOrder, inventoryItemId }) => {
       requireOwner()
-      if (!name) throw new Error('Name is required')
       const result = getDb()
         .prepare(
           `INSERT INTO restaurant_menu_items (name, category, price, sort_order, inventory_item_id)
            VALUES (?, ?, ?, ?, ?)`
         )
-        .run(name, category || null, price ?? 0, sortOrder ?? 0, inventoryItemId || null)
+        .run(
+          requireText(name, 'Name'),
+          category || null,
+          requireAmount(price, 'Price', 0),
+          requireAmount(sortOrder, 'Sort order', 0),
+          inventoryItemId || null
+        )
       return { success: true, id: result.lastInsertRowid }
     })
   )
 
   ipcMain.handle(
     'restaurant-menu:update',
-    wrap(({ id, name, category, price, sortOrder, isActive, inventoryItemId }) => {
+    // Partial update: only the fields present in the payload are written. This
+    // used to be a full-row UPDATE, so a caller sending { id, price } silently
+    // nulled the name, category, sort order and the inventory link. Callers
+    // still MAY send every field — that keeps working — but no longer must.
+    wrap((payload) => {
       requireOwner()
-      getDb()
-        .prepare(
-          `UPDATE restaurant_menu_items
-           SET name = ?, category = ?, price = ?, sort_order = ?, is_active = ?, inventory_item_id = ?
-           WHERE id = ?`
-        )
-        .run(
-          name,
-          category || null,
-          price ?? 0,
-          sortOrder ?? 0,
-          isActive ? 1 : 0,
-          inventoryItemId || null,
-          id
-        )
+      const { id } = payload
+      const columns = {
+        name: 'name',
+        category: 'category',
+        price: 'price',
+        sortOrder: 'sort_order',
+        isActive: 'is_active',
+        inventoryItemId: 'inventory_item_id'
+      }
+      const sets = []
+      const vals = []
+      for (const [key, col] of Object.entries(columns)) {
+        if (!(key in payload)) continue
+        const v = payload[key]
+        let value
+        if (key === 'name') value = requireText(v, 'Name')
+        else if (key === 'price') value = requireAmount(v, 'Price')
+        else if (key === 'sortOrder') value = requireAmount(v, 'Sort order', 0)
+        else if (key === 'isActive') value = v ? 1 : 0
+        else value = v || null
+        sets.push(`${col} = ?`)
+        vals.push(value)
+      }
+      if (!sets.length) return { success: true }
+      vals.push(id)
+      const res = getDb()
+        .prepare(`UPDATE restaurant_menu_items SET ${sets.join(', ')} WHERE id = ?`)
+        .run(...vals)
+      if (res.changes === 0) throw new Error('Menu item not found')
       return { success: true }
     })
   )
@@ -119,9 +143,17 @@ export function registerRestaurantMenuHandlers() {
         for (const { menuItem, qty } of lines) {
           if (!menuItem.inventory_item_id) continue
           const stock = db
-            .prepare(`SELECT current_stock, name FROM restaurant_inventory_items WHERE id = ?`)
+            .prepare(
+              `SELECT current_stock, name, is_active FROM restaurant_inventory_items WHERE id = ?`
+            )
             .get(menuItem.inventory_item_id)
-          if (!stock) continue
+          // A dangling or deactivated link must stop the sale, not silently
+          // skip the draw-down: a deactivated stock item is invisible in every
+          // list and alert, so its stock would drain unnoticed.
+          if (!stock) throw new Error(`Stock item missing for ${menuItem.name}`)
+          if (!stock.is_active) {
+            throw new Error(`${stock.name} is no longer stocked — ${menuItem.name} cannot be sold`)
+          }
           // P0-4: never let stock go negative.
           if (qty > stock.current_stock) {
             throw new Error(`Not enough stock for ${stock.name}: only ${stock.current_stock} left`)
