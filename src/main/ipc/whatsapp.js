@@ -2,6 +2,11 @@ import { ipcMain, shell } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireStaffOrOwner } from '../session.js'
 import { formatShortDate, todayLocal } from './utils.js'
+// 2-H: friendly labels + a stable display order. Any transaction_type not
+// listed here still gets a line (using its raw name), so the itemised lines
+// always sum to Total — even for types added in the future. Shared with the
+// End of Day screen so the message and the screen cannot disagree.
+import { TYPE_LABELS, TYPE_ORDER } from '../../shared/transaction-types.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -12,28 +17,6 @@ function wrap(handler) {
     }
   }
 }
-
-// 2-H: friendly labels + a stable display order. Any transaction_type not
-// listed here still gets a line (using its raw name), so the itemised lines
-// always sum to Total — even for types added in the future.
-const TYPE_LABELS = {
-  membership: 'Memberships',
-  day_package: 'Day Packages',
-  day_pass: 'Day Passes',
-  restaurant: 'Restaurant',
-  pool_inventory: 'Pool Items',
-  booking_deposit: 'Booking Deposits',
-  refund: 'Refunds'
-}
-const TYPE_ORDER = [
-  'membership',
-  'day_package',
-  'day_pass',
-  'restaurant',
-  'pool_inventory',
-  'booking_deposit',
-  'refund'
-]
 
 export function generateEODMessage(date) {
   const db = getDb()

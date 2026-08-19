@@ -16,6 +16,66 @@ export function formatDurationLabel(days) {
   return `${days} Days`
 }
 
+// Shared input guards. Handlers are the last line of defence for data that
+// reaches the database: a renderer bug (or a tampered one) must never be able
+// to write a blank name, a negative price, or text into a numeric column.
+const MAX_RESTOCK = 100000
+
+export function requireText(value, label) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) throw new Error(`${label} is required`)
+  if (text.length > 120) throw new Error(`${label} is too long (max 120 characters)`)
+  return text
+}
+
+// Returns a finite number >= 0, rejecting '', null, NaN and numeric-looking
+// text. Used for prices and reorder levels.
+export function requireAmount(value, label, fallback = null) {
+  if (value === undefined || value === null || value === '') {
+    if (fallback === null) throw new Error(`${label} is required`)
+    return fallback
+  }
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 0) throw new Error(`${label} must be a number of 0 or more`)
+  return n
+}
+
+// Phone is optional, but anything present must be a real Nepal mobile number:
+// it is what renewal reminders message and what member search matches on, so a
+// typo silently produces an uncontactable member. Mirrors validatePhone in
+// src/renderer/src/lib/validate.js.
+export function requirePhone(value) {
+  if (value === undefined || value === null || value === '') return null
+  const raw = String(value).trim()
+  if (!raw) return null
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length !== 10 || /[a-z]/i.test(raw)) {
+    throw new Error('Phone must be 10 digits (Nepal format)')
+  }
+  return digits
+}
+
+export function requireRestockQuantity(value, { integerOnly }) {
+  const qty = Number(value)
+  const valid = integerOnly ? Number.isInteger(qty) : Number.isFinite(qty)
+  if (!valid || qty <= 0) throw new Error('Invalid quantity')
+  if (qty > MAX_RESTOCK) throw new Error(`Quantity is too large (max ${MAX_RESTOCK})`)
+  return qty
+}
+
+// Transaction/report queries alias the joined product name to `product_name`,
+// so a raw row cannot be handed to productDisplayName (it reads `.name`) — that
+// silently yields "undefined" or "undefined — Monthly". Rebuild the product
+// shape from the aliased row first.
+export function productFromRow(row) {
+  return {
+    name: row.product_name,
+    category: row.category,
+    duration_days: row.duration_days,
+    sub_category: row.sub_category
+  }
+}
+
 export function productDisplayName(product) {
   if (!product) return ''
   if (product.category === 'membership' && product.duration_days) {

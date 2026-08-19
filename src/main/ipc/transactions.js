@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
-import { formatTime, productDisplayName, todayLocal } from './utils.js'
+import { formatTime, productDisplayName, productFromRow, todayLocal } from './utils.js'
 import { writeAudit } from '../audit.js'
 
 function wrap(handler) {
@@ -21,7 +21,11 @@ function mapTransaction(row) {
     time: formatTime(row.created_at),
     customer: row.customer_name,
     phone: row.phone,
-    product: row.product_name ? productDisplayName(row) : row.transaction_type,
+    // Restaurant/pool sales have no product_id; their notes ("Tea x2") read
+    // better than the raw transaction_type.
+    product: row.product_name
+      ? productDisplayName(productFromRow(row))
+      : row.notes || row.transaction_type,
     productId: row.product_id,
     amount: row.amount,
     pay: row.payment_method === 'cash' ? 'Cash' : 'QR',
@@ -31,7 +35,12 @@ function mapTransaction(row) {
     type: row.transaction_type,
     source: row.source,
     createdAt: row.created_at,
-    isVoided: !!row.is_voided
+    isVoided: !!row.is_voided,
+    // Lets the refund dialog default to what is actually still refundable
+    // instead of the original amount, which errored on a second partial refund.
+    // Undefined for callers whose query does not compute it.
+    refundedSoFar: row.refunded_so_far ?? undefined,
+    remaining: row.refunded_so_far == null ? undefined : row.amount - row.refunded_so_far
   }
 }
 
@@ -90,48 +99,79 @@ export function registerTransactionHandlers() {
 
   ipcMain.handle(
     'transactions:list',
-    wrap(({ dateFrom, dateTo, type, source, staffId, paymentMethod }) => {
-      requireStaffOrOwner()
-      let sql = `
+    wrap(
+      ({
+        dateFrom,
+        dateTo,
+        type,
+        source,
+        staffId,
+        paymentMethod,
+        includeVoided = false,
+        limit,
+        offset = 0
+      }) => {
+        requireStaffOrOwner()
+        // Voided rows are hidden by default (every existing caller relies on
+        // that), but are reachable on request — otherwise a void leaves no
+        // trace anywhere except the audit log.
+        let sql = `
         SELECT t.*, p.name as product_name, p.category, p.duration_days, p.sub_category,
-               u.name as staff_name
+               u.name as staff_name,
+               (SELECT COALESCE(-SUM(r.amount), 0) FROM transactions r
+                 WHERE r.refunds_transaction_id = t.id AND r.is_voided = 0) AS refunded_so_far
         FROM transactions t
         LEFT JOIN products p ON p.id = t.product_id
         JOIN users u ON u.id = t.staff_id
-        WHERE t.is_voided = 0
+        WHERE 1=1
       `
-      const params = []
-      if (dateFrom) {
-        sql += ` AND date(t.created_at) >= ?`
-        params.push(dateFrom)
+        if (!includeVoided) sql += ` AND t.is_voided = 0`
+        const params = []
+        if (dateFrom) {
+          sql += ` AND date(t.created_at) >= ?`
+          params.push(dateFrom)
+        }
+        if (dateTo) {
+          sql += ` AND date(t.created_at) <= ?`
+          params.push(dateTo)
+        }
+        if (type) {
+          sql += ` AND t.transaction_type = ?`
+          params.push(type)
+        }
+        if (source) {
+          sql += ` AND t.source = ?`
+          params.push(source)
+        }
+        if (staffId) {
+          sql += ` AND t.staff_id = ?`
+          params.push(staffId)
+        }
+        if (paymentMethod) {
+          sql += ` AND t.payment_method = ?`
+          params.push(paymentMethod)
+        }
+        const db = getDb()
+        // totalCount is the size of the FILTERED set, before paging, so the UI
+        // can show "showing 10 of 240" and page without a second guess.
+        const totalCount = db.prepare(`SELECT COUNT(*) AS n FROM (${sql})`).get(...params).n
+
+        // id breaks the tie: many transactions share a created_at second, and
+        // without it SQLite may return the same rows in a different order per
+        // query plan, which looks like rows moving when a filter is applied.
+        sql += ' ORDER BY t.created_at DESC, t.id DESC'
+        const pageParams = [...params]
+        if (limit != null) {
+          sql += ' LIMIT ? OFFSET ?'
+          pageParams.push(Number(limit), Number(offset) || 0)
+        }
+        const transactions = db
+          .prepare(sql)
+          .all(...pageParams)
+          .map(mapTransaction)
+        return { transactions, totalCount }
       }
-      if (dateTo) {
-        sql += ` AND date(t.created_at) <= ?`
-        params.push(dateTo)
-      }
-      if (type) {
-        sql += ` AND t.transaction_type = ?`
-        params.push(type)
-      }
-      if (source) {
-        sql += ` AND t.source = ?`
-        params.push(source)
-      }
-      if (staffId) {
-        sql += ` AND t.staff_id = ?`
-        params.push(staffId)
-      }
-      if (paymentMethod) {
-        sql += ` AND t.payment_method = ?`
-        params.push(paymentMethod)
-      }
-      sql += ' ORDER BY t.created_at DESC'
-      const transactions = getDb()
-        .prepare(sql)
-        .all(...params)
-        .map(mapTransaction)
-      return { transactions }
-    })
+    )
   )
 
   ipcMain.handle(
@@ -179,11 +219,21 @@ export function registerTransactionHandlers() {
       const db = getDb()
       const txn = db
         .prepare(
-          `SELECT id, amount, is_voided, date(created_at) as day FROM transactions WHERE id = ?`
+          `SELECT id, amount, is_voided, transaction_type, date(created_at) as day FROM transactions WHERE id = ?`
         )
         .get(transactionId)
       if (!txn) throw new Error('Transaction not found')
       if (txn.is_voided) throw new Error('Transaction is already voided')
+
+      // Voiding a refund would drop the negative correction out of every
+      // WHERE is_voided = 0 total, resurrecting the original sale as revenue
+      // the business has already paid back. Mirrors the 'Cannot refund a
+      // refund' guard on the refund handler.
+      if (txn.transaction_type === 'refund') {
+        throw new Error(
+          'Cannot void a refund. Refunds are corrections and must stay on the ledger.'
+        )
+      }
 
       // A transaction that has refunds must never be voided: the refund rows
       // stay live while the original drops out of WHERE is_voided = 0, so every
@@ -279,9 +329,15 @@ export function registerTransactionHandlers() {
           )
         const refundId = refund.lastInsertRowid
 
-        // Restore inventory only on a full refund (partial money refunds don't
-        // map cleanly to whole units of stock).
+        // A full refund reverses the whole sale: restore stock AND cancel any
+        // membership it bought, so the member is not left with access they
+        // were paid back for. A partial refund is a price adjustment, not a
+        // cancellation, and maps to no whole units of stock — so neither runs.
         if (isFull) {
+          db.prepare(
+            `UPDATE memberships SET status = 'cancelled' WHERE transaction_id = ? AND status != 'cancelled'`
+          ).run(original.id)
+
           for (const table of [
             'pool_inventory_transactions',
             'restaurant_inventory_transactions'

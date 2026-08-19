@@ -2,7 +2,7 @@ import { ipcMain, dialog } from 'electron'
 import ExcelJS from 'exceljs'
 import { getDb } from '../db/index.js'
 import { requireOwner } from '../session.js'
-import { formatTime, productDisplayName, todayLocal } from './utils.js'
+import { formatTime, productDisplayName, productFromRow, todayLocal } from './utils.js'
 
 const BRAND_BLUE = '001F5B'
 const BRAND_LIGHT = 'E8F4FD'
@@ -24,7 +24,9 @@ function mapTransaction(row) {
     time: formatTime(row.created_at),
     customer: row.customer_name,
     phone: row.phone,
-    product: row.product_name ? productDisplayName(row) : row.transaction_type,
+    product: row.product_name
+      ? productDisplayName(productFromRow(row))
+      : row.notes || row.transaction_type,
     productId: row.product_id,
     amount: row.amount,
     pay: row.payment_method === 'cash' ? 'Cash' : 'QR',
@@ -95,6 +97,18 @@ function buildSummary(rows) {
   return { total, cash, qr, byType, bySource, count: rows.length }
 }
 
+// A malformed month (e.g. '2026-08' instead of 8) used to sail through
+// monthRange and produce an all-zero report, which reads as "no trade" rather
+// than "you asked the wrong question". Shared by every month-scoped report.
+function requireYearMonth(year, month) {
+  const now = new Date()
+  const y = Number(year ?? now.getFullYear())
+  const m = Number(month ?? now.getMonth() + 1)
+  if (!Number.isInteger(y) || y < 2000 || y > 2100) throw new Error('Invalid year')
+  if (!Number.isInteger(m) || m < 1 || m > 12) throw new Error('Month must be between 1 and 12')
+  return { y, m }
+}
+
 function monthRange(year, month) {
   const m = String(month).padStart(2, '0')
   const dateFrom = `${year}-${m}-01`
@@ -141,7 +155,7 @@ function fetchByProduct(db, dateFrom, dateTo) {
     .all(dateFrom, dateTo)
     .map((row) => ({
       productId: row.product_id,
-      product: row.product_name ? productDisplayName(row) : 'Other',
+      product: row.product_name ? productDisplayName(productFromRow(row)) : 'Other',
       total: row.total,
       count: row.count
     }))
@@ -541,9 +555,7 @@ export function registerReportHandlers() {
     'reports:monthly',
     wrap(({ year, month } = {}) => {
       requireOwner()
-      const now = new Date()
-      const y = year ?? now.getFullYear()
-      const m = month ?? now.getMonth() + 1
+      const { y, m } = requireYearMonth(year, month)
       const { dateFrom, dateTo } = monthRange(y, m)
       const db = getDb()
       const rows = fetchTransactionRows(db, { dateFrom, dateTo })
@@ -624,9 +636,7 @@ export function registerReportHandlers() {
     'reports:retention',
     wrap(({ year, month } = {}) => {
       requireOwner()
-      const now = new Date()
-      const y = year ?? now.getFullYear()
-      const m = month ?? now.getMonth() + 1
+      const { y, m } = requireYearMonth(year, month)
       const { dateFrom, dateTo } = monthRange(y, m)
       const db = getDb()
       const due =
@@ -657,9 +667,7 @@ export function registerReportHandlers() {
     'reports:cohort-retention',
     wrap(({ year, month } = {}) => {
       requireOwner()
-      const now = new Date()
-      const y = year ?? now.getFullYear()
-      const m = month ?? now.getMonth() + 1
+      const { y, m } = requireYearMonth(year, month)
       const { dateFrom, dateTo } = monthRange(y, m)
       const db = getDb()
       const cohort = db
@@ -695,9 +703,7 @@ export function registerReportHandlers() {
     'reports:inventory-turnover',
     wrap(({ year, month } = {}) => {
       requireOwner()
-      const now = new Date()
-      const y = year ?? now.getFullYear()
-      const m = month ?? now.getMonth() + 1
+      const { y, m } = requireYearMonth(year, month)
       const { dateFrom, dateTo } = monthRange(y, m)
       const db = getDb()
       // Revenue uses the unit price recorded at sale time (falling back to the
@@ -750,9 +756,7 @@ export function registerReportHandlers() {
     'reports:bookings',
     wrap(({ year, month } = {}) => {
       requireOwner()
-      const now = new Date()
-      const y = year ?? now.getFullYear()
-      const m = month ?? now.getMonth() + 1
+      const { y, m } = requireYearMonth(year, month)
       const { dateFrom, dateTo } = monthRange(y, m)
       const db = getDb()
       const bookings = db
