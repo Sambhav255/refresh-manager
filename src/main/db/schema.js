@@ -1,3 +1,15 @@
+// Base table definitions for a brand-new database. Everything here is
+// CREATE ... IF NOT EXISTS and runs against EVERY database on every startup,
+// *before* the pre-update snapshot is taken (see db/index.js) — so nothing in
+// this file may ever fail on pre-existing data.
+//
+// That is why the uniqueness indexes (one check-in per member per local day,
+// one ACTIVE inventory item per name/variant, one member per name+phone) live
+// in migrations.js and not here: creating a UNIQUE index throws when existing
+// rows violate it, and a throw from this file would happen outside the
+// snapshot/rollback window. The migration runner creates them for fresh and
+// upgraded databases alike, de-duplicating or skipping as appropriate.
+
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,

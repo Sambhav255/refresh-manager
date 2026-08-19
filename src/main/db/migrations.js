@@ -13,11 +13,21 @@
 // and a brand-new DB (schema.js already current) both converge to the same
 // final version. Every v1 step is individually guarded/idempotent.
 
+import { logWarn, logInfo } from '../diagnostics.js'
+
 function hasColumn(db, table, column) {
   return db
     .prepare(`PRAGMA table_info(${table})`)
     .all()
     .some((c) => c.name === column)
+}
+
+function tableExists(db, table) {
+  return !!db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table)
+}
+
+function indexExists(db, name) {
+  return !!db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).get(name)
 }
 
 // P2-3 / 2-C: SQLite cannot ALTER a CHECK constraint, so rebuild the table in
@@ -192,6 +202,200 @@ Renewal को लागि हामीलाई सम्पर्क गर�
   migrateTransactionTypeCheck(db)
 }
 
+// ── v7: database-level uniqueness ────────────────────────────────────────────
+//
+// The IPC handlers already refuse most of these duplicates (and produce the
+// friendly "already exists — restock it instead" message). These indexes are
+// the last line of defence for everything a handler cannot see: direct DB
+// access, restores, future code paths, and two writes racing between the
+// SELECT check and the INSERT.
+//
+// SAFETY: `CREATE UNIQUE INDEX` throws if the data already violates it. Inside
+// a migration that means the whole upgrade is rolled back and the app refuses
+// to open — a far worse outcome than a missing index. So every index below is
+// created through `tryCreateUniqueIndex`, which probes for violations first and
+// SKIPS the index (recording a warning to diagnostics + the audit log) when it
+// cannot be created without destroying user data. Only check_ins is
+// de-duplicated automatically, because a repeat same-day check-in is by
+// definition a mis-count with no information in it. Two members who share a
+// name and phone might be two real people, so members is never de-duplicated.
+const UNIQUENESS_VERSION = 7
+
+const UNIQUE_INDEXES = [
+  {
+    // A repeat same-day check-in is a mis-count, never data. member_id is NULL
+    // for walk-ins/day-passes; SQLite treats NULLs in a unique index as
+    // distinct, so any number of anonymous check-ins per day still fit.
+    name: 'idx_check_ins_member_day',
+    table: 'check_ins',
+    columns: ['member_id', 'checked_in_at'],
+    create: `CREATE UNIQUE INDEX IF NOT EXISTS idx_check_ins_member_day
+             ON check_ins(member_id, date(checked_in_at))`,
+    // Rows with a NULL timestamp index as NULL ⇒ never collide, so they are
+    // excluded from the probe too (keeps probe and index exactly in step).
+    probe: `SELECT member_id, date(checked_in_at) AS day, COUNT(*) AS n
+            FROM check_ins
+            WHERE member_id IS NOT NULL AND checked_in_at IS NOT NULL
+            GROUP BY member_id, date(checked_in_at)
+            HAVING n > 1`
+  },
+  {
+    // Mirrors pool-inventory:add-item — only ACTIVE items collide, and a NULL
+    // variant is the same key as an empty one. Re-adding a retired item is
+    // legitimate, so the index is partial on is_active.
+    name: 'idx_pool_items_name_variant_active',
+    table: 'pool_inventory_items',
+    columns: ['name', 'variant', 'is_active'],
+    create: `CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_items_name_variant_active
+             ON pool_inventory_items(name, IFNULL(variant, '')) WHERE is_active = 1`,
+    probe: `SELECT name, IFNULL(variant, '') AS variant, COUNT(*) AS n
+            FROM pool_inventory_items
+            WHERE is_active = 1
+            GROUP BY name, IFNULL(variant, '')
+            HAVING n > 1`
+  },
+  {
+    // Mirrors restaurant-inventory:add-item (no variant column here).
+    name: 'idx_rest_items_name_active',
+    table: 'restaurant_inventory_items',
+    columns: ['name', 'is_active'],
+    create: `CREATE UNIQUE INDEX IF NOT EXISTS idx_rest_items_name_active
+             ON restaurant_inventory_items(name) WHERE is_active = 1`,
+    probe: `SELECT name, COUNT(*) AS n
+            FROM restaurant_inventory_items
+            WHERE is_active = 1
+            GROUP BY name
+            HAVING n > 1`
+  },
+  {
+    // Two people can genuinely share a name, so only a shared name AND phone is
+    // a duplicate. requirePhone() normalises a blank phone to NULL; legacy rows
+    // may still hold '' — excluded so an old empty string can't lock reception
+    // out of registering a second member with the same name.
+    name: 'idx_members_name_phone',
+    table: 'members',
+    columns: ['name', 'phone'],
+    create: `CREATE UNIQUE INDEX IF NOT EXISTS idx_members_name_phone
+             ON members(name, phone) WHERE phone IS NOT NULL AND phone <> ''`,
+    probe: `SELECT name, phone, COUNT(*) AS n
+            FROM members
+            WHERE phone IS NOT NULL AND phone <> ''
+            GROUP BY name, phone
+            HAVING n > 1`
+  }
+]
+
+// Record a skipped index where an operator will actually see it: the persistent
+// diagnostics log (collectable from the reception PC) and the append-only audit
+// trail. Both are best-effort — neither may break the migration.
+function recordIndexSkipped(db, index, conflicts) {
+  const detail = {
+    index: index.name,
+    table: index.table,
+    conflictingGroups: conflicts.length,
+    sample: conflicts.slice(0, 5)
+  }
+  logWarn(
+    'db:migration',
+    `Skipped unique index ${index.name}: existing data already violates it. ` +
+      `No rows were changed; the handler-level check remains the only guard.`,
+    detail
+  )
+  try {
+    if (tableExists(db, 'audit_log')) {
+      db.prepare(
+        `INSERT INTO audit_log (actor_user_id, action, detail) VALUES (NULL, 'db:index-skipped', ?)`
+      ).run(JSON.stringify(detail))
+    }
+  } catch {
+    /* audit is tamper-evidence, not a transactional dependency */
+  }
+}
+
+function columnExists(db, table, column) {
+  return db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .some((c) => c.name === column)
+}
+
+// Returns 'created' | 'exists' | 'absent' | 'skipped'.
+function tryCreateUniqueIndex(db, index) {
+  if (!tableExists(db, index.table)) return 'absent'
+  if (indexExists(db, index.name)) return 'exists'
+  // An older database may predate a column this index spans (pool variant, for
+  // one). ensureUniquenessIndexes is re-run after every table rebuild, so
+  // skipping here is not a permanent loss — the index appears on the pass after
+  // the column does.
+  for (const column of index.columns || []) {
+    if (!columnExists(db, index.table, column)) return 'absent'
+  }
+  const conflicts = db.prepare(index.probe).all()
+  if (conflicts.length) {
+    recordIndexSkipped(db, index, conflicts)
+    return 'skipped'
+  }
+  db.exec(index.create)
+  return 'created'
+}
+
+// Idempotent: creates whichever uniqueness indexes are missing and creatable.
+// Also re-run by the runner after any table rebuild, since a DROP+RENAME
+// silently drops the rebuilt table's indexes.
+export function ensureUniquenessIndexes(db) {
+  const results = {}
+  for (const index of UNIQUE_INDEXES) results[index.name] = tryCreateUniqueIndex(db, index)
+  return results
+}
+
+// Collapse historical duplicate same-day check-ins, keeping the EARLIEST row
+// per (member_id, local day) — earliest by timestamp, id as the tie-break so
+// the result is deterministic even when two rows share a second. Walk-ins
+// (member_id NULL) are untouched: they do not collide and there is no way to
+// tell two anonymous visitors apart. Nothing references check_ins(id), so the
+// delete cannot orphan anything.
+function dedupeCheckIns(db) {
+  if (!tableExists(db, 'check_ins')) return 0
+  const result = db
+    .prepare(
+      `DELETE FROM check_ins
+       WHERE member_id IS NOT NULL
+         AND checked_in_at IS NOT NULL
+         AND id NOT IN (
+           SELECT keep_id FROM (
+             SELECT id AS keep_id,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY member_id, date(checked_in_at)
+                      ORDER BY checked_in_at ASC, id ASC
+                    ) AS rn
+             FROM check_ins
+             WHERE member_id IS NOT NULL AND checked_in_at IS NOT NULL
+           )
+           WHERE rn = 1
+         )`
+    )
+    .run()
+  return result.changes
+}
+
+function addUniquenessConstraints(db) {
+  const removed = dedupeCheckIns(db)
+  if (removed > 0) {
+    const detail = { removedDuplicateCheckIns: removed, kept: 'earliest per member per day' }
+    logInfo('db:migration', `De-duplicated ${removed} same-day check-in row(s)`, detail)
+    try {
+      if (tableExists(db, 'audit_log')) {
+        db.prepare(
+          `INSERT INTO audit_log (actor_user_id, action, detail) VALUES (NULL, 'db:check-ins-deduplicated', ?)`
+        ).run(JSON.stringify(detail))
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+  ensureUniquenessIndexes(db)
+}
+
 const MIGRATIONS = [
   {
     name: 'v1: baseline additive backfill + booking_deposit CHECK',
@@ -267,6 +471,16 @@ const MIGRATIONS = [
         db.exec(`ALTER TABLE restaurant_inventory_transactions ADD COLUMN unit_price REAL`)
       }
     }
+  },
+  {
+    // Database-level uniqueness behind the handler checks (see UNIQUE_INDEXES
+    // above): one check-in per member per local day, one ACTIVE inventory item
+    // per name(+variant), one member per name+phone. Historical duplicate
+    // check-ins are collapsed first; any index the existing data cannot satisfy
+    // is skipped with a logged warning rather than failing the upgrade.
+    name: 'v7: uniqueness indexes + check-in de-duplication',
+    rebuildsReferencedTable: false,
+    up: addUniquenessConstraints
   }
 ]
 
@@ -306,6 +520,10 @@ export function runMigrations(db) {
       // A DROP+RENAME rebuild silently drops the rebuilt table's indexes —
       // recreate them (idempotent) so no rebuild can leave the DB unindexed.
       createReportIndexes(db)
+      // Same hazard for the uniqueness indexes, but only once the DB has
+      // reached the version that introduced them (a no-op on the way up from an
+      // old install; correct for any future rebuild migration).
+      if (version + 1 >= UNIQUENESS_VERSION) ensureUniquenessIndexes(db)
     }
 
     version++
