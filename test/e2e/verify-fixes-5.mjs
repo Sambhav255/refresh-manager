@@ -2,21 +2,13 @@
 //   1. Inventory movement history is reachable and reads correctly.
 //   2. Selling a membership to an existing customer no longer duplicates them.
 // Both had tested handlers but no UI; this proves the renderer actually uses them.
-import { launchApp, completeSetup, logout, loginStaff, shot, OWNER } from './harness.mjs'
+import { launchApp, completeSetup, loginStaff, shot, seedShop } from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'verify5' })
 const results = []
 const check = (name, ok, detail = '') => {
   results.push({ name, ok, detail })
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`)
-}
-const ownerLogin = async () => {
-  await page.click('button:has-text("Owner / Admin Login")')
-  const li = page.locator('.card input')
-  await li.nth(0).fill(OWNER.name)
-  await li.nth(1).fill(OWNER.password)
-  await page.click('.card button:has-text("Sign in")')
-  await page.waitForSelector('.sidebar', { timeout: 15000 })
 }
 const tab = async (label) => {
   await page.click(`.nav-item:has-text("${label}")`)
@@ -30,6 +22,8 @@ const logoutViaButton = async () => {
 
 try {
   await completeSetup(page)
+  // A fresh database seeds no catalogue any more; build one to sell from.
+  await seedShop(page)
 
   // Price a membership and a pool item, and give the pool item some stock.
   const seed = await page.evaluate(async () => {
@@ -59,11 +53,14 @@ try {
 
   // ---------- 1. Inventory history through the UI ----------
   await tab('Inventory')
-  const historyButtons = await page.locator('button:has-text("History")').count()
-  check('History control exists on inventory rows', historyButtons > 0, `${historyButtons} buttons`)
+  // History moved into the single item panel that a row click opens.
+  await page.locator('tbody tr').first().click()
+  await page.waitForTimeout(500)
+  const historyButtons = await page.locator('.seg button:has-text("History")').count()
+  check('History is offered in the item panel', historyButtons > 0, `${historyButtons} found`)
 
   if (historyButtons > 0) {
-    await page.locator('button:has-text("History")').first().click()
+    await page.locator('.seg button:has-text("History")').first().click()
     await page.waitForTimeout(900)
     const panel = await page.locator('.content').innerText()
     await shot(page, 'verify5', '01-inventory-history')
@@ -79,17 +76,20 @@ try {
     check('history shows a negative movement for the sale', /-\s?3|−3/.test(panel))
 
     // Only one panel at a time: opening Restock must dismiss History.
-    await page.locator('button:has-text("Restock")').first().click()
+    await page.locator('.seg button:has-text("Restock")').first().click()
     await page.waitForTimeout(600)
     const afterRestock = await page.locator('.content').innerText()
-    const stillShowingHistory = /Adjustment/i.test(afterRestock) && /stock count/i.test(afterRestock)
+    const stillShowingHistory =
+      /Adjustment/i.test(afterRestock) && /stock count/i.test(afterRestock)
     check('opening another panel closes History', !stillShowingHistory)
   }
 
   // Restaurant screen has the same control.
   await tab('Restaurant')
-  const restHistory = await page.locator('button:has-text("History")').count()
-  check('History control exists on restaurant rows', restHistory > 0, `${restHistory} buttons`)
+  await page.locator('tbody tr').first().click()
+  await page.waitForTimeout(500)
+  const restHistory = await page.locator('.seg button:has-text("History")').count()
+  check('History is offered on restaurant items too', restHistory > 0, `${restHistory} found`)
 
   // ---------- 2. Membership sale no longer duplicates a member ----------
   await logoutViaButton()
@@ -129,7 +129,11 @@ try {
     const r = await window.api.searchMembers({ query: 'Hari' })
     return (r.members || []).length
   })
-  check('first membership sale created exactly one member', afterFirst === 1, `members=${afterFirst}`)
+  check(
+    'first membership sale created exactly one member',
+    afterFirst === 1,
+    `members=${afterFirst}`
+  )
 
   // Now sell the SAME person another membership — the duplicate-bug scenario.
   const matchOffered = await page.evaluate(async () => {

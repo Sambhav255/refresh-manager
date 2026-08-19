@@ -1,5 +1,14 @@
 // Verifies the four bugs fixed after the QA sweep, by driving the real app.
-import { launchApp, completeSetup, logout, loginStaff, ownerTab, shot } from './harness.mjs'
+import {
+  launchApp,
+  completeSetup,
+  logout,
+  loginStaff,
+  ownerTab,
+  shot,
+  seedShop,
+  loginOwner
+} from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'verify' })
 const results = []
@@ -10,6 +19,8 @@ const check = (name, ok, detail = '') => {
 
 try {
   await completeSetup(page)
+  // A fresh database seeds no catalogue any more; build one to sell from.
+  await seedShop(page)
 
   // --- FIX 1: dashboard renders instead of crashing to the error boundary ---
   const boundary = await page.locator('text=Something went wrong').count()
@@ -30,13 +41,22 @@ try {
     const inv = await window.api.listRestaurantInventory()
     const teaStock = (inv.items || [])[0]
     await window.api.restockRestaurantItem({ itemId: teaStock.id, quantity: 20 })
+    const stockBefore = (await window.api.listRestaurantInventory()).items.find(
+      (i) => i.id === teaStock.id
+    ).stock
     const menu = await window.api.addMenuItem({
       name: 'Tea',
       category: 'bev',
       price: 50,
       inventoryItemId: teaStock.id
     })
-    return { dayPassId: dayPass.id, teaStockId: teaStock.id, menuId: menu.itemId, ok: true }
+    return {
+      dayPassId: dayPass.id,
+      teaStockId: teaStock.id,
+      menuId: menu.itemId,
+      stockBefore,
+      ok: true
+    }
   })
   check('shop seeded for POS test', !!seeded.ok)
 
@@ -71,7 +91,11 @@ try {
     after.restaurantRows === 1,
     `rows=${after.restaurantRows}`
   )
-  check('P0-2 linked stock drawn down 20 -> 19', after.stock === 19, `stock=${after.stock}`)
+  check(
+    'P0-2 linked stock drew down by exactly 1',
+    after.stock === seeded.stockBefore - 1,
+    `${seeded.stockBefore} -> ${after.stock}`
+  )
 
   // --- FIX 3: product column is a real name, never "undefined" ---
   const bad = after.products.filter((p) => !p || String(p).includes('undefined'))
@@ -83,12 +107,7 @@ try {
 
   // --- FIX 4: voiding a refund is refused ---
   await logout(page)
-  await page.click('button:has-text("Owner / Admin Login")')
-  const inputs = page.locator('.card input')
-  await inputs.nth(0).fill('Sambhav')
-  await inputs.nth(1).fill('refresh2024')
-  await page.click('.card button:has-text("Sign in")')
-  await page.waitForSelector('.sidebar', { timeout: 15000 })
+  await loginOwner(page)
 
   const voidCheck = await page.evaluate(async () => {
     const tx = await window.api.listTransactions({})

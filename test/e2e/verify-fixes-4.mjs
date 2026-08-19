@@ -1,7 +1,7 @@
 // Verifies the final UI round: booking deposits + cancel flow, transactions
 // filters/paging/voided toggle, POS clear-order, inventory adjust & price
 // controls, and the dashboard alert navigation.
-import { launchApp, completeSetup, logout, loginStaff, shot } from './harness.mjs'
+import { launchApp, completeSetup, logout, loginStaff, shot, seedShop } from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'verify4' })
 const results = []
@@ -16,6 +16,8 @@ const tab = async (label) => {
 
 try {
   await completeSetup(page)
+  // A fresh database seeds no catalogue any more; build one to sell from.
+  await seedShop(page)
 
   // ---------- Bookings: deposit fields exist and reach the database ----------
   await tab('Bookings')
@@ -29,8 +31,8 @@ try {
   )
 
   await page.fill('.field:has(label:text-is("Name")) input', 'Birthday Party')
-  await page.fill('.field:has(label:text-is("Total expected (Rs.)")) input', '20000')
-  await page.fill('.field:has(label:text-is("Deposit paid (Rs.)")) input', '3000')
+  await page.fill('.field:has(label:has-text("Total expected")) input', '20000')
+  await page.fill('.field:has(label:has-text("Deposit paid")) input', '3000')
   await shot(page, 'verify4', '01-booking-form-deposit')
   await page.click('button:has-text("Save")')
   await page.waitForTimeout(1200)
@@ -143,13 +145,18 @@ try {
   await tab('Inventory')
   const invText = await page.locator('.content').innerText()
   check('reorder banner wording fixed', !/below reorder threshold/i.test(invText))
+  // Four per-row buttons were replaced by one panel opened by clicking the row.
+  await page.locator('tbody tr').first().click()
+  await page.waitForTimeout(500)
   check(
-    'Price and Adjust controls exist',
-    (await page.locator('button:has-text("Adjust")').count()) > 0 &&
-      (await page.locator('button:has-text("Price")').count()) > 0
+    'the item panel offers Price, Adjust, Restock, History and Retire',
+    (await page.locator('.seg button:has-text("Adjust stock")').count()) > 0 &&
+      (await page.locator('.seg button:has-text("Price")').count()) > 0 &&
+      (await page.locator('.seg button:has-text("History")').count()) > 0 &&
+      (await page.locator('.seg button:has-text("Retire")').count()) > 0
   )
 
-  await page.locator('button:has-text("Adjust")').first().click()
+  await page.locator('.seg button:has-text("Adjust stock")').first().click()
   await page.waitForTimeout(400)
   await page.click('button:has-text("Save adjustment")')
   await page.waitForTimeout(500)
@@ -168,6 +175,16 @@ try {
   await shot(page, 'verify4', '04-inventory-adjusted')
 
   // ---------- Dashboard alerts navigate ----------
+  // A properly stocked shop has no low-stock alert, so create the condition the
+  // check is about rather than relying on seeded items sitting at zero.
+  await page.evaluate(async () => {
+    const items = (await window.api.listPoolInventory()).items || []
+    await window.api.adjustPoolItem({
+      itemId: items[0].id,
+      newQuantity: 1,
+      reason: 'drive below reorder level for the alert check'
+    })
+  })
   await tab('Dashboard')
   const lowStockAlert = page.locator('.alert:has-text("low stock")')
   if ((await lowStockAlert.count()) > 0) {

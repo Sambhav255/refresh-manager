@@ -2,25 +2,32 @@
 // round (its agent was killed repeatedly by API errors). Drives every report
 // type and every settings sub-screen against a KNOWN seeded dataset, so the
 // numbers can be checked rather than merely rendered.
-import { launchApp, completeSetup, logout, loginStaff, shot, OWNER, STAFF } from './harness.mjs'
+import {
+  launchApp,
+  completeSetup,
+  logout,
+  loginStaff,
+  shot,
+  STAFF,
+  seedShop,
+  loginOwner
+} from './harness.mjs'
 import { existsSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import ExcelJS from 'exceljs'
+
+const localToday = () => {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'reports-settings' })
 const results = []
 const check = (name, ok, detail = '') => {
   results.push({ name, ok, detail })
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`)
-}
-const ownerLogin = async (password = OWNER.password) => {
-  await page.click('button:has-text("Owner / Admin Login")')
-  const li = page.locator('.card input')
-  await li.nth(0).fill(OWNER.name)
-  await li.nth(1).fill(password)
-  await page.click('.card button:has-text("Sign in")')
-  await page.waitForSelector('.sidebar', { timeout: 15000 })
 }
 const tab = async (label) => {
   await page.click(`.nav-item:has-text("${label}")`)
@@ -29,6 +36,8 @@ const tab = async (label) => {
 
 try {
   await completeSetup(page)
+  // A fresh database seeds no catalogue any more; build one to sell from.
+  await seedShop(page)
 
   // ------------------------------------------------------------------
   // Known dataset. Every later assertion is checked against these numbers.
@@ -88,7 +97,11 @@ try {
     await window.api.addMembership({
       memberId: m.memberId,
       productId: s.monthly,
-      startDate: new Date().toISOString().slice(0, 10),
+      startDate: (() => {
+        const d = new Date()
+        const p2 = (n) => String(n).padStart(2, '0')
+        return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
+      })(),
       paymentMethod: 'qr'
     })
     await window.api.sellPoolItem({
@@ -111,7 +124,7 @@ try {
   )
 
   await logout(page)
-  await ownerLogin()
+  await loginOwner(page)
 
   // ------------------------------------------------------------------
   // REPORTS — all seven types, checked against the seeded numbers.
@@ -149,7 +162,7 @@ try {
     monthly.badError
   )
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   const custom = await page.evaluate(
     async (d) => await window.api.customReport({ dateFrom: d, dateTo: d }),
     today
@@ -313,7 +326,7 @@ try {
 
   await page.click('button:has-text("Log out")')
   await page.waitForSelector('text=Owner / Admin Login', { timeout: 10000 })
-  await ownerLogin('newpass123')
+  await loginOwner(page, 'newpass123')
   check('the NEW admin password logs in', true)
 
   // Restaurant menu editor — partial update must not wipe siblings (OPEN-7).

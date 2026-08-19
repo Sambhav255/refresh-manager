@@ -1,7 +1,15 @@
 // Verifies the OPEN-1..11 round at the APP level. The unit suite proves the
 // handlers; this proves the renderer actually consumes the new contracts —
 // which is exactly where both original P0s hid.
-import { launchApp, completeSetup, logout, loginStaff, shot, OWNER } from './harness.mjs'
+import {
+  launchApp,
+  completeSetup,
+  logout,
+  loginStaff,
+  shot,
+  seedShop,
+  loginOwner
+} from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'verify3' })
 const results = []
@@ -17,17 +25,10 @@ const logoutViaButton = async () => {
   await page.waitForSelector('text=Owner / Admin Login', { timeout: 10000 })
 }
 
-const ownerLogin = async () => {
-  await page.click('button:has-text("Owner / Admin Login")')
-  const li = page.locator('.card input')
-  await li.nth(0).fill(OWNER.name)
-  await li.nth(1).fill(OWNER.password)
-  await page.click('.card button:has-text("Sign in")')
-  await page.waitForSelector('.sidebar', { timeout: 15000 })
-}
-
 try {
   await completeSetup(page)
+  // A fresh database seeds no catalogue any more; build one to sell from.
+  await seedShop(page)
 
   // Seed a shop + members entirely through the API surface the UI uses.
   const seeded = await page.evaluate(async () => {
@@ -40,7 +41,11 @@ try {
     await window.api.addMembership({
       memberId: active.memberId,
       productId: monthly.id,
-      startDate: new Date().toISOString().slice(0, 10),
+      startDate: (() => {
+        const d = new Date()
+        const p2 = (n) => String(n).padStart(2, '0')
+        return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
+      })(),
       paymentMethod: 'cash'
     })
     const lapsed = await window.api.createMember({ name: 'Lapsed Bikash', phone: '9847654321' })
@@ -119,7 +124,7 @@ try {
 
   // --- OPEN-5: refund dialog defaults to what is still refundable ---
   await logoutViaButton()
-  await ownerLogin()
+  await loginOwner(page)
   const partial = await page.evaluate(async () => {
     const tx = (await window.api.listTransactions({})).transactions
     const sale = tx.find((t) => t.type === 'membership')

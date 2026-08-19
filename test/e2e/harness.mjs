@@ -65,18 +65,39 @@ export async function logout(page) {
   await page.waitForSelector('text=Owner / Admin Login', { timeout: 10000 })
 }
 
-export async function loginOwner(page) {
+// The admin username is now a <select> of the account names when any exist —
+// login matches the name exactly, so typing it was a real source of "incorrect
+// password". Falls back to the free-text field when the roster is unavailable.
+export async function loginOwner(page, password = OWNER.password) {
   await page.click('button:has-text("Owner / Admin Login")')
-  const inputs = page.locator('.card input')
-  await inputs.nth(0).fill(OWNER.name)
-  await inputs.nth(1).fill(OWNER.password)
+  await page.waitForTimeout(400)
+  const select = page.locator('.card select')
+  if (await select.count()) {
+    await select.first().selectOption({ label: OWNER.name })
+    await page.locator('.card input').first().fill(password)
+  } else {
+    const inputs = page.locator('.card input')
+    await inputs.nth(0).fill(OWNER.name)
+    await inputs.nth(1).fill(password)
+  }
   await page.click('.card button:has-text("Sign in")')
   await page.waitForSelector('.sidebar', { timeout: 15000 })
 }
 
-export async function loginStaff(page) {
+// After the PIN, staff now pick a station (Pool desk / Restaurant) the first
+// time on a machine — it sets the landing screen and which tiles show. The
+// bottom nav only appears once that is answered, so a script that just types a
+// PIN and waits for .botnav would hang.
+export async function loginStaff(page, station = 'Pool desk') {
   await page.click('button:has-text("Staff Login")')
+  // With more than one staff member the PIN is preceded by a name picker.
+  const namePick = page.locator(`.card button:has-text("${STAFF.name}")`)
+  if (await namePick.count()) await namePick.first().click()
   await page.locator('.card input').first().fill(STAFF.pin)
+  await page.waitForTimeout(900)
+  // The station options are clickable cards, not <button>s, so match on text.
+  const stationCard = page.locator(`text=${station}`)
+  if (await stationCard.count()) await stationCard.first().click()
   await page.waitForSelector('.botnav', { timeout: 15000 })
 }
 
@@ -89,4 +110,65 @@ export async function shot(page, area, name) {
   const path = join(shotDir(area), `${name}.png`)
   await page.screenshot({ path })
   return path
+}
+
+// A fresh database now seeds no catalogue at all — the 34 pre-priced-at-zero
+// rows were removed deliberately (they were clutter, and every one being
+// unpriced is what left the staff Sell Item screen permanently empty).
+//
+// So a script that needs something to sell has to create it. This builds the
+// same small shop every suite used to inherit from the seed: three products,
+// one priced pool item with stock, and one menu item linked to restaurant
+// stock. Returns the ids so a caller can price or sell them directly.
+export async function seedShop(page) {
+  return page.evaluate(async () => {
+    const dayPass = await window.api.addProduct({
+      name: 'Pool Day Pass',
+      category: 'day_pass',
+      price: 300
+    })
+    const pkg = await window.api.addProduct({
+      name: 'Whole Package',
+      category: 'day_package',
+      price: 1200
+    })
+    const monthly = await window.api.addProduct({
+      name: 'Gym Only',
+      category: 'membership',
+      durationDays: 30,
+      price: 2500
+    })
+
+    const pool = await window.api.addPoolItem({
+      name: 'Goggles',
+      category: 'gear',
+      variant: 'Adult',
+      reorderLevel: 5,
+      sellingPrice: 250
+    })
+    await window.api.restockPoolItem({ itemId: pool.itemId, quantity: 20 })
+
+    const rInv = await window.api.addRestaurantItem({
+      name: 'Tea leaves',
+      category: 'bev',
+      unit: 'kg',
+      reorderLevel: 3
+    })
+    await window.api.restockRestaurantItem({ itemId: rInv.itemId, quantity: 40 })
+    const menu = await window.api.addMenuItem({
+      name: 'Tea',
+      category: 'bev',
+      price: 50,
+      inventoryItemId: rInv.itemId
+    })
+
+    return {
+      dayPassId: dayPass.productId,
+      packageId: pkg.productId,
+      monthlyId: monthly.productId,
+      poolItemId: pool.itemId,
+      restaurantItemId: rInv.itemId,
+      menuId: menu.id
+    }
+  })
 }

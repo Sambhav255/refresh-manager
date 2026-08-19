@@ -1,5 +1,14 @@
 // Verifies the second batch of post-QA fixes (P1/P2 round).
-import { launchApp, completeSetup, logout, loginStaff, shot, OWNER } from './harness.mjs'
+import {
+  launchApp,
+  completeSetup,
+  logout,
+  loginStaff,
+  shot,
+  OWNER,
+  seedShop,
+  loginOwner
+} from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'verify2' })
 const results = []
@@ -10,6 +19,8 @@ const check = (name, ok, detail = '') => {
 
 try {
   await completeSetup(page)
+  // A fresh database seeds no catalogue any more; build one to sell from.
+  await seedShop(page)
 
   // --- Setup wizard now trims names: login with the untrimmed name works ---
   // (completeSetup fills plain names; verify the stored name has no padding)
@@ -124,12 +135,7 @@ try {
 
   // --- Paused members are no longer filed under Expired ---
   await logout(page)
-  await page.click('button:has-text("Owner / Admin Login")')
-  const li = page.locator('.card input')
-  await li.nth(0).fill(OWNER.name)
-  await li.nth(1).fill(OWNER.password)
-  await page.click('.card button:has-text("Sign in")')
-  await page.waitForSelector('.sidebar', { timeout: 15000 })
+  await loginOwner(page)
 
   // --- Frameless window controls actually work now ---
   const winCtl = await page.evaluate(async () => {
