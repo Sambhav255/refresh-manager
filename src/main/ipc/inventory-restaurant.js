@@ -182,10 +182,9 @@ export function registerRestaurantInventoryHandlers() {
           `INSERT INTO restaurant_inventory_transactions (item_id, txn_type, quantity, reason, staff_id)
            VALUES (?, 'adjustment', ?, ?, ?)`
         ).run(itemId, diff, adjustReason, session.userId)
-        db.prepare(`UPDATE restaurant_inventory_items SET current_stock = ROUND(?, 3) WHERE id = ?`).run(
-          target,
-          itemId
-        )
+        db.prepare(
+          `UPDATE restaurant_inventory_items SET current_stock = ROUND(?, 3) WHERE id = ?`
+        ).run(target, itemId)
       })
       tx()
       return { success: true }
