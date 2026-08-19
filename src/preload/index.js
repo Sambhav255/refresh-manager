@@ -31,6 +31,23 @@ const api = {
   getMember: (data) => invoke('members:get', data),
   addMembership: (data) => invoke('members:add-membership', data),
   createMemberWithMembership: (data) => invoke('members:create-with-membership', data),
+
+  // Sale model (cart-based checkout): lines + payments.
+  createSale: (data) => invoke('sales:create', data),
+  getSale: (data) => invoke('sales:get', data),
+  addSalePayment: (data) => invoke('sales:add-payment', data),
+  listOutstanding: (data) => invoke('sales:outstanding', data),
+  quoteSale: (data) => invoke('sales:quote', data),
+
+  // Pricing rules (tiers + day overrides)
+  listPriceRules: (data) => invoke('pricing:list-rules', data),
+  setPriceRule: (data) => invoke('pricing:set-rule', data),
+  deletePriceRule: (data) => invoke('pricing:delete-rule', data),
+
+  // Auth recovery + login roster
+  resetAdminPassword: (data) => invoke('auth:reset-admin-password', data),
+  resetStaffPin: (data) => invoke('auth:reset-staff-pin', data),
+  listLoginRoster: () => invoke('auth:login-roster'),
   findMemberMatches: (data) => invoke('members:find-matches', data),
   renewMembership: (data) => invoke('members:renew', data),
   pauseMembership: (data) => invoke('members:pause-membership', data),

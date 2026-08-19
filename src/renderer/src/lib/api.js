@@ -69,6 +69,17 @@ export const api = {
   poolItemHistory: (data) => invoke('poolItemHistory', data),
   restaurantItemHistory: (data) => invoke('restaurantItemHistory', data),
   createMemberWithMembership: (data) => invoke('createMemberWithMembership', data),
+  createSale: (data) => invoke('createSale', data),
+  getSale: (data) => invoke('getSale', data),
+  addSalePayment: (data) => invoke('addSalePayment', data),
+  listOutstanding: (data) => invoke('listOutstanding', data),
+  quoteSale: (data) => invoke('quoteSale', data),
+  listPriceRules: (data) => invoke('listPriceRules', data),
+  setPriceRule: (data) => invoke('setPriceRule', data),
+  deletePriceRule: (data) => invoke('deletePriceRule', data),
+  resetAdminPassword: (data) => invoke('resetAdminPassword', data),
+  resetStaffPin: (data) => invoke('resetStaffPin', data),
+  listLoginRoster: () => invoke('listLoginRoster'),
   findMemberMatches: (data) => invoke('findMemberMatches', data),
 
   listRestaurantInventory: async (data) =>
