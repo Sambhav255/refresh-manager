@@ -209,6 +209,19 @@ function Login({ onLogin }) {
   const pinInputRef = useRef(null)
   const loginInFlight = useRef(false)
 
+  // Recovery-code redemption. Only offered once a code has actually been
+  // generated (Settings -> Staff & Admins) — otherwise "Forgot your password?"
+  // would be a dead end.
+  const [recoveryAvailable, setRecoveryAvailable] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [recoveryCode, setRecoveryCode] = useState('')
+  const [recoveryAdminName, setRecoveryAdminName] = useState('')
+  const [recoveryNewPassword, setRecoveryNewPassword] = useState('')
+  const [recoveryConfirm, setRecoveryConfirm] = useState('')
+  const [recoveryError, setRecoveryError] = useState('')
+  const [recoveryLoading, setRecoveryLoading] = useState(false)
+  const recoveryInFlight = useRef(false)
+
   useEffect(() => {
     api.listLoginRoster().then((r) => {
       // On failure leave the roster empty: both modals fall back to the plain
@@ -216,7 +229,66 @@ function Login({ onLogin }) {
       if (!r || r.success === false) return
       setRoster({ staff: r.staff || [], admins: r.admins || [] })
     })
+    // Callable with no session by design — the login screen has to decide
+    // whether to offer this before anyone has signed in.
+    api.hasRecoveryCode().then((r) => {
+      if (r?.exists) setRecoveryAvailable(true)
+    })
   }, [])
+
+  const openRecovery = () => {
+    setModal('recover')
+    setRecoveryError('')
+    setRecoveryCode('')
+    setRecoveryAdminName('')
+    setRecoveryNewPassword('')
+    setRecoveryConfirm('')
+  }
+
+  const submitRecovery = async () => {
+    if (recoveryLoading || recoveryInFlight.current) return
+    setRecoveryError('')
+    // The admin name is a picker, not a text field: the handler deliberately
+    // cannot say "no such admin" (that would make it an account-name oracle),
+    // so a typo would otherwise be indistinguishable from a wrong code.
+    if (!recoveryAdminName) {
+      setRecoveryError('Choose which admin account to reset')
+      return
+    }
+    if (!recoveryCode.trim()) {
+      setRecoveryError('Enter the recovery code')
+      return
+    }
+    if (!recoveryNewPassword || recoveryNewPassword.length < 4) {
+      setRecoveryError('New password must be at least 4 characters')
+      return
+    }
+    if (recoveryNewPassword !== recoveryConfirm) {
+      setRecoveryError('Passwords do not match')
+      return
+    }
+    recoveryInFlight.current = true
+    setRecoveryLoading(true)
+    const result = await api.recoverWithCode({
+      code: recoveryCode,
+      adminName: recoveryAdminName,
+      newPassword: recoveryNewPassword
+    })
+    recoveryInFlight.current = false
+    setRecoveryLoading(false)
+    if (result?.success === false) {
+      setRecoveryError(result.error || 'Recovery failed')
+      return
+    }
+    // Not signed in — a code buys a new password, not a way in. Send them back
+    // to the ordinary login with the new password already in hand.
+    setModal(null)
+    setRecoveryCode('')
+    setRecoveryAdminName('')
+    setRecoveryNewPassword('')
+    setRecoveryConfirm('')
+    setNotice('Password reset — sign in with your new password.')
+  }
 
   // Close the open modal on Escape.
   useEffect(() => {
@@ -295,6 +367,11 @@ function Login({ onLogin }) {
         </div>
         <div style={{ fontSize: 23, fontWeight: 500, color: '#1a202c' }}>Refresh Manager</div>
         <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>Boudha, Kathmandu</div>
+        {notice && (
+          <div className="alert green" style={{ marginTop: 16, textAlign: 'left' }}>
+            <div className="a-desc">{notice}</div>
+          </div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 30 }}>
           <button
             className="btn btn-ghost btn-block"
@@ -463,6 +540,82 @@ function Login({ onLogin }) {
           )}
           <button className="btn btn-primary btn-block" disabled={loading} onClick={submitOwner}>
             {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+          {recoveryAvailable && (
+            <button
+              className="btn btn-ghost btn-block"
+              style={{ marginTop: 8, fontSize: 13 }}
+              onClick={openRecovery}
+            >
+              Forgot your password?
+            </button>
+          )}
+        </Modal>
+      )}
+      {modal === 'recover' && (
+        <Modal title="Reset password with recovery code" onClose={() => setModal(null)}>
+          <div className="sub" style={{ marginBottom: 12 }}>
+            Enter the recovery code that was written down when it was generated.
+          </div>
+          <div className="field">
+            <label>Admin account</label>
+            {/* A picker, not a text field — see submitRecovery for why. */}
+            <select
+              className="input"
+              value={recoveryAdminName}
+              onChange={(e) => setRecoveryAdminName(e.target.value)}
+              autoFocus
+            >
+              <option value="">Select account…</option>
+              {roster.admins.map((a) => (
+                <option key={a.id} value={a.name}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Recovery code</label>
+            <input
+              className="input"
+              value={recoveryCode}
+              onChange={(e) => setRecoveryCode(e.target.value)}
+              placeholder="XXXXX-XXXXX-XXXXX-XXXXX"
+              style={{ fontFamily: 'ui-monospace, Menlo, Consolas, monospace' }}
+            />
+          </div>
+          <div className="field">
+            <label>New password</label>
+            <input
+              className="input"
+              type="password"
+              value={recoveryNewPassword}
+              onChange={(e) => setRecoveryNewPassword(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>Confirm new password</label>
+            <input
+              className="input"
+              type="password"
+              value={recoveryConfirm}
+              onChange={(e) => setRecoveryConfirm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitRecovery()
+              }}
+            />
+          </div>
+          {recoveryError && (
+            <div className="alert red" style={{ marginBottom: 10 }}>
+              <div className="a-desc">{recoveryError}</div>
+            </div>
+          )}
+          <button
+            className="btn btn-primary btn-block"
+            disabled={recoveryLoading}
+            onClick={submitRecovery}
+          >
+            {recoveryLoading ? 'Resetting…' : 'Reset password'}
           </button>
         </Modal>
       )}
