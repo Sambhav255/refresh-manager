@@ -3,6 +3,7 @@ import { Window, WaveMark, Icon, AppHeader, SectionHead } from './components/ui'
 import { ScreenErrorBoundary } from './components/ScreenErrorBoundary'
 import { api } from './lib/api'
 import {
+  STAFF_TILES,
   StaffHome,
   NewTransaction,
   MemberSearch,
@@ -545,14 +546,16 @@ function StaffInventory({ back }) {
 // build: it picks the landing screen, the bottom nav, and which home tiles are
 // shown. It is a layout choice, not a permission boundary — every staff screen
 // is still reachable, which is what makes it safe to reverse if it turns out
-// the desks want each other's tools after all.
+// the desks want each other's tools after all. `hiddenTiles` holds STAFF_TILES
+// ids rather than captions, so rewording a tile cannot change what a station
+// hides.
 const STATIONS = {
   pool: {
     label: 'Pool desk',
     icon: 'home',
     hint: 'Day passes, memberships, bookings and pool items',
     landing: 'home',
-    hiddenTiles: ['Restaurant POS'],
+    hiddenTiles: [STAFF_TILES.RESTAURANT],
     tabs: [
       { k: 'home', icon: 'home', label: 'Home' },
       { k: 'new', icon: 'plus-circle', label: 'New Transaction' },
@@ -566,7 +569,12 @@ const STATIONS = {
     icon: 'utensils',
     hint: 'Menu orders and checkout for the cafe',
     landing: 'restaurant',
-    hiddenTiles: ['New Transaction', 'Inventory', 'Bookings', 'Sell Item'],
+    hiddenTiles: [
+      STAFF_TILES.NEW,
+      STAFF_TILES.INVENTORY,
+      STAFF_TILES.BOOKINGS,
+      STAFF_TILES.SELL_ITEM
+    ],
     tabs: [
       { k: 'restaurant', icon: 'utensils', label: 'Restaurant' },
       { k: 'home', icon: 'home', label: 'Home' },
@@ -609,7 +617,18 @@ function StationPicker({ session, onPick, onLogout }) {
           </div>
           <div className="tiles">
             {Object.entries(STATIONS).map(([k, st]) => (
-              <div key={k} className="tile" onClick={() => onPick(k)}>
+              // Real <button>s: as cards they took a click but could not be
+              // tabbed to and announced as nothing, which stranded anyone not
+              // using a mouse on the one screen they have to get past to work.
+              // The inline styles only undo the button defaults `.tile` does
+              // not already override, so the card still looks the same.
+              <button
+                key={k}
+                type="button"
+                className="tile"
+                style={{ font: 'inherit', color: 'inherit', textAlign: 'left', width: '100%' }}
+                onClick={() => onPick(k)}
+              >
                 <div
                   className="t-icon"
                   style={{ background: k === 'pool' ? '#E6F1FB' : '#fef3c7' }}
@@ -622,42 +641,11 @@ function StationPicker({ session, onPick, onLogout }) {
                     {st.hint}
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-// StaffHome renders a fixed tile grid and takes no station prop, so the station
-// trims the grid here by tile title rather than threading a prop through every
-// staff screen. The observer re-applies it because StaffHome re-renders as its
-// counts arrive; watching childList only means writing `style` cannot retrigger
-// this callback.
-function StationHome({ station, go }) {
-  const gridRef = useRef(null)
-  const hidden = STATIONS[station]?.hiddenTiles
-
-  useEffect(() => {
-    const root = gridRef.current
-    if (!root || !hidden?.length) return
-    const apply = () => {
-      root.querySelectorAll('.tile').forEach((el) => {
-        const title = el.querySelector('.t-title')?.textContent?.trim()
-        el.style.display = hidden.includes(title) ? 'none' : ''
-      })
-    }
-    apply()
-    const observer = new MutationObserver(apply)
-    observer.observe(root, { childList: true, subtree: true })
-    return () => observer.disconnect()
-  }, [hidden])
-
-  return (
-    <div ref={gridRef} style={{ display: 'contents' }}>
-      <StaffHome go={go} />
     </div>
   )
 }
@@ -695,7 +683,8 @@ function StaffApp({ session, onLogout }) {
 
   const tabs = STATIONS[station].tabs
   let screen
-  if (tab === 'home') screen = <StationHome key="home" station={station} go={setTab} />
+  if (tab === 'home')
+    screen = <StaffHome key="home" go={setTab} hiddenTiles={STATIONS[station].hiddenTiles} />
   else if (tab === 'new') screen = <NewTransaction key="new" session={session} onDone={setTab} />
   else if (tab === 'members') screen = <MemberSearch key="members" />
   else if (tab === 'log') screen = <TodaysLog key="log" />

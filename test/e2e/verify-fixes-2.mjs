@@ -120,7 +120,7 @@ try {
   const eodText = await page.locator('.content').innerText()
   await shot(page, 'verify2', '01-eod-breakdown')
   check('EOD lists Pool Items', /Pool Items/i.test(eodText))
-  check('EOD no longer hides non-membership revenue', /Day Passes/i.test(eodText))
+  check('EOD no longer hides non-membership revenue', /Entry Tickets/i.test(eodText))
 
   const eodSums = await page.evaluate(async () => {
     const s = await window.api.todaySummary({})

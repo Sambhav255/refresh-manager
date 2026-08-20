@@ -31,11 +31,21 @@ export function ManageStaff({ back }) {
   const [resetPw, setResetPw] = useState('')
   const [resetPwConfirm, setResetPwConfirm] = useState('')
   const [adminNotice, setAdminNotice] = useState('')
+  // Last-resort recovery code. Everything above needs an admin who is already
+  // signed in; this is the only thing that helps when nobody is.
+  const [recovery, setRecovery] = useState(null)
+  const [recoveryPw, setRecoveryPw] = useState('')
+  const [recoveryError, setRecoveryError] = useState('')
+  const [recoveryBusy, setRecoveryBusy] = useState(false)
+  // Held in component state only, never re-fetched: once this is cleared the
+  // code is gone for good, which is the whole point.
+  const [issuedCode, setIssuedCode] = useState('')
 
   const load = () => {
     api.listStaff().then((r) => setStaff(r.users || []))
     api.listAdmins().then((r) => setAdmins(r.users || []))
     api.getSession().then((u) => setMeId(u?.userId ?? null))
+    api.hasRecoveryCode().then((r) => setRecovery(r || { exists: false }))
   }
   useEffect(() => {
     load()
@@ -102,6 +112,24 @@ export function ManageStaff({ back }) {
     setAdminNotice(
       `Password reset for ${who}. Give them the new password now — it cannot be shown again.`
     )
+  }
+
+  const issueRecoveryCode = async () => {
+    setRecoveryError('')
+    if (!recoveryPw) {
+      setRecoveryError('Enter your current password to generate a code')
+      return
+    }
+    setRecoveryBusy(true)
+    const r = await api.issueRecoveryCode({ currentPassword: recoveryPw })
+    setRecoveryBusy(false)
+    if (r?.success === false || !r?.code) {
+      setRecoveryError(r?.error || 'Could not generate a recovery code')
+      return
+    }
+    setRecoveryPw('')
+    setIssuedCode(r.code)
+    setRecovery({ exists: true, issuedAt: r.issuedAt })
   }
 
   const changeMyPassword = async () => {
@@ -527,6 +555,97 @@ export function ManageStaff({ back }) {
         {pwMsg && (
           <div className={'alert ' + (pwMsg.ok ? 'green' : 'red')} style={{ marginTop: 10 }}>
             <div className="a-desc">{pwMsg.text}</div>
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 14, padding: 14 }}>
+        <div style={{ fontWeight: 500, marginBottom: 8 }}>Recovery code</div>
+        <div className="sub" style={{ marginBottom: 10 }}>
+          Everything above needs an admin who is already signed in. A recovery code is what you use
+          when nobody is — it resets one admin password from the login screen, once, without a
+          password. Generate it now, while you still can, and keep it off this computer.
+        </div>
+
+        {issuedCode ? (
+          <>
+            <div className="alert green" style={{ display: 'block' }}>
+              <div className="a-title">Write this down now</div>
+              <div
+                className="recovery-code-value"
+                style={{
+                  fontFamily: 'ui-monospace, Menlo, Consolas, monospace',
+                  fontSize: 21,
+                  fontWeight: 600,
+                  letterSpacing: 1.5,
+                  margin: '12px 0',
+                  userSelect: 'all'
+                }}
+              >
+                {issuedCode}
+              </div>
+              <div className="a-desc">
+                This is the only time it will ever be shown — only a scrambled copy is saved, so
+                nobody, including this app, can look it up again. Put it somewhere safe and away
+                from this computer: a safe, a locked drawer, your wallet. Generating another code
+                cancels this one, and using it cancels it too.
+              </div>
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ marginTop: 10 }}
+              onClick={() => setIssuedCode('')}
+            >
+              I have written it down
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="sub" style={{ marginBottom: 10 }}>
+              {recovery?.exists ? (
+                <>
+                  A recovery code is set
+                  {recovery.issuedAt ? ` (generated ${recovery.issuedAt})` : ''}. Generating a new
+                  one cancels it immediately.
+                </>
+              ) : (
+                <>No recovery code yet.</>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                className="input"
+                type="password"
+                value={recoveryPw}
+                onChange={(e) => setRecoveryPw(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') issueRecoveryCode()
+                }}
+                placeholder="Your current password"
+                style={{ minWidth: 180 }}
+              />
+              <button
+                className="btn btn-primary"
+                disabled={recoveryBusy}
+                onClick={issueRecoveryCode}
+              >
+                {recoveryBusy
+                  ? 'Generating…'
+                  : recovery?.exists
+                    ? 'Replace recovery code'
+                    : 'Generate recovery code'}
+              </button>
+            </div>
+            <div className="sub" style={{ marginTop: 8 }}>
+              Your password is asked for so that nobody can walk up to an unattended screen and take
+              a spare key away with them.
+            </div>
+          </>
+        )}
+
+        {recoveryError && (
+          <div className="alert red" style={{ marginTop: 10 }}>
+            <div className="a-desc">{recoveryError}</div>
           </div>
         )}
       </div>

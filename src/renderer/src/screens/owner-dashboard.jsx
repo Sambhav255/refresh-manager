@@ -15,6 +15,9 @@ export function OwnerDashboard({ go }) {
   const [backupStatus, setBackupStatus] = useState(null)
   const [backupStale, setBackupStale] = useState(false)
   const [footfall, setFootfall] = useState(0)
+  // Prevention, not a fault: without a recovery code a forgotten admin
+  // password can only be undone by editing the database by hand.
+  const [needsRecoveryCode, setNeedsRecoveryCode] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [sendingReminders, setSendingReminders] = useState(false)
@@ -34,8 +37,9 @@ export function OwnerDashboard({ go }) {
       api.expiringSoon({}),
       api.getExpiringReminders({}),
       api.getBackupStatus(),
-      api.getTodayCheckins()
-    ]).then(([p, r, c, t, b, l, e, rem, bk, ci]) => {
+      api.getTodayCheckins(),
+      api.hasRecoveryCode()
+    ]).then(([p, r, c, t, b, l, e, rem, bk, ci, rc]) => {
       setPool(p)
       setRestaurant(r)
       setCombined(c)
@@ -51,6 +55,8 @@ export function OwnerDashboard({ go }) {
         !lastBk || Date.now() - Date.parse(String(lastBk).replace(' ', 'T')) > 36 * 3600 * 1000
       )
       setFootfall(ci.count || 0)
+      // Only prompt on a definite "no". A failed call must not nag.
+      setNeedsRecoveryCode(rc?.exists === false)
       setLoading(false)
     })
   }, [today])
@@ -170,6 +176,16 @@ export function OwnerDashboard({ go }) {
       goTo: 'inventory'
     })
   }
+  // Amber, not red, and last among the warnings: nothing is broken, but the
+  // day this matters is the day nobody can get in to fix it.
+  if (needsRecoveryCode)
+    alerts.push({
+      c: 'amber',
+      icon: 'shield',
+      t: 'No recovery code set',
+      d: 'Set one up so a forgotten admin password never locks you out',
+      goTo: 'settings'
+    })
   if (bookings.length)
     alerts.push({
       c: 'green',

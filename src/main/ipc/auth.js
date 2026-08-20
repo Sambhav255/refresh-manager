@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron'
+import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { getDb, hasUsers } from '../db/index.js'
 import { getSession, setSession, clearSession } from '../session.js'
@@ -27,6 +28,63 @@ const MAX_PASSWORD_ATTEMPTS = 5
 const PASSWORD_COOLDOWN_MS = 60000
 let failedPasswordAttempts = 0
 let passwordLockedUntil = 0
+
+// auth:recover-with-code is unauthenticated by necessity — it is the one door a
+// locked-out owner can reach before any session exists. Guessing is therefore
+// the entire attack surface, so it gets fewer tries and a far longer cooldown
+// than the password path. (Like the throttles above this lives in memory only,
+// so it resets on relaunch; the code's own entropy, not this counter, is what
+// makes brute force hopeless. The counter just stops someone sitting at the
+// till from grinding away.)
+const MAX_RECOVERY_ATTEMPTS = 3
+const RECOVERY_COOLDOWN_MS = 15 * 60 * 1000
+let failedRecoveryAttempts = 0
+let recoveryLockedUntil = 0
+
+// The recovery code lives in `settings` — no schema change, and it travels with
+// a backup/restore exactly like every other install-level setting.
+const RECOVERY_HASH_KEY = 'recovery_code_hash'
+const RECOVERY_ISSUED_KEY = 'recovery_code_issued_at'
+
+// 0/O, 1/I/L and U are all missing: this code's whole job is to be copied onto
+// paper by hand and typed back months later, possibly by someone else, so a
+// character that can be misread is a character that can strand the business.
+const RECOVERY_ALPHABET = '23456789ABCDEFGHJKMNPQRSTVWXYZ'
+const RECOVERY_GROUPS = 4
+const RECOVERY_GROUP_LEN = 5
+
+// 20 characters from a 30-symbol alphabet ~= 98 bits. Deliberately far more
+// than a password needs: this one is never typed under time pressure and never
+// has to be memorised, so entropy is free here in a way it never is elsewhere.
+function generateRecoveryCode() {
+  const len = RECOVERY_GROUPS * RECOVERY_GROUP_LEN
+  const n = RECOVERY_ALPHABET.length
+  // 256 is not a multiple of 30, so a plain `% n` would make the first few
+  // symbols slightly likelier. Reject the biased tail instead of skewing.
+  const limit = Math.floor(256 / n) * n
+  const chars = []
+  while (chars.length < len) {
+    for (const byte of randomBytes(len)) {
+      if (byte >= limit) continue
+      chars.push(RECOVERY_ALPHABET[byte % n])
+      if (chars.length === len) break
+    }
+  }
+  const groups = []
+  for (let i = 0; i < len; i += RECOVERY_GROUP_LEN) {
+    groups.push(chars.slice(i, i + RECOVERY_GROUP_LEN).join(''))
+  }
+  return groups.join('-')
+}
+
+// Hash and compare the bare characters, never the dashed display form: the
+// grouping is a reading aid, so someone typing it without dashes, in lower
+// case, or with stray spaces must still get in.
+function normalizeRecoveryCode(raw) {
+  return String(raw ?? '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+}
 
 // Lockout copy derived from the real cooldown, so the message can never drift
 // from the constant (it used to say "a few seconds" for a 30-second lock).
@@ -471,6 +529,155 @@ export function registerAuthHandlers() {
         staff: rows.filter((r) => r.role === 'staff').map((r) => ({ id: r.id, name: r.name })),
         admins: rows.filter((r) => r.role === 'owner').map((r) => ({ id: r.id, name: r.name }))
       }
+    })
+  )
+
+  // ---- Last-resort recovery code -----------------------------------------
+  // Every reset above needs an admin who is ALREADY signed in. If the business
+  // runs on one admin account and that password is forgotten, none of them
+  // help: the setup wizard refuses to run a second time, so the only route left
+  // was editing users.password_hash by hand. That happened once already.
+  //
+  // The way back is a code generated in advance, shown exactly once, written on
+  // paper and kept off the machine. It is an authentication bypass, so it is
+  // kept as narrow as it can be and still work:
+  //   - only a bcrypt hash is ever stored, so the database cannot give it back;
+  //   - issuing one costs the current password, so an unattended till cannot be
+  //     used to mint a permanent spare key;
+  //   - it is spent on first success, and re-issuing kills the previous one;
+  //   - it sets a password and nothing else — no session, no new account, no
+  //     rights beyond "you may now sign in normally".
+
+  ipcMain.handle(
+    'auth:has-recovery-code',
+    wrap(() => {
+      // Deliberately callable with no session: the login screen has to decide
+      // whether to offer "I've lost my password" before anyone has signed in.
+      // All it discloses is that a code exists — never the code, and nothing
+      // about which accounts exist. Same reasoning as auth:login-roster.
+      const db = getDb()
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(RECOVERY_HASH_KEY)
+      if (!row?.value) return { exists: false }
+      // When it was issued is only useful to someone already inside, so it is
+      // the one part gated on a session.
+      if (getSession()?.role !== 'owner') return { exists: true }
+      const at = db.prepare('SELECT value FROM settings WHERE key = ?').get(RECOVERY_ISSUED_KEY)
+      return { exists: true, issuedAt: at?.value || null }
+    })
+  )
+
+  ipcMain.handle(
+    'auth:issue-recovery-code',
+    wrap(async ({ currentPassword }) => {
+      const session = requireOwner()
+      const db = getDb()
+      const me = db
+        .prepare(`SELECT id, password_hash FROM users WHERE id = ? AND role = 'owner'`)
+        .get(session.userId)
+      // Holding a session is not enough. This mints a key that outlives the
+      // session, works from the login screen, and can be carried out of the
+      // building — so it costs the password, exactly like changing one.
+      if (!me || !currentPassword || !(await bcrypt.compare(currentPassword, me.password_hash))) {
+        throw new Error('Current password is incorrect')
+      }
+      const code = generateRecoveryCode()
+      const hash = await bcrypt.hash(normalizeRecoveryCode(code), 10)
+      const issuedAt = db.prepare(`SELECT datetime('now','localtime') AS t`).get().t
+      const put = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      // Only ever one live code: overwriting the hash is what cancels the old
+      // one, so a code that was written down last year stops working the moment
+      // a replacement is generated.
+      db.transaction(() => {
+        put.run(RECOVERY_HASH_KEY, hash)
+        put.run(RECOVERY_ISSUED_KEY, issuedAt)
+      })()
+      writeAudit(session.userId, 'admin:recovery-code-issued', {
+        actorName: session.name,
+        issuedAt
+      })
+      // The only moment the plaintext exists anywhere but the owner's paper.
+      return { success: true, code, issuedAt }
+    })
+  )
+
+  ipcMain.handle(
+    'auth:recover-with-code',
+    wrap(async ({ code, adminName, newPassword }) => {
+      if (Date.now() < recoveryLockedUntil) {
+        throw new Error(
+          `Too many attempts. Please try again in ${secondsLeft(recoveryLockedUntil)}.`
+        )
+      }
+      const db = getDb()
+      const stored = db.prepare('SELECT value FROM settings WHERE key = ?').get(RECOVERY_HASH_KEY)
+      // Nothing to guess when no code was ever issued, so this is not a failed
+      // attempt — and saying so plainly beats letting the owner retype a code
+      // that could never have worked.
+      if (!stored?.value) {
+        throw new Error('No recovery code has been set up on this computer.')
+      }
+      if (!newPassword || newPassword.length < 4) {
+        throw new Error('New password must be at least 4 characters')
+      }
+
+      const supplied = normalizeRecoveryCode(code)
+      const codeOk = supplied.length > 0 && (await bcrypt.compare(supplied, stored.value))
+      const wanted = typeof adminName === 'string' ? adminName.trim() : ''
+      const target = db
+        .prepare(`SELECT id, name FROM users WHERE role = 'owner' AND is_active = 1 AND name = ?`)
+        .get(wanted)
+
+      if (!codeOk || !target) {
+        failedRecoveryAttempts += 1
+        // Audited precisely BECAUSE it failed: an unexplained attempt to force
+        // the recovery door is the single most important thing an owner could
+        // find in this log. The reason is recorded for admins to read and is
+        // never returned to the caller.
+        writeAudit(null, 'admin:recovery-failed', {
+          reason: codeOk ? 'unknown-admin' : 'bad-code',
+          adminName: wanted.slice(0, 60) || null,
+          attempt: failedRecoveryAttempts
+        })
+        if (failedRecoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
+          recoveryLockedUntil = Date.now() + RECOVERY_COOLDOWN_MS
+          failedRecoveryAttempts = 0
+          throw new Error(
+            `That recovery code is not valid. Too many attempts — please try again in ${secondsLeft(recoveryLockedUntil)}.`
+          )
+        }
+        // One message covers a wrong code AND an admin name that does not
+        // exist. Splitting them would turn the one unauthenticated write
+        // endpoint in the app into an account-name oracle.
+        throw new Error('That recovery code is not valid.')
+      }
+
+      const hash = await bcrypt.hash(newPassword, 10)
+      db.transaction(() => {
+        db.prepare(`UPDATE users SET password_hash = ? WHERE id = ? AND role = 'owner'`).run(
+          hash,
+          target.id
+        )
+        // Single use, spent in the same transaction that sets the password, so
+        // there is no window where the password changed but the code still
+        // works — or the reverse.
+        db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run(
+          RECOVERY_HASH_KEY,
+          RECOVERY_ISSUED_KEY
+        )
+      })()
+
+      failedRecoveryAttempts = 0
+      recoveryLockedUntil = 0
+      // Anyone reaching this point got here through failed logins, which will
+      // have armed the password cooldown. Recovery that then makes you wait a
+      // minute is not recovery.
+      failedPasswordAttempts = 0
+      passwordLockedUntil = 0
+
+      writeAudit(null, 'admin:recovery-used', { userId: target.id, name: target.name })
+      // No setSession, on purpose: the code buys a password, not a way in.
+      // Whoever used it still has to sign in with what they just chose.
+      return { success: true, name: target.name }
     })
   )
 }

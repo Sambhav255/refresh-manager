@@ -3,7 +3,23 @@ import { api } from '../lib/api'
 import { fmt, todayLocal } from '../lib/format'
 import { Icon } from '../components/ui'
 
-export function StaffHome({ go }) {
+// Tile ids, which double as the screen keys App.jsx routes on. Exported so a
+// caller can name a tile structurally instead of by its caption: captions get
+// reworded, and a station that trimmed the grid by caption stopped trimming
+// anything the moment one changed, with nothing to notice it had.
+export const STAFF_TILES = Object.freeze({
+  NEW: 'new',
+  MEMBERS: 'members',
+  LOG: 'log',
+  EOD: 'eod',
+  INVENTORY: 'inv',
+  BOOKINGS: 'bookings',
+  RESTAURANT: 'restaurant',
+  SELL_ITEM: 'sellitem'
+})
+
+// `hiddenTiles` is a list of STAFF_TILES ids the caller's station does not need.
+export function StaffHome({ go, hiddenTiles = [] }) {
   const [summary, setSummary] = useState(null)
   const [lowCount, setLowCount] = useState(0)
   const [bookingCount, setBookingCount] = useState(0)
@@ -24,9 +40,9 @@ export function StaffHome({ go }) {
     { label: 'QR', value: fmt(summary?.qr) }
   ]
 
-  const tiles = [
+  const allTiles = [
     {
-      k: 'new',
+      k: STAFF_TILES.NEW,
       icon: 'plus-circle',
       c: '#185FA5',
       bg: '#E6F1FB',
@@ -35,7 +51,7 @@ export function StaffHome({ go }) {
       accent: 'accent-blue'
     },
     {
-      k: 'members',
+      k: STAFF_TILES.MEMBERS,
       icon: 'user-search',
       c: '#0F6E56',
       bg: '#dcfce7',
@@ -43,7 +59,7 @@ export function StaffHome({ go }) {
       s: 'Check status and expiry'
     },
     {
-      k: 'log',
+      k: STAFF_TILES.LOG,
       icon: 'list',
       c: '#64748b',
       bg: '#f1f5f9',
@@ -51,7 +67,7 @@ export function StaffHome({ go }) {
       s: `${txCount} transaction${txCount !== 1 ? 's' : ''} so far`
     },
     {
-      k: 'eod',
+      k: STAFF_TILES.EOD,
       icon: 'send',
       c: '#0F6E56',
       bg: '#d6f0e7',
@@ -60,7 +76,7 @@ export function StaffHome({ go }) {
       accent: 'accent-teal'
     },
     {
-      k: 'inv',
+      k: STAFF_TILES.INVENTORY,
       icon: 'package',
       c: '#b45309',
       bg: '#fef3c7',
@@ -69,7 +85,7 @@ export function StaffHome({ go }) {
       warn: lowCount > 0
     },
     {
-      k: 'bookings',
+      k: STAFF_TILES.BOOKINGS,
       icon: 'calendar-days',
       c: '#185FA5',
       bg: '#E6F1FB',
@@ -77,7 +93,7 @@ export function StaffHome({ go }) {
       s: `${bookingCount} upcoming in 14 days`
     },
     {
-      k: 'restaurant',
+      k: STAFF_TILES.RESTAURANT,
       icon: 'utensils',
       c: '#b45309',
       bg: '#fef3c7',
@@ -85,7 +101,7 @@ export function StaffHome({ go }) {
       s: 'Menu orders & checkout'
     },
     {
-      k: 'sellitem',
+      k: STAFF_TILES.SELL_ITEM,
       icon: 'shopping-bag',
       c: '#0F6E56',
       bg: '#d6f0e7',
@@ -93,6 +109,14 @@ export function StaffHome({ go }) {
       s: 'Goggles, caps & pool items'
     }
   ]
+
+  // Say something when a station names a tile that no longer exists: silently
+  // hiding nothing is precisely the failure this replaced.
+  if (import.meta.env?.DEV) {
+    const unknown = hiddenTiles.filter((k) => !allTiles.some((t) => t.k === k))
+    if (unknown.length) console.error('StaffHome: unknown hidden tile ids', unknown)
+  }
+  const tiles = allTiles.filter((t) => !hiddenTiles.includes(t.k))
 
   return (
     <div className="content fade-in">
