@@ -321,7 +321,20 @@ export function PricingManager({ back }) {
         before.dayOfWeek !== payload.dayOfWeek ||
         before.activeFrom !== payload.activeFrom)
     ) {
-      await api.deletePriceRule({ ruleId: before.id })
+      const removed = await api.deletePriceRule({ ruleId: before.id })
+      // The new rate is already saved at this point. If retiring the old one
+      // fails, both are live — and in some day/group slots the old one is the
+      // more specific match, so the till would keep charging the price the
+      // owner just moved away from. Say so instead of showing success.
+      if (removed?.success === false) {
+        setError(
+          removed.error ||
+            'The new price was saved, but the old one could not be removed — both are active. Remove the old one below.'
+        )
+        setEditor(null)
+        await load()
+        return
+      }
     }
     setEditor(null)
     await load()

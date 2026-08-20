@@ -344,7 +344,13 @@ export function NewTransaction({ onDone }) {
   const paidNow = isMembership || payMode === 'full' ? total : payMode === 'part' ? partPaid : 0
   const balance = Math.round((total - paidNow) * 100) / 100
   const needsReason = discountsNeedReason(cart)
-  const partAmountInvalid = payMode === 'part' && !(partPaid > 0 && partPaid <= total)
+  // Guarded on !isMembership because the part-payment controls only render for
+  // a cart sale. Without it, choosing "Part payment" and then going Back and
+  // switching the type to Membership left payMode stuck at 'part' with an empty
+  // amount: Continue stayed disabled at the Payment step with nothing on screen
+  // to put right, and the only way out was abandoning the sale.
+  const partAmountInvalid =
+    !isMembership && payMode === 'part' && !(partPaid > 0 && partPaid <= total)
 
   const allPricesZero = products.length > 0 && products.every((p) => !p.price)
   // The all-zero banner never fires in the realistic case: the owner priced

@@ -1,3 +1,4 @@
+import { categoryLabel } from '../../../shared/transaction-types'
 export function fmt(n) {
   return 'Rs. ' + Number(n || 0).toLocaleString('en-IN')
 }
@@ -27,13 +28,13 @@ export function formatShortDate(iso) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+// Delegates to the shared label map. This used to carry its own copy that
+// still said "Day Pass" / "Day Package" after those were renamed to Entry
+// Ticket / Combo Ticket everywhere else, so the owner's pricing screen and the
+// till disagreed about what the same product is called — the exact ambiguity
+// the rename removed.
 export function categoryToUiType(category) {
-  const map = {
-    membership: 'Membership',
-    day_package: 'Day Package',
-    day_pass: 'Day Pass'
-  }
-  return map[category] || category
+  return categoryLabel(category)
 }
 
 export function uiTypeToDbType(type) {

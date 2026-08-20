@@ -74,3 +74,27 @@ describe('settings secrets never leave the main process', () => {
     expect(row.value).toBe('correct horse battery staple')
   })
 })
+
+describe('secrets with their own handler cannot be written through settings:set', () => {
+  it('refuses recovery_code_hash — it has a password-gated handler', async () => {
+    loginOwner(ids)
+    const res = await __invoke('settings:set', {
+      key: 'recovery_code_hash',
+      value: '$2a$10$forged'
+    })
+    expect(res.success).toBe(false)
+    // The real hash is untouched, so a forged code cannot be planted.
+    const row = db.prepare(`SELECT value FROM settings WHERE key = 'recovery_code_hash'`).get()
+    expect(row.value).toBe('$2a$10$notarealhashbutlongenoughtolooklikeone')
+  })
+
+  it('still allows backup_passphrase — settings:set is its only writer', async () => {
+    // Refusing this would disable backup encryption: the backup screen has no
+    // other way to store it.
+    loginOwner(ids)
+    const res = await __invoke('settings:set', { key: 'backup_passphrase', value: 'new-phrase' })
+    expect(res.success).toBe(true)
+    const row = db.prepare(`SELECT value FROM settings WHERE key = 'backup_passphrase'`).get()
+    expect(row.value).toBe('new-phrase')
+  })
+})
