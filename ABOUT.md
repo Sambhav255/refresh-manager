@@ -145,16 +145,91 @@ Both P0s passed every handler test that existed. The E2E suites exist specifical
 
 ---
 
-## 5. Where things stand
+## 5. Building what the owner actually needed
 
-**Green:** 183 unit tests, 96 end-to-end checks across 6 suites, 0 lint errors, no runtime console errors.
+The QA work above made the app *correct*. A hands-on session with the owner then showed it was still the wrong shape for the job.
 
-**All money-audit findings are fixed** and covered by regression tests.
+Almost every complaint traced to one fact: **a sale was one product.** The transactions table held a single `product_id` and a single `amount`, which cannot express three tickets in one go, a day pass mixed with a pair of goggles, a child priced differently from an adult on the same sale, a discount, or part-payment now with the rest later. Five complaints, one missing concept.
 
-**Never tested against real data.** The uniqueness migration de-duplicates historical check-ins and has only ever run against synthetic databases. **Before installing over an existing production database, copy it and run the new build against the copy.** This is the single largest untested risk in the project.
+### The sale model
 
-**Needs a human, cannot be automated:** the thermal printer on real hardware (note the receipt-timestamp bug lands exactly here), camera capture for member photos, one real WhatsApp send, behaviour across local midnight, a two-staff till day, and a full backup-then-restore drill on a copy of real data.
+A sale is now a header, its **lines**, and its **payments**. `transactions` is untouched — `amount` is still the sale total — so every existing report kept working, and a migration back-filled one line and one payment for every historic transaction.
 
-**Not done, deliberately:** an opening-stock field on Add Item (restock immediately after achieves the same result and records an auditable movement), and a per-item stock history UI beyond the movement panel already added.
+Prices moved into **rules**: per product, optionally per tier (adult/child) and per weekday, resolved server-side in a defined order (product+tier+day → product+tier → product+day → the product's own price). Nothing is seeded; until the owner enters rates, the flat price still applies.
 
-The prioritised list lives in [docs/qa/SHIP_READINESS.md](docs/qa/SHIP_READINESS.md).
+### What that unlocked, and where reporting nearly went wrong
+
+The engine was built and tested first, with the screens following. Between the two, one thing was measured rather than assumed — and it mattered:
+
+A sale can now hold several kinds of thing and be settled with more than one method, but the header still carries a single `transaction_type` and `payment_method` for backward compatibility. Reporting still read those. A day pass rung up with goggles **reported the goggles as entry revenue**, and a sale split 100 cash / 100 QR **reported 200 cash** — which would have left the End-of-Day drawer count short by the QR half of every split payment. The breakdown now derives from lines, and cash/QR from payments.
+
+The regression test written for that fix then caught a bug in the fix itself: an on-account sale has no payment rows, so it fell through to the header fallback and counted as cash. The rule had to key on *lines*, not payments.
+
+### The rest of the round
+
+- **Checkout** rebuilt as a basket: quantity, add-ons in the same sale, adult/child per line with the unit price shown, discounts that refuse to apply without a reason, and part-payment that states what stays owed. A single adult day pass paid cash is still five clicks.
+- **A pricing screen** that shows *what will be charged*, not just what rules exist — computed by calling the real engine, so it cannot drift from the till.
+- **Inventory**: retire and restore (soft, since items are referenced by historical sales), no seeded catalogue, and four per-row buttons collapsed into one panel.
+- **Bookings**: a month calendar and recurring school slots.
+- **Accounts**: admin-to-admin password and PIN reset, and a single-use recovery code for the case where the only admin forgets their password.
+- **Stations**: a staff member picks Pool desk or Restaurant, which sets their landing screen — the separation the owner asked for, without forking the app.
+
+### Two security findings, both from looking sideways
+
+Neither came from a brief. The agent implementing the recovery code noticed, while reasoning about where its hash would be stored, that **`settings:get-all` returned every settings row to any staff PIN** — including `backup_passphrase`, which is stored in plaintext because it has to encrypt and decrypt backups. Any staff member could read it and, with a backup file, decrypt the entire business: members, phone numbers, every transaction.
+
+A later code review found the other half: **`settings:set` accepted any key with only an owner check**, so a signed-in session could write `recovery_code_hash` directly, bypassing the current-password gate that exists so an unattended till cannot mint a spare key.
+
+The first fix for that was too broad — refusing every sensitive key also disabled backup encryption, because `settings:set` is the backup passphrase's *only* writer. Two existing tests caught it. The block now covers only keys that have their own gated handler, with both behaviours pinned so neither regresses into the other.
+
+---
+
+## 6. More decisions taken
+
+Continuing section 4. Same principle: recorded so nobody re-litigates them, or silently reverses them.
+
+### The breakdown is derived from lines, not the header
+
+The alternative — one transaction per type, grouped by a shared id — would have left reporting untouched and been much less work. It was rejected because discounts and partial payments belong to *one* financial object, and splitting a sale across rows fights both. See the measured consequences above.
+
+### Memberships do not go through the cart
+
+They stay on `createMemberWithMembership`, which is transactional and carries the existing-member match picker that fixed the duplicate-member bug. Routing them through the basket is a bigger change than it looks and would regress that. Day passes, combos and add-ons use the cart.
+
+### No prices are seeded
+
+The mechanism ships; the rates do not. Inventing prices for a real business would be wrong, and the owner explicitly wants to change them over time. The Rs 500 / 700 / Saturday example appears only in tests.
+
+### An age tier is a choice at the desk
+
+Child vs adult is a per-line toggle, not a date of birth. Reception knows; a birthday field would be friction on every sale for a rule applied by eye anyway.
+
+### The recovery escape hatch is a code, not a backup file
+
+A backup-authenticated reset assumes a backup exists — exactly what may not be true on the day it is needed. A code can be written down and kept offline. It is shown once, stored only as a bcrypt hash, single-use, throttled harder than login, and audited on issue, use and failure. It resets a password and nothing else: no session, no account.
+
+### A tier beats a day, and the screen says so
+
+With adult/child rates plus "Saturday 500 for everyone", an adult on Saturday still pays the adult rate, because tier is more specific than day. That will surprise anyone. Rather than change the precedence, the pricing screen shows the effective price per day and tier and warns, in plain words, when a rule is being shadowed — and tells the owner exactly which rule to add.
+
+### Seeding no catalogue applies to new databases only
+
+Existing installs keep their items. Deleting rows referenced by historical sales would corrupt reports; retiring is soft for the same reason.
+
+---
+
+## 7. Where things stand
+
+**Green:** 305 unit tests across 32 files, 182 end-to-end checks across ten suites, 0 lint errors, no runtime console errors.
+
+**Known and unfixed — the recovery code has no redemption path.** An admin can generate one and the dashboard prompts them to, but there is nowhere on the login screen to *type* it. Until that is wired, the feature does not yet do the thing it exists for. When it is built, the admin name must be a picker, not a free-text field: the handler deliberately cannot say "no such admin" (that would make it an account-name oracle), so a typo is indistinguishable from a wrong code.
+
+Two smaller ones from the same review: the pricing screen's week grid renders blank for a retired product instead of saying why, and its live preview can warn that a new rule will be "replaced" when saving will in fact overwrite the rule it is comparing against.
+
+**Never tested against real data.** The sale-model migration back-fills lines and payments for every existing transaction. It has run against a real database once (the v7 upgrade did), but v8 has not. **Before installing over a live database, copy it and run the new build against the copy.**
+
+**Needs a human, cannot be automated:** the thermal printer on real hardware (the receipt-timestamp fix has never met one), camera capture, one real WhatsApp send, behaviour across local midnight, a two-staff till day, and a full backup-then-restore drill.
+
+**Not done, deliberately:** an opening-stock field on Add Item (restock immediately after achieves the same and records an auditable movement).
+
+The prioritised list lives in [docs/qa/SHIP_READINESS.md](docs/qa/SHIP_READINESS.md); the plan that produced this round is [docs/ROADMAP.md](docs/ROADMAP.md).

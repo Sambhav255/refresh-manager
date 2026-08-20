@@ -118,14 +118,14 @@ These are not style preferences — several were learned from bugs that reached 
 Two layers, because they catch different things.
 
 ```bash
-npm test                                  # 183 unit/IPC tests
+npm test                                  # 305 unit/IPC tests
 npx electron-rebuild -f -w better-sqlite3 # switch the native module back
 node test/e2e/verify-fixes.mjs            # and the other suites
 ```
 
-**Unit/IPC (Vitest, 23 files).** Exercises the real handlers against a temp database using a small Electron mock. Covers money derivation, refunds and voids, backup and restore, migrations, security and reports.
+**Unit/IPC (Vitest, 32 files).** Exercises the real handlers against a temp database using a small Electron mock. Covers money derivation, refunds and voids, backup and restore, migrations, security and reports.
 
-**End-to-end (Playwright, 6 suites, 96 checks).** Launches the built Electron app and drives the actual UI. Each launch gets its own `--user-data-dir`, so runs never touch real data and several can run at once.
+**End-to-end (Playwright, 10 suites, 182 checks).** Launches the built Electron app and drives the actual UI. Each launch gets its own `--user-data-dir`, so runs never touch real data and several can run at once.
 
 This second layer exists for a specific reason: both of the worst bugs ever found in this app lived in the payload the renderer sent to main. Every handler test passed while the app was unusable. **Unit-green does not mean working.**
 

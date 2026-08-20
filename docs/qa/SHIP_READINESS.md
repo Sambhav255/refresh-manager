@@ -1,6 +1,6 @@
 # Ship readiness — test plan, open work, and improvements
 
-**Date:** 2026-08-19 · **Audience:** whoever implements the remaining fixes and runs the tests.
+**Date:** 2026-08-19, updated 2026-08-21 · **Audience:** whoever implements the remaining fixes and runs the tests.
 Companion to `docs/qa/QA_REPORT.md` (full bug detail) and `docs/qa/findings-staff.md`.
 
 ---
@@ -21,7 +21,7 @@ One consistency bug was found while wiring this: the printed membership card com
 
 ## 1. Test inventory and how to run it
 
-**Status as of 2026-08-19: every item on the QA backlog is implemented and verified. 193 unit tests + 97 E2E checks, 0 failures, 0 skips, 0 lint errors, no runtime console errors. The Reports & Settings sweep — the last untested area — is now covered.**
+**Status as of 2026-08-21: the QA backlog and the owner-feedback round are both implemented and verified. 305 unit tests + 182 E2E checks, 0 failures, 0 skips, 0 lint errors, no runtime console errors. The Reports & Settings sweep — the last untested area — is now covered.**
 
 | Suite | Files | What it proves | Run with |
 |---|---|---|---|
@@ -29,9 +29,9 @@ One consistency bug was found while wiring this: the printed membership card com
 | QA regressions | `test/qa-regressions.test.js` | The bugs fixed in the Aug-2026 sweep stay fixed | `npm test` |
 | Validation guards | `test/validation-guards.test.js` | Main-process input guards: no blank names, negative money, text-in-numeric, absurd quantities; role gates hold | `npm test` |
 | Open-bug specs | `test/open-bugs.test.js` | OPEN-1..11 — **all now implemented and un-skipped** | `npm test` |
-| E2E fix verification | `test/e2e/verify-fixes{,-2,-3,-4,-5}.mjs` | The fixes work in the real app (65 checks). `-3`/`-4`/`-5` specifically cover renderer↔main wiring — where both original P0s hid | `node test/e2e/verify-fixes-5.mjs` |
+| E2E fix verification | `test/e2e/verify-fixes{,-2,-3,-4,-5}.mjs` | The fixes work in the real app (85 checks). `-3`/`-4`/`-5` specifically cover renderer↔main wiring — where both original P0s hid | `node test/e2e/verify-fixes-5.mjs` |
+| **E2E owner-feedback round** | `verify-checkout`, `verify-pricing`, `verify-station`, `verify-recovery` | The cart till (quantity, add-ons, tiers, discounts, part-payment), the pricing-rule screen and its shadowing warning, station selection and keyboard access, and recovery-code issue/use — 85 checks | `node test/e2e/verify-checkout.mjs` |
 | **E2E Reports & Settings sweep** | `test/e2e/sweep-reports-settings.mjs` | All 7 report types against a known dataset (total 4850), a real Excel file written + reopened + checked, staff/admin lifecycle, password change round-trip, menu editor, backup, audit log — 31 checks | `node test/e2e/sweep-reports-settings.mjs` |
-| E2E area scripts | `test/e2e/area-*.mjs` (37 scripts) | Ad-hoc reproduction scripts from the QA sweep. Not maintained — they lint dirty and are kept only as evidence | `node test/e2e/<script>` |
 
 ### ⚠️ The ABI trap (read before running anything)
 
@@ -44,7 +44,7 @@ One consistency bug was found while wiring this: the printed membership card com
 Recommended: add to `package.json` scripts —
 ```json
 "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
-"test:e2e": "npm run rebuild:electron && node test/e2e/verify-fixes.mjs && node test/e2e/verify-fixes-2.mjs"
+"test:e2e": "npm run rebuild:electron && for f in test/e2e/verify-*.mjs test/e2e/sweep-*.mjs; do node $f || exit 1; done"
 ```
 
 ### Workflow for future open-bug specs
