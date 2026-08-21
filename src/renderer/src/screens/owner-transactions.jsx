@@ -209,6 +209,13 @@ export function OwnerTransactions() {
     return parts.length ? parts.join(' · ') : undefined
   }
 
+  // C-4: the plan's own mitigation for the theft vector staff-void opens up
+  // (ring up, take cash, void it) is that a staff void must be VISIBLY
+  // flagged to the owner, not just recorded quietly in the audit log. An
+  // owner's own void needs no special flag (they already know); a staff
+  // void gets the voider's name right on the row, not just on hover.
+  const isStaffVoid = (t) => t.isVoided && t.voidByRole && t.voidByRole !== 'owner'
+
   return (
     <div className="content fade-in">
       <SectionHead title="Transactions" />
@@ -332,10 +339,20 @@ export function OwnerTransactions() {
               </td>
               <td style={{ position: 'relative' }}>
                 {t.isVoided ? (
-                  // The row itself is already struck through (style above) —
-                  // this label just needs to say why and by whom, on hover.
-                  <span style={{ color: '#ef4444', fontSize: 11 }} title={voidTitle(t)}>
-                    voided
+                  // The row itself is already struck through (style above).
+                  // A staff void is named right on the row (C-4's owner-
+                  // visibility mitigation) — an owner's own void just says
+                  // "voided" like before, since it needs no special flag.
+                  // Reason/who is still on hover either way (Part E).
+                  <span
+                    style={{
+                      color: isStaffVoid(t) ? '#b91c1c' : '#ef4444',
+                      fontSize: 11,
+                      fontWeight: isStaffVoid(t) ? 600 : 400
+                    }}
+                    title={voidTitle(t)}
+                  >
+                    {isStaffVoid(t) ? `voided by ${t.voidBy || 'staff'}` : 'voided'}
                   </span>
                 ) : t.type === 'refund' || t.amount < 0 ? (
                   <span style={{ color: '#94a3b8', fontSize: 11 }}>refund</span>

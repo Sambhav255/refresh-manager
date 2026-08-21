@@ -183,6 +183,20 @@ export function EndOfDay({ session }) {
               />
               <EodColumn title="By source" rows={bySource} total={summary?.total} />
             </div>
+            {/* C-4: staff can now void their own recent sales, so the owner's
+                own end-of-day read needs to surface that plainly — the plan's
+                stated mitigation for the theft vector the feature opens up
+                (ring up, take cash, void it). Omitted at zero, same as the
+                WhatsApp EOD message's own Voids line (H-41), so a clean day
+                stays clean here too. */}
+            {summary?.voidCount > 0 && (
+              <div className="alert amber" style={{ marginTop: 14 }}>
+                <Icon name="alert-triangle" size={17} />
+                <div className="a-desc">
+                  Voids today: {summary.voidCount} ({fmt(summary.voidTotal)})
+                </div>
+              </div>
+            )}
             <button
               className="btn btn-primary btn-block"
               style={{ marginTop: 18 }}

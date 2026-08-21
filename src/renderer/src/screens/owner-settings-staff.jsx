@@ -40,16 +40,36 @@ export function ManageStaff({ back }) {
   // Held in component state only, never re-fetched: once this is cleared the
   // code is gone for good, which is the whole point.
   const [issuedCode, setIssuedCode] = useState('')
+  // C-4: how long after a sale a staff member may still void it themselves
+  // (transactions:void, staff_void_window_minutes) — same numeric-setting
+  // input pattern as "Session timeout (minutes)" on the Renewal reminders
+  // screen (owner-settings-extras.jsx), placed here instead since this is
+  // the screen an owner actually thinks of as "what staff can do".
+  const [voidWindow, setVoidWindow] = useState('15')
+  const [voidWindowSaved, setVoidWindowSaved] = useState(false)
+  const [voidWindowError, setVoidWindowError] = useState('')
 
   const load = () => {
     api.listStaff().then((r) => setStaff(r.users || []))
     api.listAdmins().then((r) => setAdmins(r.users || []))
     api.getSession().then((u) => setMeId(u?.userId ?? null))
     api.hasRecoveryCode().then((r) => setRecovery(r || { exists: false }))
+    api.getSettings().then((r) => setVoidWindow(r.settings?.staff_void_window_minutes || '15'))
   }
   useEffect(() => {
     load()
   }, [])
+
+  const saveVoidWindow = async () => {
+    setVoidWindowError('')
+    const r = await api.setSetting({ key: 'staff_void_window_minutes', value: voidWindow })
+    if (r?.success === false) {
+      setVoidWindowError(r.error || 'Could not save the void window')
+      return
+    }
+    setVoidWindowSaved(true)
+    setTimeout(() => setVoidWindowSaved(false), 2000)
+  }
 
   const addAdmin = async () => {
     setAdminError('')
@@ -224,6 +244,33 @@ export function ManageStaff({ back }) {
           <div className="a-desc">{staffNotice}</div>
         </div>
       )}
+      <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+        <div style={{ fontWeight: 500, marginBottom: 8 }}>Staff void window</div>
+        <div className="sub" style={{ marginBottom: 8 }}>
+          How long after ringing up a sale a staff member can void it themselves, without an
+          owner/admin. Past this window (or on any sale from an earlier day), only an owner or admin
+          can void it.
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            value={voidWindow}
+            onChange={(e) => setVoidWindow(e.target.value)}
+            style={{ width: 100 }}
+          />
+          <span className="sub">minutes</span>
+          <button className="btn btn-primary" onClick={saveVoidWindow}>
+            {voidWindowSaved ? 'Saved!' : 'Save'}
+          </button>
+        </div>
+        {voidWindowError && (
+          <div className="alert red" style={{ marginTop: 10 }}>
+            <div className="a-desc">{voidWindowError}</div>
+          </div>
+        )}
+      </div>
       <div className="card" style={{ padding: 14, marginBottom: 14 }}>
         <div style={{ fontWeight: 500, marginBottom: 8 }}>Add staff</div>
         <div style={{ display: 'flex', gap: 8 }}>

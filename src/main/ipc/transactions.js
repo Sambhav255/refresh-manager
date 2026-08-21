@@ -20,6 +20,15 @@ function wrap(handler) {
   }
 }
 
+// C-4: how long after a sale a non-owner may still void it themselves, before
+// needing an owner/admin. Stored as text in `settings` (INSERT OR REPLACE via
+// settings:set), same convention as expiry_warning_days in members.js —
+// parsed here rather than trusted as a number since the column has no CHECK.
+function getStaffVoidWindowMinutes(db) {
+  const row = db.prepare(`SELECT value FROM settings WHERE key = 'staff_void_window_minutes'`).get()
+  return parseInt(row?.value || '15', 10)
+}
+
 function mapTransaction(row) {
   return {
     id: row.id,
@@ -47,6 +56,11 @@ function mapTransaction(row) {
     // told nobody why or who.
     voidReason: row.void_reason || undefined,
     voidBy: row.void_by_name || undefined,
+    // C-4: lets the owner Transactions screen tell "the owner voided their
+    // own sale" (needs no flag) apart from "a staff member voided a sale"
+    // (needs a visible flag — the plan's own mitigation for the theft vector
+    // staff-void opens up: ring up, take cash, void it).
+    voidByRole: row.void_by_role || undefined,
     // Lets the refund dialog default to what is actually still refundable
     // instead of the original amount, which errored on a second partial refund.
     // Undefined for callers whose query does not compute it.
@@ -166,6 +180,7 @@ export function registerTransactionHandlers() {
         SELECT t.*, p.name as product_name, p.category, p.duration_days, p.sub_category,
                u.name as staff_name,
                vu.name as void_by_name,
+               vu.role as void_by_role,
                (SELECT COALESCE(-SUM(r.amount), 0) FROM transactions r
                  WHERE r.refunds_transaction_id = t.id AND r.is_voided = 0) AS refunded_so_far
         FROM transactions t
@@ -336,22 +351,86 @@ export function registerTransactionHandlers() {
         else qr += r.amount
       }
 
-      return { total: grand, cash, qr, byType, bySource, count: headers.length }
+      // C-4: same "voids today" figure the WhatsApp EOD message already
+      // computes (H-41, generateEODMessage in whatsapp.js) — reused here
+      // rather than written a third time, now that the staff EOD screen shows
+      // it too. void_at is only set going forward; COALESCE to created_at so
+      // a legacy row voided before that column existed still counts on the
+      // day it happened.
+      const voidRow = db
+        .prepare(
+          `SELECT COUNT(*) as c, SUM(t.amount) AS total
+           FROM transactions t
+           WHERE t.is_voided = 1 AND date(COALESCE(t.void_at, t.created_at)) = ?${filter}`
+        )
+        .get(...params)
+
+      return {
+        total: grand,
+        cash,
+        qr,
+        byType,
+        bySource,
+        count: headers.length,
+        voidCount: voidRow?.c || 0,
+        voidTotal: voidRow?.total || 0
+      }
     })
   )
 
   ipcMain.handle(
     'transactions:void',
     wrap(({ transactionId, reason, confirmReconciled = false }) => {
-      const session = requireOwner()
+      // C-4: void used to be owner-only, so a staff member who mis-keyed a
+      // sale had no correction path at all short of finding an owner. Staff
+      // can now void too, but only within a short window on a same-day sale
+      // — see the role check just below — everything past that point in this
+      // handler (already-voided/refund/booking_deposit/has-refunds/reconciled
+      // guards) applies identically to owner and staff, unchanged.
+      const session = requireStaffOrOwner()
       const db = getDb()
       const txn = db
         .prepare(
-          `SELECT id, amount, is_voided, transaction_type, date(created_at) as day FROM transactions WHERE id = ?`
+          `SELECT id, amount, is_voided, transaction_type, created_at, date(created_at) as day
+           FROM transactions WHERE id = ?`
         )
         .get(transactionId)
       if (!txn) throw new Error('Transaction not found')
       if (txn.is_voided) throw new Error('Transaction is already voided')
+
+      // A reason has always been asked for on the confirm dialog, but nothing
+      // in the handler itself enforced it — a direct IPC call with no reason
+      // slipped straight through. That client-only gate was fine while only
+      // the owner's own UI could reach this handler; now that staff can void
+      // too (and the whole point of widening WHO can void is that the owner
+      // needs to be able to see who did what and why), the reason has to be
+      // real regardless of which UI — or lack of one — made the call.
+      if (!reason || !String(reason).trim()) {
+        throw new Error('A reason is required to void a transaction.')
+      }
+
+      // C-4: a non-owner may only void a SAME-DAY sale, and only within a
+      // configurable window from when it was rung up (staff_void_window_minutes
+      // in `settings`, default 15 — see getStaffVoidWindowMinutes above). Past
+      // either boundary this must fail loudly, not silently no-op or downgrade:
+      // a staff member who thinks they voided a sale but didn't would walk
+      // away from a till that's still short.
+      if (session.role !== 'owner') {
+        const today = todayLocal()
+        if (txn.day !== today) {
+          throw new Error(
+            "Too old to void — this sale isn't from today. Ask an owner/admin to void it."
+          )
+        }
+        const windowMinutes = getStaffVoidWindowMinutes(db)
+        const ageMinutes =
+          (Date.now() - new Date(txn.created_at.replace(' ', 'T')).getTime()) / 60000
+        if (ageMinutes > windowMinutes) {
+          throw new Error(
+            `Too old to void — this sale is more than ${windowMinutes} minute${windowMinutes === 1 ? '' : 's'} old. Ask an owner/admin to void it.`
+          )
+        }
+      }
 
       // Voiding a refund would drop the negative correction out of every
       // WHERE is_voided = 0 total, resurrecting the original sale as revenue
@@ -428,7 +507,12 @@ export function registerTransactionHandlers() {
         transactionId,
         amount: txn.amount,
         reason: reason || null,
-        reconciledDay: reconciled ? txn.day : null
+        reconciledDay: reconciled ? txn.day : null,
+        // C-4: staff can now void too — a later report reading this log needs
+        // to distinguish "the owner corrected their own mistake" from "staff
+        // voided a sale", which is the plan's own mitigation for the theft
+        // vector this feature opens up (ring up, take cash, void it).
+        actorRole: session.role
       })
       return { success: true, wasReconciled: !!reconciled }
     })
