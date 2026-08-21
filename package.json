@@ -10,6 +10,7 @@
     "lint": "eslint --cache .",
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
+    "posttest": "electron-rebuild -f -w better-sqlite3",
     "test:watch": "vitest",
     "predev": "electron-builder install-app-deps",
     "prestart": "electron-builder install-app-deps",
