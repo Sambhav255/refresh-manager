@@ -9,6 +9,12 @@ export function OwnerDashboard({ go }) {
   const [combined, setCombined] = useState(null)
   const [tx, setTx] = useState([])
   const [bookings, setBookings] = useState([])
+  // C-6: the "Upcoming bookings" widget only ever shows the first 3 (see the
+  // .slice below) — but the alert line's count must reflect the TRUE total,
+  // not the display list it was accidentally reading `.length` off of, or the
+  // dashboard silently under-reports past 3 while staff Home (which never
+  // slices) shows the real number.
+  const [bookingsTotal, setBookingsTotal] = useState(0)
   const [lowStock, setLowStock] = useState([])
   const [expiring, setExpiring] = useState([])
   const [reminders, setReminders] = useState([])
@@ -44,7 +50,9 @@ export function OwnerDashboard({ go }) {
       setRestaurant(r)
       setCombined(c)
       setTx((t.transactions || []).slice(0, 5))
-      setBookings((b.bookings || []).slice(0, 3))
+      const upcoming = b.bookings || []
+      setBookings(upcoming.slice(0, 3))
+      setBookingsTotal(upcoming.length)
       setLowStock(l.items || [])
       setExpiring(e.members || [])
       setReminders(rem.members || [])
@@ -186,11 +194,11 @@ export function OwnerDashboard({ go }) {
       d: 'Set one up so a forgotten admin password never locks you out',
       goTo: 'settings'
     })
-  if (bookings.length)
+  if (bookingsTotal)
     alerts.push({
       c: 'green',
       icon: 'calendar-days',
-      t: bookings.length + ' upcoming bookings',
+      t: bookingsTotal + ' upcoming bookings',
       d: 'Next 14 days',
       goTo: 'bookings'
     })

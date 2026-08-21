@@ -55,13 +55,40 @@ export function registerCheckinHandlers() {
 
   ipcMain.handle(
     'checkins:today',
+    // C-6: "Footfall today" on the owner Dashboard was really "member
+    // check-ins today" — a walk-in who buys a day pass and never checks in as
+    // a member was invisible, despite being the most literal footfall there
+    // is. `count` now adds today's day-pass attendee total (a sale's line
+    // quantity, since one sale can be for several people) to the check-in
+    // count. Known limitation, deliberately not handled: a member who both
+    // checks in AND separately buys a day pass on the same visit is counted
+    // twice — rare enough that de-duplicating it isn't worth the complexity.
     wrap(() => {
       requireStaffOrOwner()
       const today = todayLocal()
       const db = getDb()
-      const count =
+      const checkinCount =
         db.prepare(`SELECT COUNT(*) as c FROM check_ins WHERE date(checked_in_at) = ?`).get(today)
           ?.c || 0
+      // Day-pass attendees today: sum the quantity of day-pass catalogue lines
+      // on non-voided day-pass sales rung up today. A day-pass sale can carry
+      // other lines too (e.g. goggles) — only the day-pass line(s) count
+      // people through the door.
+      const dayPassCount =
+        db
+          .prepare(
+            `SELECT COALESCE(SUM(tl.quantity), 0) as c
+             FROM transactions t
+             JOIN transaction_lines tl ON tl.transaction_id = t.id
+             JOIN products p ON p.id = tl.ref_id
+             WHERE t.transaction_type = 'day_pass'
+               AND t.is_voided = 0
+               AND date(t.created_at) = ?
+               AND tl.kind = 'product'
+               AND p.category = 'day_pass'`
+          )
+          .get(today)?.c || 0
+      const count = checkinCount + dayPassCount
       const recent = db
         .prepare(
           `SELECT ci.id, ci.checked_in_at, ci.source, m.name as member_name

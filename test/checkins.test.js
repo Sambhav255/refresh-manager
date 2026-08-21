@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { __invoke } from 'electron'
 import { freshDb, seed, loginStaff, loginOwner, isoOffset } from './helpers.js'
+import { registerSalesHandlers } from '../src/main/ipc/sales.js'
+import { registerPricingHandlers } from '../src/main/ipc/pricing.js'
 
 let db
 let ids
@@ -8,6 +10,10 @@ let ids
 beforeEach(() => {
   db = freshDb()
   ids = seed(db)
+  // helpers.js's registerAll() doesn't wire the sale model — needed for the
+  // day-pass footfall test below.
+  registerPricingHandlers()
+  registerSalesHandlers()
 })
 
 function addMember(name) {
@@ -55,6 +61,26 @@ describe('3-A — check-ins / footfall', () => {
     for (let i = 0; i < 3; i++) await __invoke('checkins:create', { memberId: m })
     const ff = await __invoke('checkins:footfall', {})
     expect(ff.total).toBe(1)
+  })
+
+  it('C-6: footfall today counts day-pass attendees alongside member check-ins', async () => {
+    loginStaff(ids)
+    // Two member check-ins today.
+    await __invoke('checkins:create', { memberId: addMember('Gita') })
+    await __invoke('checkins:create', { memberId: addMember('Bimala') })
+    // One day-pass sale for a group of 3 — 3 people through the door, not 1 sale.
+    const sale = await __invoke('sales:create', {
+      customerName: 'Walk-in group',
+      cart: [{ kind: 'product', refId: ids.dayPassId, quantity: 3 }],
+      paymentMethod: 'cash'
+    })
+    expect(sale.success).toBe(true)
+
+    const today = await __invoke('checkins:today', {})
+    expect(today.count).toBe(5)
+    // The recent check-in list stays check-ins only — other consumers of it
+    // must not see day-pass sales mixed in.
+    expect(today.recent).toHaveLength(2)
   })
 
   it('not-seen lists an active member with no recent check-in, excludes a visitor', async () => {
