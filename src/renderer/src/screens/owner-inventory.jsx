@@ -29,7 +29,13 @@ function StatusChip({ item }) {
   if (item.retired) return <span className="badge b-dead">Retired</span>
   if (item.stock <= 0) return <span className="badge b-dead">Out of stock</span>
   if (item.low) return <span className="badge b-exp">Low</span>
-  return <span style={{ color: '#94a3b8' }}>—</span>
+  // H-32: the em-dash fallback only fired for a healthy item — no "in stock
+  // and fine" chip existed, so every row reading em-dash was mistaken for
+  // "status is broken" rather than "everything here is fine." b-active is
+  // the same green Badge (ui.jsx) maps 'In stock' to; used directly since
+  // this file keeps its own tiny local StatusChip rather than the shared
+  // component (see task-3-brief.md Part C).
+  return <span className="badge b-active">In stock</span>
 }
 
 export function OwnerInventory() {

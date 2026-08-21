@@ -252,6 +252,15 @@ export function OwnerMembers() {
                   {expiry}
                 </td>
                 <td>
+                  {/* P-3: owner surface, 32px minimum. Pause/Send reminder/
+                      Allow re-send/Resume aren't in the brief's destructive
+                      list (Void/Refund/Delete/deactivate) — pausing is
+                      reversible via Resume right below it — so 32px, not
+                      40px, is the target. Shares the exact
+                      `padding: '4px 8px', fontSize: 11` style the brief
+                      measured Void/Refund at (~23px tall before a fix), so
+                      minHeight: 32 is applied on the same evidence rather
+                      than a separate live measurement of each variant. */}
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     {status === 'Expiring soon' &&
                       x.phone &&
@@ -262,7 +271,7 @@ export function OwnerMembers() {
                         // does the same thing twice.
                         <button
                           className="btn btn-ghost"
-                          style={{ padding: '4px 8px', fontSize: 11 }}
+                          style={{ padding: '4px 8px', fontSize: 11, minHeight: 32 }}
                           disabled={busy === mem.id}
                           title={`Reminder sent ${mem.reminderSentAt}`}
                           onClick={() => allowResend(mem.id)}
@@ -272,7 +281,7 @@ export function OwnerMembers() {
                       ) : (
                         <button
                           className="btn btn-ghost"
-                          style={{ padding: '4px 8px', fontSize: 11 }}
+                          style={{ padding: '4px 8px', fontSize: 11, minHeight: 32 }}
                           disabled={busy === mem.id}
                           onClick={() => sendReminder(mem.id)}
                         >
@@ -282,7 +291,7 @@ export function OwnerMembers() {
                     {mem?.id && status !== 'Expired' && (
                       <button
                         className="btn btn-ghost"
-                        style={{ padding: '4px 8px', fontSize: 11 }}
+                        style={{ padding: '4px 8px', fontSize: 11, minHeight: 32 }}
                         disabled={busy === mem.id}
                         onClick={() => {
                           setPauseTarget({ membershipId: mem.id, name: x.name })
@@ -296,7 +305,7 @@ export function OwnerMembers() {
                     {isPaused && paused?.id && (
                       <button
                         className="btn btn-ghost"
-                        style={{ padding: '4px 8px', fontSize: 11 }}
+                        style={{ padding: '4px 8px', fontSize: 11, minHeight: 32 }}
                         disabled={busy === paused.id}
                         onClick={() => resume(paused.id)}
                       >

@@ -252,9 +252,12 @@ export function OwnerTransactions() {
                   <span style={{ color: '#94a3b8', fontSize: 11 }}>refund</span>
                 ) : (
                   <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                    {/* P-3: destructive owner action, 40px minimum — measured
+                        42.0x23.2px before minHeight was added (width already
+                        cleared 40, height didn't). */}
                     <button
                       className="btn btn-ghost"
-                      style={{ padding: '4px 8px', fontSize: 11 }}
+                      style={{ padding: '4px 8px', fontSize: 11, minHeight: 40 }}
                       onClick={() => {
                         setVoidId(t.id)
                         setVoidConfirmDay(null)
@@ -263,9 +266,10 @@ export function OwnerTransactions() {
                     >
                       Void
                     </button>
+                    {/* Measured 56.7x23.2px before minHeight. */}
                     <button
                       className="btn btn-ghost"
-                      style={{ padding: '4px 8px', fontSize: 11 }}
+                      style={{ padding: '4px 8px', fontSize: 11, minHeight: 40 }}
                       onClick={() => openRefund(t)}
                     >
                       Refund
@@ -333,7 +337,14 @@ export function OwnerTransactions() {
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button className="btn btn-primary" onClick={() => handleVoid(!!voidConfirmDay)}>
+            {/* P-3: destructive confirm, 40px minimum — bare .btn measures
+                ~33px (Playwright, staff-restaurant-pos.jsx Cash/QR toggle,
+                which shares the unmodified base class). */}
+            <button
+              className="btn btn-primary"
+              style={{ minHeight: 40 }}
+              onClick={() => handleVoid(!!voidConfirmDay)}
+            >
               {voidConfirmDay ? 'Void reconciled day anyway' : 'Confirm void'}
             </button>
             <button
@@ -380,7 +391,8 @@ export function OwnerTransactions() {
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button className="btn btn-primary" onClick={handleRefund}>
+            {/* P-3: destructive confirm, 40px minimum (see Confirm void above). */}
+            <button className="btn btn-primary" style={{ minHeight: 40 }} onClick={handleRefund}>
               Confirm refund
             </button>
             <button className="btn btn-ghost" onClick={() => setRefundTx(null)}>

@@ -32,7 +32,9 @@ function StatusChip({ item }) {
   if (item.retired) return <span className="badge b-dead">Retired</span>
   if (item.stock <= 0) return <span className="badge b-dead">Out of stock</span>
   if (item.low) return <span className="badge b-exp">Low</span>
-  return <span style={{ color: '#94a3b8' }}>—</span>
+  // H-32: see the identical comment in owner-inventory.jsx's StatusChip —
+  // these two are kept intentionally identical.
+  return <span className="badge b-active">In stock</span>
 }
 
 export function OwnerRestaurantInventory() {

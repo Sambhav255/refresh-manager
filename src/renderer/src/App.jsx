@@ -761,7 +761,11 @@ function writeStation(userId, station) {
 
 function StationPicker({ session, onPick, onLogout }) {
   return (
-    <div className="app">
+    // Staff surface too (see the app-staff comment on StaffApp's root below).
+    // Nothing here is currently under 44px (the .tile cards are large), but
+    // scoping it consistently means any future small control on this screen
+    // gets the floor for free.
+    <div className="app app-staff">
       <AppHeader role="staff" session={session} onLogout={onLogout} />
       <div className="body-wrap">
         <div className="content fade-in" style={{ maxWidth: 680, margin: '0 auto' }}>
@@ -855,7 +859,11 @@ function StaffApp({ session, onLogout }) {
   const navActive = (k) => (navKeys.includes(tab) ? k === tab : k === 'home')
 
   return (
-    <div className="app">
+    // app-staff scopes the P-3 44px touch-target floor (app.css) to this
+    // surface only — the owner surface's 32px minimum stays on the
+    // unscoped .btn/.seg rules. See app.css for the rule and why it's a
+    // single scoped floor rather than dozens of per-button edits.
+    <div className="app app-staff">
       <AppHeader role="staff" session={session} onLogout={onLogout} />
       <div className="body-wrap">
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>

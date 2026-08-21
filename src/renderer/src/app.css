@@ -165,6 +165,20 @@
   .btn-ghost:hover { background: #f8faff; border-color: #cbd5e1; color: var(--ink); }
   .btn-block { width: 100%; justify-content: center; padding: 12px; font-size: 14px; }
 
+  /* P-3: 44px minimum hit area on the staff surface. Scoped to .app-staff
+     (set on StaffApp's root in App.jsx) rather than editing every screen's
+     small inline padding overrides individually — staff-transaction.jsx,
+     staff-restaurant-pos.jsx and staff-sell-item.jsx alone have ~20 buttons
+     with a shrunk inline padding (measured as low as 21px tall / 27px wide
+     before this rule), so a per-button chase was both slower and easier to
+     leave a gap in than one floor on the shared .btn class. min-height alone
+     would leave icon-only +/- steppers narrower than 44px, so min-width is
+     included too; justify-content: center keeps a short glyph centred in the
+     wider box rather than pinned to the left edge. Kept off the owner
+     surface, which only needs 32px (bare .btn already clears that — see
+     measurements in task-3-report.md) and would look oversized at 44px. */
+  .app-staff .btn { min-height: 44px; min-width: 44px; justify-content: center; }
+
   /* inputs */
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 12px; font-weight: 500; color: var(--ink2); margin-bottom: 5px; }
@@ -222,7 +236,11 @@
   .step.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 500; }
 
   .toggle-row { display: flex; gap: 10px; }
-  .toggle-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 11px; background: #fff; color: var(--ink2); font: inherit; font-size: 13px; cursor: pointer; }
+  /* P-3: measured 254.5x41.4px before this rule (Playwright, staff-transaction.jsx
+     payment-method toggle) — 2.6px short of the 44px staff minimum. Only used
+     on the staff surface (Restaurant POS payment method), so min-height is
+     unconditional rather than scoped. */
+  .toggle-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 11px; min-height: 44px; background: #fff; color: var(--ink2); font: inherit; font-size: 13px; cursor: pointer; }
   .toggle-btn.sel { background: var(--badge-qr-bg); border-color: var(--blue); color: var(--blue); }
 
   /* Transition + @starting-style reveal (no persistent animation prop = capture-safe) */
@@ -233,10 +251,18 @@
   }
   @media (prefers-reduced-motion: reduce) { .fade-in, .scale-in { transition: none; } }
 
+  /* P-3: .seg renders on both surfaces (staff-transaction.jsx's tier/pay-mode
+     segmented controls, and owner-inventory.jsx / owner-restaurant.jsx's
+     Restock/Adjust/Price/History control) with no wrapper class to tell them
+     apart, so the fix is two rules rather than one: a small unconditional
+     bump so the owner's own 32px minimum is met everywhere (measured 28.8px
+     before this change), and a .app-staff-scoped min-height for the staff
+     44px minimum (measured the same 28.8px on staff-transaction.jsx). */
   .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: #fff; }
-  .seg button { border: 0; background: #fff; padding: 7px 12px; font: inherit; font-size: 12.5px; color: var(--ink2); cursor: pointer; border-right: 1px solid var(--border); }
+  .seg button { border: 0; background: #fff; padding: 7px 12px; font: inherit; font-size: 12.5px; color: var(--ink2); cursor: pointer; border-right: 1px solid var(--border); min-height: 32px; }
   .seg button:last-child { border-right: 0; }
   .seg button.on { background: var(--blue-fill); color: var(--blue); font-weight: 500; }
+  .app-staff .seg button { min-height: 44px; }
 
   .settings-card:hover, .card[style*="cursor: pointer"]:hover { background: #f8faff; border-color: #cbd5e1; }
 
@@ -262,8 +288,24 @@
     overflow-y: auto;
     padding: 20px;
   }
-  .rowmenu { width: 28px; height: 28px; border: 0; background: transparent; border-radius: 6px; display: grid; place-items: center; cursor: pointer; }
+  /* P-3: owner-surface-only (row-level overflow menu on owner tables), so
+     32px is the real target here, not 44px. Not wired into any screen yet
+     (that's the Phase 2/4 row-menu refactor noted above) — bumped anyway
+     since the brief calls it out by exact current value. */
+  .rowmenu { width: 32px; height: 32px; border: 0; background: transparent; border-radius: 6px; display: grid; place-items: center; cursor: pointer; }
   .rowmenu:hover { background: #eef2f7; }
+
+  /* P-3/H-27: BookingCalendar's day cells (owner-bookings.jsx, reused
+     verbatim by staff-bookings.jsx) had no hover/press state despite being
+     clickable — reads as inert. Base background/border move here from the
+     cell's inline style so :hover has something to override (an inline
+     style always wins over a stylesheet rule of any specificity); .sel is
+     declared after :hover so a selected cell keeps its selected look even
+     while hovered. min-height:84 already comfortably clears the owner 32px
+     minimum, so no sizing change was needed here, only the missing state. */
+  .bk-daycell { background: #fff; border: 1px solid #e2e8f0; }
+  .bk-daycell:hover { background: var(--blue-fill); border-color: #93c5fd; }
+  .bk-daycell.sel { background: #eff6ff; border-color: #60a5fa; }
 
 /* Frameless window drag region */
 .titlebar { -webkit-app-region: drag; }

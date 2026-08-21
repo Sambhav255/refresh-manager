@@ -199,14 +199,16 @@ export function BookingCalendar({
             return (
               <div
                 key={iso}
+                // background/border live in .bk-daycell (app.css) rather than
+                // here so the class's :hover rule can apply — an inline
+                // style always beats a stylesheet rule, hover included.
+                className={'bk-daycell' + (isSelected ? ' sel' : '')}
                 onClick={() => onSelectDate(iso)}
                 style={{
                   minHeight: 84,
                   padding: 5,
                   borderRadius: 8,
                   cursor: 'pointer',
-                  background: isSelected ? '#eff6ff' : '#fff',
-                  border: '1px solid ' + (isSelected ? '#60a5fa' : '#e2e8f0'),
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 3,
