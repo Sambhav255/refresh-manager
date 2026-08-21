@@ -13,6 +13,7 @@ import {
   StaffRestaurantPos,
   SellItem
 } from './screens/staff'
+import { cartGuard } from './screens/staff-transaction'
 import {
   OwnerDashboard,
   OwnerTransactions,
@@ -990,6 +991,10 @@ export default function App() {
       const tag = t?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return
       if (e.key === 'Escape' && view !== 'login' && view !== 'loading' && view !== 'setup') {
+        // An in-progress, non-empty New Transaction cart must never be thrown
+        // away by a stray Escape (e.g. dismissing a dropdown mid-sale) — swallow
+        // the keypress instead of logging out while there is unsaved cart data.
+        if (cartGuard.hasItems) return
         await api.logout()
         setSession(null)
         setView('login')
@@ -997,15 +1002,6 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [view])
-
-  useEffect(() => {
-    const h = document.getElementById('hint')
-    if (!h) return
-    h.innerHTML =
-      view === 'login' || view === 'setup'
-        ? 'Refresh Manager · sign in to begin'
-        : 'Press <kbd>Esc</kbd> to log out · everything is clickable'
   }, [view])
 
   const handleLogin = async (user) => {

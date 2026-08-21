@@ -72,8 +72,7 @@ export function StaffHome({ go, hiddenTiles = [] }) {
       c: '#0F6E56',
       bg: '#d6f0e7',
       t: 'End of Day',
-      s: 'Send WhatsApp report',
-      accent: 'accent-teal'
+      s: 'Send WhatsApp report'
     },
     {
       k: STAFF_TILES.INVENTORY,

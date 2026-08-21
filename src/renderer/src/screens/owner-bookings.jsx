@@ -354,7 +354,7 @@ export function BookingCalendar({
                   </div>
                 )}
                 {b.notes && (
-                  <div className="sub" style={{ color: '#94a3b8' }}>
+                  <div className="sub" style={{ color: 'var(--text-secondary)' }}>
                     {b.notes}
                   </div>
                 )}
@@ -927,7 +927,7 @@ export function OwnerBookings({ session }) {
                     </div>
                   )}
                   {b.notes && (
-                    <div className="sub" style={{ color: '#94a3b8', marginTop: 2 }}>
+                    <div className="sub" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
                       {b.notes}
                     </div>
                   )}

@@ -85,7 +85,7 @@ export function AuditLog({ back }) {
           <tbody>
             {entries.map((e) => (
               <tr key={e.id}>
-                <td style={{ color: '#94a3b8', fontSize: 12 }}>{e.created_at}</td>
+                <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{e.created_at}</td>
                 <td style={{ fontSize: 12.5 }}>{e.actor_name || '—'}</td>
                 <td style={{ fontSize: 12.5, fontWeight: 500 }}>
                   {ACTION_LABELS[e.action] || e.action}

@@ -360,7 +360,7 @@ export function OwnerRestaurantInventory() {
                     {r.unit || 'pcs'}
                   </span>
                 </td>
-                <td className="num" style={{ color: '#94a3b8' }}>
+                <td className="num" style={{ color: 'var(--text-secondary)' }}>
                   {qtyText(r.reorder)}
                 </td>
                 <td className="num">{fmt(r.price)}</td>

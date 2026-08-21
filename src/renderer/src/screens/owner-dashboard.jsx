@@ -253,8 +253,8 @@ export function OwnerDashboard({ go }) {
               <tbody>
                 {tx.map((t) => (
                   <tr key={t.id}>
-                    <td style={{ color: '#94a3b8' }}>{t.displayId || t.id}</td>
-                    <td style={{ color: '#94a3b8' }}>{t.time}</td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{t.displayId || t.id}</td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{t.time}</td>
                     <td style={{ fontWeight: 500 }}>{t.customer}</td>
                     <td style={{ color: '#64748b', fontSize: 12.5 }}>{t.product}</td>
                     <td className="num">{fmt(t.amount)}</td>

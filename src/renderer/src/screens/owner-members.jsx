@@ -229,7 +229,7 @@ export function OwnerMembers() {
                     <MemberAvatar member={x} status={status} />
                     <div>
                       <div style={{ fontWeight: 500 }}>{x.name}</div>
-                      <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 1 }}>
+                      <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 1 }}>
                         {x.phone || '—'}
                       </div>
                     </div>

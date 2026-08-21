@@ -18,12 +18,17 @@
     --badge-exp-bg: #fef3c7;    --badge-exp-tx: #92400e;
     --badge-dead-bg: #fee2e2;   --badge-dead-tx: #991b1b;
     --badge-cash-bg: #f1f5f9;   --badge-cash-tx: #475569;
-    --badge-qr-bg: #dbeafe;     --badge-qr-tx: #1e40af;
+    --badge-qr-bg: #E0F2F1;     --badge-qr-tx: #0F6E56;
     --badge-mem-bg: #ede9fe;    --badge-mem-tx: #5b21b6;
 
     --av-active-bg: #dbeafe; --av-active-tx: #1e40af;
     --av-exp-bg: #fef3c7;     --av-exp-tx: #92400e;
     --av-dead-bg: #fee2e2;    --av-dead-tx: #991b1b;
+
+    --color-danger: #B42318;   /* expired, out of stock, destructive confirm — new, not yet used this task */
+
+    --text-secondary: #475467;  /* content-bearing secondary text: descriptions, timestamps, phone numbers */
+    --text-tertiary: #667085;   /* pure labels only: column headers, "Reorder at", "Station" */
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -234,9 +239,6 @@
   .settings-card:hover, .card[style*="cursor: pointer"]:hover { background: #f8faff; border-color: #cbd5e1; }
   .rowmenu { width: 28px; height: 28px; border: 0; background: transparent; border-radius: 6px; display: grid; place-items: center; cursor: pointer; }
   .rowmenu:hover { background: #eef2f7; }
-
-  .kbd-hint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); color: #8a99a8; font-size: 12px; letter-spacing: .2px; display: flex; gap: 8px; align-items: center; }
-  .kbd-hint kbd { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 11px; }
 
 /* Frameless window drag region */
 .titlebar { -webkit-app-region: drag; }

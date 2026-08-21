@@ -336,7 +336,7 @@ export function StaffRestaurantPos({ session, back }) {
               </div>
             )}
             <button
-              className="btn btn-teal btn-block"
+              className="btn btn-primary btn-block"
               style={{ marginTop: 12 }}
               disabled={!cart.length || saving}
               onClick={checkout}

@@ -32,10 +32,10 @@ export function TodaysLog() {
         <tbody>
           {tx.map((t) => (
             <tr key={t.id}>
-              <td style={{ color: '#94a3b8' }}>{t.time}</td>
+              <td style={{ color: 'var(--text-secondary)' }}>{t.time}</td>
               <td>
-                <span style={{ fontWeight: 500 }}>{t.customer}</span>{' '}
-                <span style={{ color: '#94a3b8' }}>· {t.product}</span>
+                <span style={{ color: 'var(--ink)' }}>{t.product}</span>{' '}
+                <span style={{ color: 'var(--text-secondary)' }}>· {t.customer}</span>
               </td>
               <td className="num">{fmt(t.amount)}</td>
               <td>

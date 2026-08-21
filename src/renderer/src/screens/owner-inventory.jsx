@@ -354,7 +354,7 @@ export function OwnerInventory() {
                   {r.stock}
                   <span style={{ color: '#94a3b8', fontSize: 11, marginLeft: 4 }}>pcs</span>
                 </td>
-                <td className="num" style={{ color: '#94a3b8' }}>
+                <td className="num" style={{ color: 'var(--text-secondary)' }}>
                   {r.reorder}
                 </td>
                 <td className="num">

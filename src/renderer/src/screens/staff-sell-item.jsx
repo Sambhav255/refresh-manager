@@ -300,7 +300,7 @@ export function SellItem({ back }) {
                   </div>
                 )}
                 <button
-                  className="btn btn-teal btn-block"
+                  className="btn btn-primary btn-block"
                   style={{ marginTop: 12 }}
                   disabled={saving || selected.current_stock <= 0}
                   onClick={confirm}

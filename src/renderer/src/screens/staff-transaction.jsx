@@ -212,6 +212,12 @@ function poolLine(item) {
 // no staff id: the till decides what things cost. A discount with no reason is
 // left off rather than sent — the handler would refuse the whole sale, and the
 // basket says so on the line instead (see discountsNeedReason).
+// Lets the global App.jsx Escape-to-logout handler know whether there is an
+// in-progress, unsaved cart right now, without a larger cross-component
+// refactor. Kept as a module-level mutable flag rather than context/redux
+// because it only needs to answer one yes/no question for one consumer.
+export const cartGuard = { hasItems: false }
+
 function cartPayload(cart) {
   return cart.map((l) => {
     const entry = { kind: l.kind, refId: l.refId, quantity: l.quantity }
@@ -284,6 +290,20 @@ export function NewTransaction({ onDone }) {
 
   const category = LABEL_TO_CATEGORY[type]
   const isMembership = category === 'membership'
+
+  // Keep the module-level cartGuard in sync: unsaved once the basket has
+  // lines, no longer unsaved once the sale has actually gone through.
+  useEffect(() => {
+    cartGuard.hasItems = cart.length > 0 && !saved
+  }, [cart, saved])
+
+  // Belt and braces: if this screen unmounts for any other reason (nav away,
+  // error boundary) the guard must not be left stuck "true" forever.
+  useEffect(() => {
+    return () => {
+      cartGuard.hasItems = false
+    }
+  }, [])
 
   useEffect(() => {
     Promise.all([api.listProducts(), api.productPopularity(), api.listPoolInventory()])
