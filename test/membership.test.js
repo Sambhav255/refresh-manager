@@ -77,12 +77,18 @@ describe('3-B — membership pause / resume', () => {
 // C-7: the Renew dialog wired into owner-members.jsx passes activeMembership.id
 // for an expiring-soon member (their row hasn't lapsed by end_date yet, so it
 // is still the one and only row status='active' in the DB) and
-// lastMembership.id for an expired member (there is no active row at all —
-// nothing in this codebase ever flips status to 'expired' on its own, so a
-// lapsed row sits at status='active' with a past end_date until something
-// renews it). Passing the wrong id for an expiring-soon member would expire a
-// membership that genuinely still has time left on it instead of the row
-// members:renew is meant to replace.
+// lastMembership.id for an expired member. Correction from an earlier draft
+// of this comment: expireLapsedMemberships() (src/main/ipc/maintenance.js)
+// DOES flip lapsed rows to status='expired' on a daily cron and at startup
+// (see the '3-B' describe block above), so an expired member's row is not
+// guaranteed to still read 'active' — it depends on whether that job has run
+// since it lapsed. That doesn't change which id is correct here, though:
+// fetchLastMembership() selects "most recent membership regardless of
+// status" (its own comment says so, members.js) — it has no status filter —
+// so lastMembership.id is right either way, and members:renew itself looks
+// up by id with no status gate at all. Passing the wrong id for an
+// expiring-soon member would expire a membership that genuinely still has
+// time left on it instead of the row members:renew is meant to replace.
 describe('C-7 — members:renew id targeting', () => {
   it('renews an expiring-soon membership using activeMembership.id, keeps the same product', async () => {
     loginOwner(ids)
@@ -118,8 +124,12 @@ describe('C-7 — members:renew id targeting', () => {
 
   it('renews an expired membership using lastMembership.id, keeps the same product', async () => {
     loginOwner(ids)
-    // Lapsed 5 days ago. No expiry job runs in this codebase, so this row is
-    // still status='active' in the DB — only its end_date is in the past.
+    // Lapsed 5 days ago. This test's own newMembership() inserts it directly
+    // via SQL with status='active', so it's still 'active' here regardless
+    // of end_date — this deliberately reproduces the state a row is in
+    // between lapsing and the next run of expireLapsedMemberships(), since
+    // fetchLastMembership() (and therefore lastMembership.id) doesn't care
+    // either way — see the describe-block comment above.
     const msId = newMembership(isoOffset(-5), 'Already Expired')
     const before = await __invoke('members:list-all', {})
     const row = before.members.find((m) => m.name === 'Already Expired')

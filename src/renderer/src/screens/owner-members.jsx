@@ -59,6 +59,33 @@ export function OwnerMembers({ initialFilter = '' } = {}) {
   const [renewDate, setRenewDate] = useState('')
   const [renewPay, setRenewPay] = useState('Cash')
   const [renewNotice, setRenewNotice] = useState('')
+  // Fix round 1 (review feedback on C-7): Pause must stay reachable on an
+  // Expiring-soon row alongside the new Renew button, but a third inline
+  // button reopens the exact stacked/misaligned-row problem H-24 was fixing.
+  // Reuses the .rowmenu + fixed-position-dropdown pattern Task 6
+  // (owner-transactions.jsx, commit fccddaf) already built for Void/Refund —
+  // same data-rowmenu marker, same outside-click/Escape/scroll close below.
+  const [menuOpenId, setMenuOpenId] = useState(null)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
+
+  useEffect(() => {
+    if (menuOpenId == null) return
+    const onDocClick = (e) => {
+      if (!e.target.closest('[data-rowmenu]')) setMenuOpenId(null)
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') setMenuOpenId(null)
+    }
+    const onScroll = () => setMenuOpenId(null)
+    document.addEventListener('mousedown', onDocClick)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [menuOpenId])
 
   useEffect(() => {
     api.listAllMembers().then((r) => {
@@ -291,7 +318,7 @@ export function OwnerMembers({ initialFilter = '' } = {}) {
             <th style={{ width: 180 }}>Membership type</th>
             <th style={{ width: 130 }}>Status</th>
             <th style={{ width: 140 }}>Expiry date</th>
-            <th style={{ width: 230 }}>Actions</th>
+            <th style={{ width: 150 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -340,7 +367,7 @@ export function OwnerMembers({ initialFilter = '' } = {}) {
                 >
                   {expiry}
                 </td>
-                <td>
+                <td style={{ position: 'relative' }}>
                   {/* P-3: owner surface, 32px minimum. Renew/Pause/Send
                       reminder/Allow re-send/Resume aren't in the brief's
                       destructive list (Void/Refund/Delete/deactivate) —
@@ -352,19 +379,22 @@ export function OwnerMembers({ initialFilter = '' } = {}) {
                       minHeight: 32 is applied on the same evidence rather
                       than a separate live measurement of each variant.
 
-                      C-7/H-24: the action set is status-driven — Renew (+
-                      Send reminder) for Expiring soon, Renew alone for
-                      Expired, Pause alone for Active, Resume alone for
-                      Paused — so no row ever needs more than two buttons.
-                      flexWrap stays 'nowrap' (unlike the old always-wrap
-                      layout) so a two-button row never grows a second line
-                      and breaks row-height alignment against its neighbours. */}
+                      C-7/H-24, fix round 1: Expiring soon has THREE possible
+                      actions (Renew, Send reminder/Allow re-send, Pause —
+                      Pause was wrongly dropped in the first pass and
+                      restored here per review). Renew stays the one visible
+                      primary button; the other two move into a `.rowmenu`
+                      overflow (same pattern Task 6/C-8 built for Void/Refund
+                      in owner-transactions.jsx) so every row still caps at
+                      two visible elements and flexWrap can stay 'nowrap'
+                      without a row ever growing a second line. */}
                   <div
                     style={{
                       display: 'flex',
                       gap: 4,
                       flexWrap: 'nowrap',
-                      alignItems: 'center'
+                      alignItems: 'center',
+                      justifyContent: 'flex-end'
                     }}
                   >
                     {canRenew && renewMembershipId && (
@@ -384,32 +414,98 @@ export function OwnerMembers({ initialFilter = '' } = {}) {
                         {busy === renewMembershipId ? '…' : 'Renew'}
                       </button>
                     )}
-                    {status === 'Expiring soon' &&
-                      x.phone &&
-                      mem?.id &&
-                      (mem.reminderSentAt ? (
-                        // Already reminded. Re-sending needs the flag cleared,
-                        // so offer that rather than a button that silently
-                        // does the same thing twice.
+                    {status === 'Expiring soon' && mem?.id && (
+                      <div data-rowmenu style={{ position: 'relative' }}>
                         <button
-                          className="btn btn-ghost"
-                          style={{ padding: '4px 8px', fontSize: 11, minHeight: 32 }}
-                          disabled={busy === mem.id}
-                          title={`Reminder sent ${mem.reminderSentAt}`}
-                          onClick={() => allowResend(mem.id)}
+                          className="rowmenu"
+                          aria-label={`More actions for ${x.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const next = menuOpenId === x.id ? null : x.id
+                            if (next) {
+                              const r = e.currentTarget.getBoundingClientRect()
+                              setMenuPos({ top: r.bottom + 4, left: r.right - 160 })
+                            }
+                            setMenuOpenId(next)
+                          }}
                         >
-                          {busy === mem.id ? '…' : 'Allow re-send'}
+                          <Icon name="more-vertical" size={18} />
                         </button>
-                      ) : (
-                        <button
-                          className="btn btn-ghost"
-                          style={{ padding: '4px 8px', fontSize: 11, minHeight: 32 }}
-                          disabled={busy === mem.id}
-                          onClick={() => sendReminder(mem.id)}
-                        >
-                          {busy === mem.id ? '…' : 'Send reminder'}
-                        </button>
-                      ))}
+                        {menuOpenId === x.id && (
+                          <div
+                            data-rowmenu
+                            className="card"
+                            style={{
+                              position: 'fixed',
+                              top: menuPos.top,
+                              left: menuPos.left,
+                              zIndex: 1000,
+                              padding: 4,
+                              minWidth: 160,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 2
+                            }}
+                          >
+                            {x.phone &&
+                              (mem.reminderSentAt ? (
+                                // Already reminded. Re-sending needs the flag
+                                // cleared, so offer that rather than a button
+                                // that silently does the same thing twice.
+                                <button
+                                  className="btn btn-ghost"
+                                  style={{
+                                    justifyContent: 'flex-start',
+                                    minHeight: 40,
+                                    fontSize: 12.5
+                                  }}
+                                  disabled={busy === mem.id}
+                                  title={`Reminder sent ${mem.reminderSentAt}`}
+                                  onClick={() => {
+                                    setMenuOpenId(null)
+                                    allowResend(mem.id)
+                                  }}
+                                >
+                                  Allow re-send
+                                </button>
+                              ) : (
+                                <button
+                                  className="btn btn-ghost"
+                                  style={{
+                                    justifyContent: 'flex-start',
+                                    minHeight: 40,
+                                    fontSize: 12.5
+                                  }}
+                                  disabled={busy === mem.id}
+                                  onClick={() => {
+                                    setMenuOpenId(null)
+                                    sendReminder(mem.id)
+                                  }}
+                                >
+                                  Send reminder
+                                </button>
+                              ))}
+                            <button
+                              className="btn btn-ghost"
+                              style={{
+                                justifyContent: 'flex-start',
+                                minHeight: 40,
+                                fontSize: 12.5
+                              }}
+                              disabled={busy === mem.id}
+                              onClick={() => {
+                                setMenuOpenId(null)
+                                setPauseTarget({ membershipId: mem.id, name: x.name })
+                                setPauseReason('')
+                                setError('')
+                              }}
+                            >
+                              Pause
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {status === 'Active' && mem?.id && (
                       <button
                         className="btn btn-ghost"
