@@ -55,6 +55,15 @@ export function requirePhone(value) {
   return digits
 }
 
+// Normalises any incoming payment-method value to 'cash' or 'qr' — the only
+// two the schema and the till drawer ever recognise. Shared by sales.js
+// (sale/payment creation) and transactions.js (refund method, C-8) so a
+// refund's method is validated the exact same way a sale's is, rather than a
+// second copy of this rule drifting from the first.
+export function requirePaymentMethod(value) {
+  return String(value || '').toLowerCase() === 'qr' ? 'qr' : 'cash'
+}
+
 export function requireRestockQuantity(value, { integerOnly }) {
   const qty = Number(value)
   const valid = integerOnly ? Number.isInteger(qty) : Number.isFinite(qty)

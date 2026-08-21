@@ -1,7 +1,13 @@
 import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
-import { formatTime, productDisplayName, productFromRow, todayLocal } from './utils.js'
+import {
+  formatTime,
+  productDisplayName,
+  productFromRow,
+  requirePaymentMethod,
+  todayLocal
+} from './utils.js'
 import { writeAudit } from '../audit.js'
 
 function wrap(handler) {
@@ -36,6 +42,11 @@ function mapTransaction(row) {
     source: row.source,
     createdAt: row.created_at,
     isVoided: !!row.is_voided,
+    // C-8: a voided row's reason and voiding staff, so the transactions table
+    // can surface them (title tooltip) instead of a bare "voided" label that
+    // told nobody why or who.
+    voidReason: row.void_reason || undefined,
+    voidBy: row.void_by_name || undefined,
     // Lets the refund dialog default to what is actually still refundable
     // instead of the original amount, which errored on a second partial refund.
     // Undefined for callers whose query does not compute it.
@@ -154,11 +165,13 @@ export function registerTransactionHandlers() {
         let sql = `
         SELECT t.*, p.name as product_name, p.category, p.duration_days, p.sub_category,
                u.name as staff_name,
+               vu.name as void_by_name,
                (SELECT COALESCE(-SUM(r.amount), 0) FROM transactions r
                  WHERE r.refunds_transaction_id = t.id AND r.is_voided = 0) AS refunded_so_far
         FROM transactions t
         LEFT JOIN products p ON p.id = t.product_id
         JOIN users u ON u.id = t.staff_id
+        LEFT JOIN users vu ON vu.id = t.void_by
         WHERE 1=1
       `
         if (!includeVoided) sql += ` AND t.is_voided = 0`
@@ -427,7 +440,7 @@ export function registerTransactionHandlers() {
   // sale, the stock that moved is restored atomically. Owner-gated.
   ipcMain.handle(
     'transactions:refund',
-    wrap(({ transactionId, amount, reason }) => {
+    wrap(({ transactionId, amount, reason, paymentMethod }) => {
       const session = requireOwner()
       const db = getDb()
       const original = db.prepare(`SELECT * FROM transactions WHERE id = ?`).get(transactionId)
@@ -435,6 +448,16 @@ export function registerTransactionHandlers() {
       if (original.is_voided) throw new Error('Cannot refund a voided transaction')
       if (original.transaction_type === 'refund') throw new Error('Cannot refund a refund')
       if (original.amount <= 0) throw new Error('Nothing to refund on this transaction')
+
+      // C-8: how the refund is paid out (cash leaving the drawer vs a QR
+      // reversal) materially changes End of Day reconciliation, so it has to
+      // be an explicit, validated field on the refund row rather than always
+      // silently inheriting the original sale's method. When the caller
+      // doesn't send one (older callers, or a future automation), default to
+      // the original transaction's own payment method — the almost-always-right
+      // guess, and the same value this handler used unconditionally before.
+      const refundPaymentMethod =
+        paymentMethod == null ? original.payment_method : requirePaymentMethod(paymentMethod)
 
       const refundedSoFar =
         -db
@@ -465,7 +488,7 @@ export function registerTransactionHandlers() {
             original.product_id,
             original.member_id,
             -refundAmount,
-            original.payment_method,
+            refundPaymentMethod,
             session.userId,
             `Refund of #${original.id}${reason ? `: ${reason}` : ''}`,
             original.id
@@ -496,14 +519,16 @@ export function registerTransactionHandlers() {
         originalId: original.id,
         amount: refundAmount,
         full: isFull,
-        reason: reason || null
+        reason: reason || null,
+        paymentMethod: refundPaymentMethod
       })
       return {
         success: true,
         refundTransactionId,
         refundAmount,
         full: isFull,
-        remaining: remaining - refundAmount
+        remaining: remaining - refundAmount,
+        paymentMethod: refundPaymentMethod
       }
     })
   )

@@ -122,3 +122,43 @@ describe('3-C — refunds', () => {
     expect(afterVoid.error).toMatch(/voided/i)
   })
 })
+
+// C-8: refund method (cash vs QR) — whether the money actually leaves the
+// drawer or is recorded as a QR reversal, which End of Day reconciliation
+// reads straight off this row's payment_method.
+describe('C-8 — refund method', () => {
+  it("defaults the refund to the original sale's payment method when not given", async () => {
+    const sale = await sellPoolItem(1) // sold cash, see sellPoolItem() above
+    const res = await __invoke('transactions:refund', { transactionId: sale.transactionId })
+    expect(res.success).toBe(true)
+    expect(res.paymentMethod).toBe('cash')
+    const refund = db
+      .prepare('SELECT payment_method FROM transactions WHERE id = ?')
+      .get(res.refundTransactionId)
+    expect(refund.payment_method).toBe('cash')
+  })
+
+  it('stores an explicitly chosen refund method even when it differs from the original', async () => {
+    const sale = await sellPoolItem(1) // sold cash
+    const res = await __invoke('transactions:refund', {
+      transactionId: sale.transactionId,
+      paymentMethod: 'qr'
+    })
+    expect(res.success).toBe(true)
+    expect(res.paymentMethod).toBe('qr')
+    const refund = db
+      .prepare('SELECT payment_method FROM transactions WHERE id = ?')
+      .get(res.refundTransactionId)
+    expect(refund.payment_method).toBe('qr')
+  })
+
+  it('normalises an invalid/garbage payment method to cash, same as sales do', async () => {
+    const sale = await sellPoolItem(1)
+    const res = await __invoke('transactions:refund', {
+      transactionId: sale.transactionId,
+      paymentMethod: 'bitcoin'
+    })
+    expect(res.success).toBe(true)
+    expect(res.paymentMethod).toBe('cash')
+  })
+})

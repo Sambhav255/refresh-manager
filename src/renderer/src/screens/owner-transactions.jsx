@@ -1,10 +1,22 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { fmt, todayLocal } from '../lib/format'
-import { PayBadge, SectionHead } from '../components/ui'
+import { PayBadge, SectionHead, ConfirmDestructive, Icon } from '../components/ui'
 import { TYPE_LABELS, TYPE_ORDER } from '../../../shared/transaction-types'
 
 const PAGE_SIZE = 100
+
+// C-8: same reason categories for Void and Refund — the plan's own §12 open
+// question already answered "no second list needed" once Refund's reason
+// became required too (see task-6-report.md).
+const REASONS = [
+  'Wrong amount',
+  'Wrong item',
+  'Wrong payment method',
+  'Duplicate',
+  'Customer cancelled',
+  'Other'
+]
 
 // Local-date arithmetic. Using toISOString() here shifted the week start by a
 // day whenever the local clock was behind UTC midnight (00:00–05:44 in
@@ -28,12 +40,27 @@ export function OwnerTransactions() {
   const [customTo, setCustomTo] = useState(todayLocal())
   const [page, setPage] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
-  const [voidId, setVoidId] = useState(null)
-  const [reason, setReason] = useState('')
+  // C-8 Part A: which row's overflow menu is open, if any.
+  const [menuOpenId, setMenuOpenId] = useState(null)
+  // `.tbl` clips overflow for its rounded corners, so an absolutely
+  // positioned menu anchored inside a table row (position: absolute, top:
+  // 100%) gets cut off on rows near the bottom of the table. Fixed
+  // positioning computed from the trigger's own bounding rect escapes that
+  // clip, at the cost of not tracking scroll — acceptable for a menu that's
+  // closed by any outside click/scroll anyway.
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
+  // C-8 Part B: the transaction object (not just an id) a Void confirm is
+  // targeting, so ConfirmDestructive's summary can show real context
+  // (customer/product/amount/payment) without a second API call.
+  const [voidTx, setVoidTx] = useState(null)
   const [voidConfirmDay, setVoidConfirmDay] = useState(null)
   const [refundTx, setRefundTx] = useState(null)
   const [refundAmount, setRefundAmount] = useState('')
-  const [refundReason, setRefundReason] = useState('')
+  // C-8 Part D: cash vs QR reversal — defaults to the original sale's method
+  // (see openRefund) since forcing a pick on every otherwise-fast refund
+  // would be friction the punch-list's own P1 (speed beats completeness on
+  // staff-facing flows) argues against.
+  const [refundMethod, setRefundMethod] = useState('cash')
   const [error, setError] = useState('')
 
   const load = () => {
@@ -72,16 +99,56 @@ export function OwnerTransactions() {
     load()
   }, [page])
 
-  const handleVoid = async (confirmReconciled = false) => {
-    if (!voidId) return
-    if (!reason.trim()) {
-      // Was a silent return — the button looked broken.
-      setError('A reason is required to void a transaction.')
-      return
+  // Part A: close the row menu on outside click or Escape. No generic
+  // popover-positioning library — two menu items don't need one.
+  useEffect(() => {
+    if (menuOpenId == null) return
+    const onDocClick = (e) => {
+      if (!e.target.closest('[data-rowmenu]')) setMenuOpenId(null)
     }
+    const onKey = (e) => {
+      if (e.key === 'Escape') setMenuOpenId(null)
+    }
+    // The menu is fixed-positioned (computed once, at open time — see
+    // menuPos above), so it won't track a scroll; close it instead. Scroll
+    // doesn't bubble, so this has to be a capture-phase window listener to
+    // catch it regardless of which element scrolled (`.content`, most often).
+    const onScroll = () => setMenuOpenId(null)
+    document.addEventListener('mousedown', onDocClick)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [menuOpenId])
+
+  const openVoid = (t) => {
+    setVoidTx(t)
+    setVoidConfirmDay(null)
     setError('')
-    const res = await api.voidTransaction({ transactionId: voidId, reason, confirmReconciled })
-    // 2-E: voiding a reconciled day needs an explicit confirm.
+  }
+  const closeVoid = () => {
+    setVoidTx(null)
+    setVoidConfirmDay(null)
+    setError('')
+  }
+
+  // reasonPicked is one of REASONS; otherText is only set when reasonPicked
+  // === 'Other'. The stored reason is the free-text detail when given
+  // (it's the informative part), otherwise the picklist label itself.
+  const handleVoidConfirm = async (reasonPicked, otherText) => {
+    if (!voidTx) return
+    setError('')
+    const res = await api.voidTransaction({
+      transactionId: voidTx.id,
+      reason: otherText || reasonPicked,
+      confirmReconciled: !!voidConfirmDay
+    })
+    // 2-E: voiding a reconciled day needs an explicit second confirm — keep
+    // the SAME dialog open (voidTx stays set) with the amber warning and
+    // relabelled confirm button.
     if (res?.requiresConfirmation) {
       setVoidConfirmDay(res.reconciledDay)
       return
@@ -90,8 +157,7 @@ export function OwnerTransactions() {
       setError(res.error || 'Void failed')
       return
     }
-    setVoidId(null)
-    setReason('')
+    setVoidTx(null)
     setVoidConfirmDay(null)
     load()
   }
@@ -101,18 +167,26 @@ export function OwnerTransactions() {
     // Default to what is still refundable, not the original amount — on a
     // partly refunded sale the old default always errored.
     setRefundAmount(String(t.remaining ?? t.amount))
-    setRefundReason('')
+    // Default the refund method to how the sale was originally paid — see
+    // the refundMethod declaration above for why this isn't an unselected
+    // required choice.
+    setRefundMethod(t.paymentMethod === 'qr' ? 'qr' : 'cash')
+    setError('')
+  }
+  const closeRefund = () => {
+    setRefundTx(null)
     setError('')
   }
 
-  const handleRefund = async () => {
+  const handleRefundConfirm = async (reasonPicked, otherText) => {
     if (!refundTx) return
     setError('')
     const amt = Number(refundAmount)
     const res = await api.refundTransaction({
       transactionId: refundTx.id,
       amount: amt,
-      reason: refundReason
+      reason: otherText || reasonPicked,
+      paymentMethod: refundMethod
     })
     if (res?.success === false) {
       setError(res.error || 'Refund failed')
@@ -123,6 +197,17 @@ export function OwnerTransactions() {
   }
 
   const total = tx.reduce((s, t) => s + t.amount, 0)
+
+  // Part E: hover title for a voided row — reason + who voided it. A native
+  // title attribute rather than a custom tooltip component, per the brief;
+  // an expand affordance was the other option, but the table already fits
+  // this without widening any row, and title needs no extra markup or state.
+  const voidTitle = (t) => {
+    const parts = []
+    if (t.voidReason) parts.push(`Reason: ${t.voidReason}`)
+    if (t.voidBy) parts.push(`Voided by: ${t.voidBy}`)
+    return parts.length ? parts.join(' · ') : undefined
+  }
 
   return (
     <div className="content fade-in">
@@ -245,35 +330,73 @@ export function OwnerTransactions() {
               <td>
                 <PayBadge pay={t.pay} />
               </td>
-              <td>
+              <td style={{ position: 'relative' }}>
                 {t.isVoided ? (
-                  <span style={{ color: '#ef4444', fontSize: 11 }}>voided</span>
+                  // The row itself is already struck through (style above) —
+                  // this label just needs to say why and by whom, on hover.
+                  <span style={{ color: '#ef4444', fontSize: 11 }} title={voidTitle(t)}>
+                    voided
+                  </span>
                 ) : t.type === 'refund' || t.amount < 0 ? (
                   <span style={{ color: '#94a3b8', fontSize: 11 }}>refund</span>
                 ) : (
-                  <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                    {/* P-3: destructive owner action, 40px minimum — measured
-                        42.0x23.2px before minHeight was added (width already
-                        cleared 40, height didn't). */}
+                  <div
+                    data-rowmenu
+                    style={{ position: 'relative', display: 'flex', justifyContent: 'flex-end' }}
+                  >
                     <button
-                      className="btn btn-ghost"
-                      style={{ padding: '4px 8px', fontSize: 11, minHeight: 40 }}
-                      onClick={() => {
-                        setVoidId(t.id)
-                        setVoidConfirmDay(null)
-                        setError('')
+                      className="rowmenu"
+                      aria-label={`Actions for transaction ${t.displayId || `#${t.id}`}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const next = menuOpenId === t.id ? null : t.id
+                        if (next) {
+                          const r = e.currentTarget.getBoundingClientRect()
+                          setMenuPos({ top: r.bottom + 4, left: r.right - 128 })
+                        }
+                        setMenuOpenId(next)
                       }}
                     >
-                      Void
+                      <Icon name="more-vertical" size={18} />
                     </button>
-                    {/* Measured 56.7x23.2px before minHeight. */}
-                    <button
-                      className="btn btn-ghost"
-                      style={{ padding: '4px 8px', fontSize: 11, minHeight: 40 }}
-                      onClick={() => openRefund(t)}
-                    >
-                      Refund
-                    </button>
+                    {menuOpenId === t.id && (
+                      <div
+                        data-rowmenu
+                        className="card"
+                        style={{
+                          position: 'fixed',
+                          top: menuPos.top,
+                          left: menuPos.left,
+                          zIndex: 1000,
+                          padding: 4,
+                          minWidth: 128,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 2
+                        }}
+                      >
+                        <button
+                          className="btn btn-ghost"
+                          style={{ justifyContent: 'flex-start', minHeight: 40, fontSize: 12.5 }}
+                          onClick={() => {
+                            setMenuOpenId(null)
+                            openVoid(t)
+                          }}
+                        >
+                          Void
+                        </button>
+                        <button
+                          className="btn btn-ghost"
+                          style={{ justifyContent: 'flex-start', minHeight: 40, fontSize: 12.5 }}
+                          onClick={() => {
+                            setMenuOpenId(null)
+                            openRefund(t)
+                          }}
+                        >
+                          Refund
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </td>
@@ -314,92 +437,97 @@ export function OwnerTransactions() {
           </button>
         </div>
       )}
-      {voidId && (
-        <div className="card" style={{ marginTop: 14, padding: 16 }}>
-          <div style={{ fontWeight: 500, marginBottom: 8 }}>Void transaction #{voidId}</div>
-          <input
-            className="input"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason for void"
-          />
-          {voidConfirmDay && (
-            <div className="alert amber" style={{ marginTop: 10 }}>
-              <div className="a-desc">
-                This sale is on {voidConfirmDay}, a day already cash-reconciled. Voiding it will
-                change a day you already closed. Confirm to proceed.
+      {voidTx && (
+        <ConfirmDestructive
+          open
+          title={`Void transaction ${voidTx.displayId || `#${voidTx.id}`}`}
+          summary={
+            <div>
+              <div>
+                {voidTx.customer} · {voidTx.product} · {fmt(voidTx.amount)} · {voidTx.pay}
               </div>
+              {voidConfirmDay && (
+                <div className="alert amber" style={{ marginTop: 10 }}>
+                  <div className="a-desc">
+                    This sale is on {voidConfirmDay}, a day already cash-reconciled. Voiding it will
+                    change a day you already closed. Confirm to proceed.
+                  </div>
+                </div>
+              )}
+              {error && (
+                <div className="alert red" style={{ marginTop: 10 }}>
+                  <div className="a-desc">{error}</div>
+                </div>
+              )}
             </div>
-          )}
-          {error && (
-            <div className="alert red" style={{ marginTop: 10 }}>
-              <div className="a-desc">{error}</div>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            {/* P-3: destructive confirm, 40px minimum — bare .btn measures
-                ~33px (Playwright, staff-restaurant-pos.jsx Cash/QR toggle,
-                which shares the unmodified base class). */}
-            <button
-              className="btn btn-primary"
-              style={{ minHeight: 40 }}
-              onClick={() => handleVoid(!!voidConfirmDay)}
-            >
-              {voidConfirmDay ? 'Void reconciled day anyway' : 'Confirm void'}
-            </button>
-            <button
-              className="btn btn-ghost"
-              onClick={() => {
-                setVoidId(null)
-                setVoidConfirmDay(null)
-                setError('')
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+          }
+          reasons={REASONS}
+          confirmLabel={voidConfirmDay ? 'Void reconciled day anyway' : 'Confirm void'}
+          onConfirm={handleVoidConfirm}
+          onCancel={closeVoid}
+        />
       )}
       {refundTx && (
-        <div className="card" style={{ marginTop: 14, padding: 16 }}>
-          <div style={{ fontWeight: 500, marginBottom: 8 }}>
-            Refund #{refundTx.id} — {refundTx.customer} ({fmt(refundTx.amount)})
-          </div>
-          <div className="field">
-            <label>Refund amount (Rs.)</label>
-            <input
-              className="input"
-              type="number"
-              value={refundAmount}
-              onChange={(e) => setRefundAmount(e.target.value)}
-            />
-            <div className="sub" style={{ marginTop: 4, fontSize: 11.5 }}>
-              {refundTx.refundedSoFar > 0 &&
-                `${fmt(refundTx.refundedSoFar)} of ${fmt(refundTx.amount)} already refunded — ${fmt(refundTx.remaining)} remaining. `}
-              Full refund restores any linked stock. Partial refunds are money-only.
+        <ConfirmDestructive
+          open
+          title={`Refund ${refundTx.displayId || `#${refundTx.id}`} — ${refundTx.customer} (${fmt(refundTx.amount)})`}
+          summary={
+            <div>
+              <div className="field" style={{ marginBottom: 10 }}>
+                <label>Refund amount (Rs.)</label>
+                <input
+                  className="input"
+                  type="number"
+                  value={refundAmount}
+                  onChange={(e) => setRefundAmount(e.target.value)}
+                />
+                <div className="sub" style={{ marginTop: 4, fontSize: 11.5 }}>
+                  {refundTx.refundedSoFar > 0 &&
+                    `${fmt(refundTx.refundedSoFar)} of ${fmt(refundTx.amount)} already refunded — ${fmt(refundTx.remaining)} remaining. `}
+                  Full refund restores any linked stock. Partial refunds are money-only.
+                </div>
+              </div>
+              <div style={{ marginBottom: error ? 10 : 0 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: 6
+                  }}
+                >
+                  Refund method
+                </label>
+                <div className="seg">
+                  <button
+                    type="button"
+                    className={refundMethod === 'cash' ? 'on' : ''}
+                    onClick={() => setRefundMethod('cash')}
+                  >
+                    Cash
+                  </button>
+                  <button
+                    type="button"
+                    className={refundMethod === 'qr' ? 'on' : ''}
+                    onClick={() => setRefundMethod('qr')}
+                  >
+                    QR
+                  </button>
+                </div>
+              </div>
+              {error && (
+                <div className="alert red" style={{ marginTop: 10 }}>
+                  <div className="a-desc">{error}</div>
+                </div>
+              )}
             </div>
-          </div>
-          <input
-            className="input"
-            value={refundReason}
-            onChange={(e) => setRefundReason(e.target.value)}
-            placeholder="Reason (optional)"
-          />
-          {error && (
-            <div className="alert red" style={{ marginTop: 10 }}>
-              <div className="a-desc">{error}</div>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            {/* P-3: destructive confirm, 40px minimum (see Confirm void above). */}
-            <button className="btn btn-primary" style={{ minHeight: 40 }} onClick={handleRefund}>
-              Confirm refund
-            </button>
-            <button className="btn btn-ghost" onClick={() => setRefundTx(null)}>
-              Cancel
-            </button>
-          </div>
-        </div>
+          }
+          reasons={REASONS}
+          confirmLabel="Confirm refund"
+          onConfirm={handleRefundConfirm}
+          onCancel={closeRefund}
+        />
       )}
     </div>
   )

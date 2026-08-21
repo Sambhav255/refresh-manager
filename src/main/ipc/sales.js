@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireStaffOrOwner } from '../session.js'
-import { requireAmount, requireText, todayLocal } from './utils.js'
+import { requireAmount, requirePaymentMethod, requireText, todayLocal } from './utils.js'
 import { resolvePrice, round2 } from './pricing.js'
 import { writeAudit } from '../audit.js'
 
@@ -37,10 +37,6 @@ function requireQuantity(value) {
     throw new Error(`Quantity must be a whole number from 1 to ${MAX_LINE_QUANTITY}`)
   }
   return qty
-}
-
-function requirePaymentMethod(value) {
-  return String(value || '').toLowerCase() === 'qr' ? 'qr' : 'cash'
 }
 
 // Every item that has to come off a shelf, keyed so the SAME item appearing on

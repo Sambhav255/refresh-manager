@@ -307,8 +307,9 @@ export function EmptyState({ title, body, action }) {
 // item" panel), not fixed-position dialogs. .modal matches .card's
 // border-radius/border-colour/shadow language.
 //
-// This task does not wire ConfirmDestructive into any screen — that's later
-// Phase 2/4 work that also owns the row-menu refactor (C-8) on those screens.
+// First wired in by owner-transactions.jsx's Void/Refund row-menu refactor
+// (C-8, Task 6) — see the "does NOT reset reason" note on handleConfirm
+// below for a behavioural refinement that wiring needed.
 export function ConfirmDestructive({
   open,
   title,
@@ -342,10 +343,20 @@ export function ConfirmDestructive({
     onCancel?.()
   }
 
+  // Deliberately does NOT reset reason/reasonText (C-8, owner-transactions.jsx
+  // wiring this component in for the first time surfaced this): a caller that
+  // needs a second explicit confirm on the SAME still-open dialog — Void's
+  // reconciled-day safety check, which re-renders this dialog with
+  // confirmLabel changed to "Void reconciled day anyway" after the first
+  // click comes back needing confirmation — must not lose the reason the
+  // user already picked. Callers mount this component conditionally
+  // (`{x && <ConfirmDestructive ... />}`), so Cancel or a successful confirm
+  // that closes the dialog unmounts it, which is what actually clears state
+  // for the next open — reset() here would fire before that async round trip
+  // even finishes and blank the field out from under the reconciled-day case.
   const handleConfirm = () => {
     if (!canConfirm) return
     onConfirm?.(reason, isOther ? reasonText.trim() : undefined)
-    reset()
   }
 
   return (
