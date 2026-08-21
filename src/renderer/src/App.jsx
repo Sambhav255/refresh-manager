@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Window, WaveMark, Icon, AppHeader, SectionHead } from './components/ui'
+import { Window, WaveMark, Icon, AppHeader, SectionHead, rowMenuGuard } from './components/ui'
 import { ScreenErrorBoundary } from './components/ScreenErrorBoundary'
 import { api } from './lib/api'
 import {
@@ -1018,6 +1018,12 @@ export default function App() {
         // away by a stray Escape (e.g. dismissing a dropdown mid-sale) — swallow
         // the keypress instead of logging out while there is unsaved cart data.
         if (cartGuard.hasItems) return
+        // Same hazard, one more source: any open row-overflow menu on
+        // Transactions/Members (rowMenuGuard — see components/ui.jsx). Both
+        // listeners live on `window`, this one registered first at app mount,
+        // so it always runs before the row menu's own Escape handler — an
+        // Escape meant only to close the menu must not also log out.
+        if (rowMenuGuard.open) return
         await api.logout()
         setSession(null)
         setView('login')

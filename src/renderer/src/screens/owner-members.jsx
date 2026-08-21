@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { todayLocal } from '../lib/format'
-import { Icon, Badge, Avatar, SectionHead } from '../components/ui'
+import { Icon, Badge, Avatar, SectionHead, rowMenuGuard } from '../components/ui'
 
 // C-7: "day after the lapsed/current membership's end date", matching the
 // addDays convention in src/main/ipc/utils.js — but clamped to never land in
@@ -70,6 +70,9 @@ export function OwnerMembers({ initialFilter = '' } = {}) {
 
   useEffect(() => {
     if (menuOpenId == null) return
+    // See rowMenuGuard's own comment (components/ui.jsx) — without this,
+    // Escape-to-close-the-menu also triggers App.jsx's global Escape-to-logout.
+    rowMenuGuard.open = true
     const onDocClick = (e) => {
       if (!e.target.closest('[data-rowmenu]')) setMenuOpenId(null)
     }
@@ -81,6 +84,7 @@ export function OwnerMembers({ initialFilter = '' } = {}) {
     window.addEventListener('keydown', onKey)
     window.addEventListener('scroll', onScroll, true)
     return () => {
+      rowMenuGuard.open = false
       document.removeEventListener('mousedown', onDocClick)
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('scroll', onScroll, true)

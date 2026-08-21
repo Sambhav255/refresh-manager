@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { fmt, todayLocal } from '../lib/format'
-import { PayBadge, SectionHead, ConfirmDestructive, Icon } from '../components/ui'
+import { PayBadge, SectionHead, ConfirmDestructive, Icon, rowMenuGuard } from '../components/ui'
 import { TYPE_LABELS, TYPE_ORDER } from '../../../shared/transaction-types'
 
 const PAGE_SIZE = 100
@@ -103,6 +103,11 @@ export function OwnerTransactions() {
   // popover-positioning library — two menu items don't need one.
   useEffect(() => {
     if (menuOpenId == null) return
+    // Tell App.jsx's global Escape-to-logout listener a row menu is open —
+    // that listener is registered first (at app mount), so it always runs
+    // before this effect's own Escape handler below, and would otherwise log
+    // the owner out on the same keypress that was only meant to close a menu.
+    rowMenuGuard.open = true
     const onDocClick = (e) => {
       if (!e.target.closest('[data-rowmenu]')) setMenuOpenId(null)
     }
@@ -118,6 +123,7 @@ export function OwnerTransactions() {
     window.addEventListener('keydown', onKey)
     window.addEventListener('scroll', onScroll, true)
     return () => {
+      rowMenuGuard.open = false
       document.removeEventListener('mousedown', onDocClick)
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('scroll', onScroll, true)

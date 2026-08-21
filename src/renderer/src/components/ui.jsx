@@ -48,6 +48,19 @@ import {
   X
 } from 'lucide-react'
 
+// Mirrors staff-transaction.jsx's `cartGuard`: a plain mutable flag, not React
+// state, so App.jsx's global Escape-to-logout listener can check it without a
+// re-render loop. Any screen with an Escape-dismissible row menu (Transactions,
+// Members — see owner-transactions.jsx/owner-members.jsx) sets `open` true
+// while the menu is mounted and false when it closes/unmounts. Without this,
+// pressing Escape to close a row menu ALSO fires the app-wide logout handler,
+// since both are separate `window.addEventListener('keydown', ...)` listeners
+// and the logout one is registered first (at App mount, long before any row
+// menu exists) — so a later-registered listener calling stopPropagation can't
+// retroactively stop it. The fix is the logout handler checking this flag
+// itself, the same way it already checks `cartGuard.hasItems`.
+export const rowMenuGuard = { open: false }
+
 const ICONS = {
   'alert-triangle': AlertTriangle,
   banknote: Banknote,
