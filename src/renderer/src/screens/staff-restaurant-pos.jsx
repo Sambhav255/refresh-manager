@@ -136,7 +136,14 @@ export function StaffRestaurantPos({ session, back }) {
           ? {
               ...m,
               manuallyUnavailableToday: unavailable,
-              isAvailable: !unavailable && (m.currentStock == null || m.currentStock > 0)
+              // Fix round 1 (review): mirror restaurant-menu:list's stockOk
+              // exactly, including the linked stock item's own is_active —
+              // otherwise clearing the manual override on a tile whose stock
+              // item is separately retired would optimistically flash back
+              // to "available" here until the next full menu reload.
+              isAvailable:
+                !unavailable &&
+                (m.currentStock == null || (m.currentStock > 0 && m.stockItemActive !== 0))
             }
           : m
       )
@@ -359,9 +366,13 @@ export function StaffRestaurantPos({ session, back }) {
                           style={{ position: 'relative', zIndex: 2 }}
                           onClick={(e) => e.stopPropagation()}
                         >
+                          {/* Fix round 1 (review): no inline size override —
+                              use .rowmenu's established 32×32 sizing, the
+                              same as owner-transactions.jsx/owner-members.jsx,
+                              rather than a bespoke smaller kebab. The tile
+                              has room; there's no real space constraint here. */}
                           <button
                             className="rowmenu"
-                            style={{ width: 24, height: 24 }}
                             aria-label={`More actions for ${item.name}`}
                             onClick={(e) => {
                               e.stopPropagation()

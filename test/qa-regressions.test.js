@@ -527,4 +527,39 @@ describe('C-3 — restaurant menu availability (stock + manual override)', () =>
     })
     expect(res.success).toBe(true)
   })
+
+  // Fix round 1 (review): retiring a linked stock item while it still has
+  // positive current_stock is an ordinary owner action (the restaurant
+  // inventory screen's "Show retired"/retire-restore path — see OPEN-8 in
+  // open-bugs.test.js for the checkout-side guard this mirrors). Before this
+  // fix, restaurant-menu:list only looked at currentStock, so a retired-but-
+  // still-stocked item read as available right up until restaurant:checkout
+  // rejected it — the exact late-checkout-failure pattern C-3 exists to
+  // eliminate. The point of this test is that the LIST already knows, not
+  // just that checkout (already covered by OPEN-8) rejects it.
+  it('retiring a linked stock item that still has quantity makes the menu item unavailable in the list', async () => {
+    loginOwner(ids)
+    // ids.rInvId ('Tea leaves') starts at stock 10 — well above zero.
+    const before = db
+      .prepare('SELECT current_stock FROM restaurant_inventory_items WHERE id = ?')
+      .get(ids.rInvId).current_stock
+    expect(before).toBeGreaterThan(0)
+    await __invoke('restaurant-inventory:update', {
+      itemId: ids.rInvId,
+      fields: { isActive: 0 }
+    })
+
+    loginStaff(ids)
+    const { items } = await __invoke('restaurant-menu:list', {})
+    const tea = items.find((i) => i.id === ids.menuLinkedId)
+    expect(tea.currentStock).toBeGreaterThan(0)
+    expect(tea.isAvailable).toBe(false)
+
+    // And checkout still refuses it too (OPEN-8's existing guard, unchanged).
+    const res = await __invoke('restaurant:checkout', {
+      items: [{ id: ids.menuLinkedId, quantity: 1 }],
+      paymentMethod: 'cash'
+    })
+    expect(res.success).toBe(false)
+  })
 })

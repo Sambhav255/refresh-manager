@@ -16,20 +16,31 @@ function wrap(handler) {
 export function registerRestaurantMenuHandlers() {
   ipcMain.handle(
     'restaurant-menu:list',
-    // C-3: LEFT JOIN in the linked stock item's current_stock/reorder_level (null
-    // for an unlinked item — always available, since there's nothing to run out
-    // of) and fold in the manual same-day override (see restaurant-menu:set-
-    // availability below) so the frontend can grey out a tile *before* it goes
-    // in a cart, instead of staff only discovering it's unsellable after Confirm.
-    // isAvailable is computed here, once, so it can't drift from restaurant:
-    // checkout's own stock/override check (Part C) — same "zero or below is
-    // unavailable, above zero is fine" rule, now also gated on the override.
+    // C-3: LEFT JOIN in the linked stock item's current_stock/reorder_level/
+    // is_active (null for an unlinked item — always available, since there's
+    // nothing to run out of) and fold in the manual same-day override (see
+    // restaurant-menu:set-availability below) so the frontend can grey out a
+    // tile *before* it goes in a cart, instead of staff only discovering it's
+    // unsellable after Confirm. isAvailable is computed here, once, so it
+    // can't drift from restaurant:checkout's own stock/override check (Part
+    // C) — same "zero or below, or the linked stock item itself retired, is
+    // unavailable" rule, now also gated on the override.
+    //
+    // Fix round 1 (review): a linked stock item can be RETIRED
+    // (restaurant-inventory:update isActive:0) while it still has positive
+    // current_stock — an ordinary owner action via the restaurant inventory
+    // screen's "Show retired"/retire-restore path. That case used to read as
+    // available here (currentStock > 0) right up until restaurant:checkout
+    // rejected it with "no longer stocked" — exactly the late-checkout-
+    // failure pattern this task exists to eliminate. stockItemActive closes
+    // that gap the same way checkout's own `!stock.is_active` check does.
     wrap(({ activeOnly = true } = {}) => {
       requireStaffOrOwner()
       let sql = `
         SELECT m.*,
                i.current_stock AS currentStock,
                i.reorder_level AS reorderLevel,
+               i.is_active AS stockItemActive,
                CASE
                  WHEN m.manually_unavailable_at IS NOT NULL
                       AND date(m.manually_unavailable_at) = date('now','localtime')
@@ -46,7 +57,13 @@ export function registerRestaurantMenuHandlers() {
         .map((item) => {
           const manuallyUnavailableToday = !!item.manuallyUnavailableToday
           // No linked stock item ⇒ nothing to run out of ⇒ always stock-ok.
-          const stockOk = item.currentStock == null || item.currentStock > 0
+          // A linked item is stock-ok only when its stock row is active AND
+          // has quantity — a dangling link (inventory_item_id pointing at a
+          // deleted row) also reads as currentStock == null here and is left
+          // as a pre-existing, out-of-scope edge case (checkout catches it
+          // with its own "Stock item missing" error).
+          const stockOk =
+            item.currentStock == null || (item.currentStock > 0 && item.stockItemActive !== 0)
           const isLowStock =
             item.currentStock != null &&
             item.reorderLevel != null &&
