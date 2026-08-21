@@ -14,3 +14,4 @@ docs/qa/screenshots
 # One-off reproduction scripts from the August QA sweep. Superseded by the
 # maintained verify-fixes*/sweep-* suites; kept locally as evidence only.
 test/e2e/area-*.mjs
+.superpowers/
