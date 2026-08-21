@@ -4,10 +4,57 @@ import { fmt, todayLocal, formatDateDisplay } from '../lib/format'
 import { Icon } from '../components/ui'
 import { orderedTypes, typeLabel } from '../../../shared/transaction-types'
 
+// H-39: one labelled column of the two-column summary breakdown — "By
+// payment" and "By source" are two different slices of the SAME total, so
+// each gets its own Total line (both equal summary.total) rather than the two
+// columns reading like they add together.
+function EodColumn({ title, rows, total }) {
+  return (
+    <div style={{ flex: '1 1 240px', minWidth: 220 }}>
+      <div
+        className="m-label"
+        style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6, letterSpacing: 0.4 }}
+      >
+        {title}
+      </div>
+      {rows.map((r) => (
+        <div
+          key={r.label}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            padding: '8px 0',
+            fontSize: 13,
+            borderBottom: '1px solid #f1f5f9'
+          }}
+        >
+          <span style={{ color: '#64748b' }}>{r.label}</span>
+          <span>{r.value}</span>
+        </div>
+      ))}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '10px 0 0',
+          marginTop: 4,
+          fontSize: 13,
+          fontWeight: 600,
+          borderTop: '1px solid var(--border)'
+        }}
+      >
+        <span>Total</span>
+        <span>{fmt(total)}</span>
+      </div>
+    </div>
+  )
+}
+
 export function EndOfDay({ session }) {
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [step, setStep] = useState('summary')
+  const [openingFloat, setOpeningFloat] = useState('')
   const [physicalCash, setPhysicalCash] = useState('')
   const [reason, setReason] = useState('')
   const [reconciled, setReconciled] = useState(false)
@@ -26,8 +73,13 @@ export function EndOfDay({ session }) {
   }, [])
 
   const systemCash = summary?.cash || 0
+  const float = Number(openingFloat) || 0
   const physical = Number(physicalCash) || 0
-  const discrepancy = physical - systemCash
+  // H-40: expected cash in the drawer is the opening float PLUS today's cash
+  // sales — comparing physical count against cash sales alone always read a
+  // floated drawer as "over" by exactly the float.
+  const expectedCash = float + systemCash
+  const discrepancy = physical - expectedCash
   const balanced = Math.abs(discrepancy) < 0.01
 
   const saveReconciliation = async () => {
@@ -43,6 +95,7 @@ export function EndOfDay({ session }) {
     const r = await api.createReconciliation({
       systemCash,
       physicalCash: physical,
+      openingFloat: float,
       reason: balanced ? null : reason,
       staffId: session?.userId
     })
@@ -64,18 +117,24 @@ export function EndOfDay({ session }) {
     setSent(true)
   }
 
-  // Built from the types actually present, so the itemised lines always
-  // reconcile to the headline total. The old hardcoded three-line list silently
-  // dropped restaurant, pool-item, booking-deposit and refund revenue.
-  const rows = summary
+  // H-39: two independent slices of the SAME total, not two lists that add
+  // together — "by payment" (cash vs QR) and "by source" (what it was sold
+  // as). Rendered as two labelled columns below so a quick read no longer
+  // looks like double the real revenue. Built from the types actually
+  // present, so the "by source" lines always reconcile to the headline total
+  // — the old hardcoded three-line list silently dropped restaurant,
+  // pool-item, booking-deposit and refund revenue.
+  const byPayment = summary
     ? [
         { label: 'Cash', value: fmt(summary.cash) },
-        { label: 'QR (eSewa / Khalti)', value: fmt(summary.qr) },
-        ...orderedTypes(summary.byType).map((t) => ({
-          label: typeLabel(t),
-          value: fmt(summary.byType[t] || 0)
-        }))
+        { label: 'QR (eSewa / Khalti)', value: fmt(summary.qr) }
       ]
+    : []
+  const bySource = summary
+    ? orderedTypes(summary.byType).map((t) => ({
+        label: typeLabel(t),
+        value: fmt(summary.byType[t] || 0)
+      }))
     : []
 
   if (loading)
@@ -90,7 +149,7 @@ export function EndOfDay({ session }) {
       className="content fade-in"
       style={{ display: 'grid', placeItems: 'start center', paddingTop: 24 }}
     >
-      <div className="card scale-in" style={{ width: 420, padding: 24 }}>
+      <div className="card scale-in" style={{ width: step === 'summary' ? 640 : 420, padding: 24 }}>
         <div style={{ textAlign: 'center', paddingBottom: 18 }}>
           <div className="m-label" style={{ fontSize: 12 }}>
             Total revenue today
@@ -104,22 +163,25 @@ export function EndOfDay({ session }) {
         </div>
         {step === 'summary' && (
           <>
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6 }}>
-              {rows.map((r) => (
-                <div
-                  key={r.label}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    padding: '10px 0',
-                    fontSize: 13,
-                    borderBottom: '1px solid #f1f5f9'
-                  }}
-                >
-                  <span style={{ color: '#64748b' }}>{r.label}</span>
-                  <span>{r.value}</span>
-                </div>
-              ))}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 24,
+                borderTop: '1px solid var(--border)',
+                paddingTop: 14
+              }}
+            >
+              <EodColumn title="By payment" rows={byPayment} total={summary?.total} />
+              <div
+                style={{
+                  width: 1,
+                  background: 'var(--border)',
+                  alignSelf: 'stretch',
+                  minHeight: 40
+                }}
+              />
+              <EodColumn title="By source" rows={bySource} total={summary?.total} />
             </div>
             <button
               className="btn btn-primary btn-block"
@@ -134,8 +196,24 @@ export function EndOfDay({ session }) {
           <div className="fade-in">
             <div className="alert" style={{ marginBottom: 12, background: '#f8fafc' }}>
               <div className="a-desc">
-                System cash total: <strong>{fmt(systemCash)}</strong>
+                System cash sales: <strong>{fmt(systemCash)}</strong>
+                {float > 0 && (
+                  <>
+                    {' '}
+                    + float {fmt(float)} = expected <strong>{fmt(expectedCash)}</strong>
+                  </>
+                )}
               </div>
+            </div>
+            <div className="field">
+              <label>Starting cash (float) — optional</label>
+              <input
+                className="input"
+                type="number"
+                value={openingFloat}
+                onChange={(e) => setOpeningFloat(e.target.value)}
+                placeholder="Cash the drawer started the day with"
+              />
             </div>
             <div className="field">
               <label>Physical cash count (Rs.)</label>

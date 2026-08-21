@@ -16,19 +16,26 @@ function wrap(handler) {
 export function registerReconciliationHandlers() {
   ipcMain.handle(
     'reconciliation:create',
-    wrap(({ systemCash, physicalCash, reason, reconcileDate }) => {
+    // H-40: expected cash in the drawer is the opening float PLUS today's cash
+    // sales, not cash sales alone — a drawer started with a float otherwise
+    // always reads as "over" by exactly that float. openingFloat is optional
+    // and defaults to 0, so an omitted param (older callers, tests) reproduces
+    // the pre-H-40 formula exactly.
+    wrap(({ systemCash, physicalCash, openingFloat, reason, reconcileDate }) => {
       const session = requireStaffOrOwner()
       const date = reconcileDate || todayLocal()
       const system = Number(systemCash) || 0
       const physical = Number(physicalCash) || 0
-      const discrepancy = physical - system
+      const float = Number(openingFloat) || 0
+      const expected = float + system
+      const discrepancy = physical - expected
 
       const result = getDb()
         .prepare(
-          `INSERT INTO cash_reconciliations (reconcile_date, system_cash, physical_cash, discrepancy, reason, staff_id)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO cash_reconciliations (reconcile_date, system_cash, physical_cash, opening_float, discrepancy, reason, staff_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(date, system, physical, discrepancy, reason || null, session.userId)
+        .run(date, system, physical, float, discrepancy, reason || null, session.userId)
 
       return { success: true, id: result.lastInsertRowid, discrepancy }
     })

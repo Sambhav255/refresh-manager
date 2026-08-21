@@ -570,6 +570,27 @@ const MIGRATIONS = [
     name: 'v8: sale lines, payments and price rules',
     rebuildsReferencedTable: false,
     up: addSaleModel
+  },
+  {
+    // H-40: cash reconciliation previously compared the physical count
+    // straight against today's cash sales, so a drawer that legitimately
+    // started the day with a float showed as "over" by exactly that float.
+    // opening_float is additive and defaults to 0, so every historic row (and
+    // any caller that doesn't pass it) keeps its original discrepancy.
+    name: 'v9: opening_float on cash_reconciliations',
+    rebuildsReferencedTable: false,
+    up: (db) => {
+      // Guard the table's existence too, not just the column: every real
+      // database gets cash_reconciliations from v1's backfillBaseline long
+      // before it reaches v9, but a minimal test fixture that starts at a
+      // later user_version (see schema-constraints.test.js's v6Database)
+      // never ran v1 and has no such table — no-op rather than throw, same
+      // pattern as addSaleModel's transactions guard above.
+      if (!tableExists(db, 'cash_reconciliations')) return
+      if (!hasColumn(db, 'cash_reconciliations', 'opening_float')) {
+        db.exec(`ALTER TABLE cash_reconciliations ADD COLUMN opening_float REAL NOT NULL DEFAULT 0`)
+      }
+    }
   }
 ]
 
