@@ -165,6 +165,7 @@ export const api = {
   addMenuItem: (data) => invoke('addMenuItem', data),
   updateMenuItem: (data) => invoke('updateMenuItem', data),
   toggleMenuItem: (data) => invoke('toggleMenuItem', data),
+  setMenuItemAvailability: (data) => invoke('setMenuItemAvailability', data),
   restaurantCheckout: (data) => invoke('restaurantCheckout', data),
 
   listStaff: async () => unwrap(await invoke('listStaff'), { users: [] }),

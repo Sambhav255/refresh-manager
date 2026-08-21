@@ -13,6 +13,9 @@ export function RestaurantMenuSettings({ back }) {
   const [price, setPrice] = useState('')
   const [inventoryItemId, setInventoryItemId] = useState('')
   const [error, setError] = useState('')
+  // C-3: owner-side control for the same-day "mark unavailable" override —
+  // separate from the permanent Active/Inactive toggle below.
+  const [busyId, setBusyId] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -56,6 +59,25 @@ export function RestaurantMenuSettings({ back }) {
     const r = await api.toggleMenuItem({ id, isActive: !isActive })
     if (r?.success === false) {
       setError(r.error || 'Could not update menu item')
+      return
+    }
+    load()
+  }
+
+  // C-3: same-day "86 this item" override, auto-clears at midnight (stale
+  // date reads as unset — see restaurant-menu:set-availability). Distinct
+  // from `toggle` above, which is the permanent is_active retirement.
+  const toggleAvailability = async (item) => {
+    if (busyId) return
+    setError('')
+    setBusyId(item.id)
+    const r = await api.setMenuItemAvailability({
+      id: item.id,
+      unavailable: !item.manuallyUnavailableToday
+    })
+    setBusyId(null)
+    if (r?.success === false) {
+      setError(r.error || 'Could not update availability')
       return
     }
     load()
@@ -152,6 +174,7 @@ export function RestaurantMenuSettings({ back }) {
               <th className="num">Price</th>
               <th style={{ width: 190 }}>Linked stock</th>
               <th style={{ width: 90 }}>Status</th>
+              <th style={{ width: 150 }}>Today</th>
             </tr>
           </thead>
           <tbody>
@@ -182,6 +205,23 @@ export function RestaurantMenuSettings({ back }) {
                     onClick={() => toggle(i.id, i.is_active)}
                   >
                     {i.is_active ? 'Active' : 'Inactive'}
+                  </button>
+                </td>
+                <td>
+                  {/* Same-day override — a gas cylinder running out or a cook
+                      calling in sick, which the stock number can't catch and
+                      which shouldn't require permanently retiring the item. */}
+                  <button
+                    className="btn btn-ghost"
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: 11,
+                      color: i.manuallyUnavailableToday ? '#b91c1c' : undefined
+                    }}
+                    disabled={busyId === i.id}
+                    onClick={() => toggleAvailability(i)}
+                  >
+                    {i.manuallyUnavailableToday ? '86’d today — restore' : 'Mark unavailable today'}
                   </button>
                 </td>
               </tr>

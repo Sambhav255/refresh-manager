@@ -478,6 +478,19 @@ function backfillSaleLines(db) {
   `)
 }
 
+// C-3: a same-day, staff-flippable "86 this item" override for outages the
+// stock number can't catch (empty gas cylinder, cook off sick) — distinct
+// from restaurant-menu:toggle's permanent is_active retirement. Storing only
+// the timestamp it was set, rather than a boolean, means "is it unavailable
+// TODAY" is answered by comparing dates — auto-clearing the next day needs no
+// cron/background job, a stale prior-day timestamp just reads as unset.
+function addManualMenuAvailability(db) {
+  if (!tableExists(db, 'restaurant_menu_items')) return
+  if (!hasColumn(db, 'restaurant_menu_items', 'manually_unavailable_at')) {
+    db.exec(`ALTER TABLE restaurant_menu_items ADD COLUMN manually_unavailable_at TEXT`)
+  }
+}
+
 const MIGRATIONS = [
   {
     name: 'v1: baseline additive backfill + booking_deposit CHECK',
@@ -591,6 +604,13 @@ const MIGRATIONS = [
         db.exec(`ALTER TABLE cash_reconciliations ADD COLUMN opening_float REAL NOT NULL DEFAULT 0`)
       }
     }
+  },
+  {
+    // C-3: manual same-day "mark unavailable" override for restaurant menu
+    // items, on top of the stock-driven availability check.
+    name: 'v10: manually_unavailable_at on restaurant_menu_items',
+    rebuildsReferencedTable: false,
+    up: addManualMenuAvailability
   }
 ]
 

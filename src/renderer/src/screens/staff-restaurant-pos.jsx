@@ -75,12 +75,73 @@ export function StaffRestaurantPos({ session, back }) {
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
 
+  // C-3: staff-side manual "mark unavailable for today" affordance. No
+  // long-press gesture exists anywhere else in this touch/mouse-hybrid app
+  // (checked before assuming one — App.jsx's only touch listener is an
+  // idle-timeout tracker, not a gesture), so this reuses the exact
+  // .rowmenu + fixed-position overflow-menu pattern Task 6/C-8 and C-7
+  // already established in owner-transactions.jsx/owner-members.jsx —
+  // same data-rowmenu marker, same outside-click/Escape/scroll close below
+  // — rather than inventing a new interaction just for this tile.
+  const [menuOpenId, setMenuOpenId] = useState(null)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
+  const [busyId, setBusyId] = useState(null)
+
   useEffect(() => {
     api.listMenuItems().then((r) => {
       setMenu(r.items || [])
       setLoading(false)
     })
   }, [])
+
+  useEffect(() => {
+    if (menuOpenId == null) return
+    const onDocClick = (e) => {
+      if (!e.target.closest('[data-rowmenu]')) setMenuOpenId(null)
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') setMenuOpenId(null)
+    }
+    const onScroll = () => setMenuOpenId(null)
+    document.addEventListener('mousedown', onDocClick)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [menuOpenId])
+
+  // Flips the same-day override and reflects it in the tile immediately —
+  // no page reload, no re-fetch of the whole menu. isAvailable is
+  // recomputed the same way the backend does (stock-ok AND not manually
+  // unavailable today) so a zero-stock item stays greyed out even after
+  // "Mark available" clears the override.
+  const toggleAvailability = async (item) => {
+    if (busyId) return
+    const unavailable = !item.manuallyUnavailableToday
+    setBusyId(item.id)
+    const r = await api.setMenuItemAvailability({ id: item.id, unavailable })
+    setBusyId(null)
+    setMenuOpenId(null)
+    if (r?.success === false) {
+      setError(r.error || 'Could not update availability')
+      return
+    }
+    setError('')
+    setMenu((prev) =>
+      prev.map((m) =>
+        m.id === item.id
+          ? {
+              ...m,
+              manuallyUnavailableToday: unavailable,
+              isAvailable: !unavailable && (m.currentStock == null || m.currentStock > 0)
+            }
+          : m
+      )
+    )
+  }
 
   const addToCart = (item) => {
     setCart((prev) => {
@@ -221,7 +282,11 @@ export function StaffRestaurantPos({ session, back }) {
                 placeholder="Search menu…"
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') setQ('')
-                  if (e.key === 'Enter' && filteredMenu.length === 1) {
+                  if (
+                    e.key === 'Enter' &&
+                    filteredMenu.length === 1 &&
+                    filteredMenu[0].isAvailable
+                  ) {
                     e.preventDefault()
                     addToCart(filteredMenu[0])
                   }
@@ -241,17 +306,129 @@ export function StaffRestaurantPos({ session, back }) {
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-                {filteredMenu.map((item) => (
-                  <div
-                    key={item.id}
-                    className="card"
-                    style={{ padding: 12, cursor: 'pointer' }}
-                    onClick={() => addToCart(item)}
-                  >
-                    <div style={{ fontWeight: 500, fontSize: 13 }}>{item.name}</div>
-                    <div className="sub">{fmt(item.price)}</div>
-                  </div>
-                ))}
+                {filteredMenu.map((item) => {
+                  // Part A: greyed out and un-clickable at zero (or manually
+                  // 86'd) stock — the tile's onClick is gated below, not just
+                  // its styling, so a disabled-looking tile can't still add to
+                  // cart. A low-but-nonzero item stays fully sellable and only
+                  // gets a warning dot (reusing owner-inventory/owner-
+                  // restaurant's existing low-stock amber, not a new colour).
+                  const available = item.isAvailable !== false
+                  const showLowDot = available && item.isLowStock
+                  return (
+                    <div
+                      key={item.id}
+                      className="card"
+                      style={{
+                        padding: 12,
+                        position: 'relative',
+                        cursor: available ? 'pointer' : 'not-allowed',
+                        opacity: available ? 1 : 0.55
+                      }}
+                      onClick={() => {
+                        if (available) addToCart(item)
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
+                          gap: 4
+                        }}
+                      >
+                        <div style={{ fontWeight: 500, fontSize: 13 }}>
+                          {showLowDot && (
+                            <span
+                              title="Low stock"
+                              style={{
+                                display: 'inline-block',
+                                width: 7,
+                                height: 7,
+                                borderRadius: '50%',
+                                background: 'var(--badge-exp-tx)',
+                                marginRight: 6,
+                                verticalAlign: 'middle'
+                              }}
+                            />
+                          )}
+                          {item.name}
+                        </div>
+                        <div
+                          data-rowmenu
+                          style={{ position: 'relative', zIndex: 2 }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            className="rowmenu"
+                            style={{ width: 24, height: 24 }}
+                            aria-label={`More actions for ${item.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const next = menuOpenId === item.id ? null : item.id
+                              if (next) {
+                                const r = e.currentTarget.getBoundingClientRect()
+                                setMenuPos({ top: r.bottom + 4, left: r.right - 200 })
+                              }
+                              setMenuOpenId(next)
+                            }}
+                          >
+                            <Icon name="more-vertical" size={14} />
+                          </button>
+                          {menuOpenId === item.id && (
+                            <div
+                              data-rowmenu
+                              className="card"
+                              style={{
+                                position: 'fixed',
+                                top: menuPos.top,
+                                left: menuPos.left,
+                                zIndex: 1000,
+                                padding: 4,
+                                minWidth: 200,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 2
+                              }}
+                            >
+                              <button
+                                className="btn btn-ghost"
+                                style={{
+                                  justifyContent: 'flex-start',
+                                  minHeight: 36,
+                                  fontSize: 12.5
+                                }}
+                                disabled={busyId === item.id}
+                                onClick={() => toggleAvailability(item)}
+                              >
+                                {item.manuallyUnavailableToday
+                                  ? 'Mark available'
+                                  : 'Mark unavailable for today'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="sub">{fmt(item.price)}</div>
+                      {!available && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            zIndex: 1,
+                            display: 'grid',
+                            placeItems: 'center',
+                            background: 'rgba(255,255,255,0.6)',
+                            borderRadius: 'inherit',
+                            pointerEvents: 'none'
+                          }}
+                        >
+                          <span className="badge b-dead">Unavailable</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>

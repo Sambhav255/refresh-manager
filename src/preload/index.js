@@ -148,6 +148,7 @@ const api = {
   addMenuItem: (data) => invoke('restaurant-menu:add', data),
   updateMenuItem: (data) => invoke('restaurant-menu:update', data),
   toggleMenuItem: (data) => invoke('restaurant-menu:toggle', data),
+  setMenuItemAvailability: (data) => invoke('restaurant-menu:set-availability', data),
   restaurantCheckout: (data) => invoke('restaurant:checkout', data),
 
   // Tickets

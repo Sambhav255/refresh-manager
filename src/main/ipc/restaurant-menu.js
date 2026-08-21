@@ -16,12 +16,49 @@ function wrap(handler) {
 export function registerRestaurantMenuHandlers() {
   ipcMain.handle(
     'restaurant-menu:list',
+    // C-3: LEFT JOIN in the linked stock item's current_stock/reorder_level (null
+    // for an unlinked item — always available, since there's nothing to run out
+    // of) and fold in the manual same-day override (see restaurant-menu:set-
+    // availability below) so the frontend can grey out a tile *before* it goes
+    // in a cart, instead of staff only discovering it's unsellable after Confirm.
+    // isAvailable is computed here, once, so it can't drift from restaurant:
+    // checkout's own stock/override check (Part C) — same "zero or below is
+    // unavailable, above zero is fine" rule, now also gated on the override.
     wrap(({ activeOnly = true } = {}) => {
       requireStaffOrOwner()
-      let sql = `SELECT * FROM restaurant_menu_items`
-      if (activeOnly) sql += ` WHERE is_active = 1`
-      sql += ` ORDER BY sort_order, name`
-      const items = getDb().prepare(sql).all()
+      let sql = `
+        SELECT m.*,
+               i.current_stock AS currentStock,
+               i.reorder_level AS reorderLevel,
+               CASE
+                 WHEN m.manually_unavailable_at IS NOT NULL
+                      AND date(m.manually_unavailable_at) = date('now','localtime')
+                 THEN 1 ELSE 0
+               END AS manuallyUnavailableToday
+        FROM restaurant_menu_items m
+        LEFT JOIN restaurant_inventory_items i ON i.id = m.inventory_item_id
+      `
+      if (activeOnly) sql += ` WHERE m.is_active = 1`
+      sql += ` ORDER BY m.sort_order, m.name`
+      const items = getDb()
+        .prepare(sql)
+        .all()
+        .map((item) => {
+          const manuallyUnavailableToday = !!item.manuallyUnavailableToday
+          // No linked stock item ⇒ nothing to run out of ⇒ always stock-ok.
+          const stockOk = item.currentStock == null || item.currentStock > 0
+          const isLowStock =
+            item.currentStock != null &&
+            item.reorderLevel != null &&
+            item.currentStock > 0 &&
+            item.currentStock <= item.reorderLevel
+          return {
+            ...item,
+            manuallyUnavailableToday,
+            isLowStock,
+            isAvailable: stockOk && !manuallyUnavailableToday
+          }
+        })
       return { items }
     })
   )
@@ -99,6 +136,30 @@ export function registerRestaurantMenuHandlers() {
   )
 
   ipcMain.handle(
+    'restaurant-menu:set-availability',
+    // C-3: a same-day, staff-flippable "86 this item" — deliberately distinct
+    // from the owner-only permanent retirement above. Both owner and staff can
+    // call this (a cook going home sick or a gas cylinder running out is
+    // exactly the kind of thing staff notice first, at the counter). Storing
+    // only the timestamp means the override auto-clears the next day just by
+    // going stale — date(...) = date('now','localtime') reads a NULL or a
+    // yesterday's timestamp identically as "not unavailable today", so nothing
+    // needs to run overnight to reset it.
+    wrap(({ id, unavailable }) => {
+      requireStaffOrOwner()
+      const res = getDb()
+        .prepare(
+          `UPDATE restaurant_menu_items
+           SET manually_unavailable_at = CASE WHEN ? THEN datetime('now','localtime') ELSE NULL END
+           WHERE id = ?`
+        )
+        .run(unavailable ? 1 : 0, id)
+      if (res.changes === 0) throw new Error('Menu item not found')
+      return { success: true }
+    })
+  )
+
+  ipcMain.handle(
     'restaurant:checkout',
     // P0-1: staff id comes from the session, never the payload. P0-1: line
     // prices are looked up from the catalogue, never trusted from the cart.
@@ -114,7 +175,19 @@ export function registerRestaurantMenuHandlers() {
 
       // Resolve every cart line against the catalogue up front: reject unknown
       // or inactive items, and use the catalogue price (ignore any payload price).
-      const menuStmt = db.prepare(`SELECT * FROM restaurant_menu_items WHERE id = ?`)
+      // C-3: manuallyUnavailableToday computed with the same date(...) =
+      // date('now','localtime') rule as restaurant-menu:list, so a stale cart
+      // holding an item 86'd after it was added still gets rejected here —
+      // greying it out client-side is a UX nicety, not the actual guard.
+      const menuStmt = db.prepare(`
+        SELECT *,
+               CASE
+                 WHEN manually_unavailable_at IS NOT NULL
+                      AND date(manually_unavailable_at) = date('now','localtime')
+                 THEN 1 ELSE 0
+               END AS manuallyUnavailableToday
+        FROM restaurant_menu_items WHERE id = ?
+      `)
       const lines = items.map((i) => {
         const qty = Number(i.quantity)
         // Cap per line: unlinked items have no stock check, so an absurd qty
@@ -123,6 +196,9 @@ export function registerRestaurantMenuHandlers() {
         const menuItem = menuStmt.get(i.id)
         if (!menuItem) throw new Error(`Menu item not found: ${i.name || i.id}`)
         if (!menuItem.is_active) throw new Error(`Item unavailable: ${menuItem.name}`)
+        if (menuItem.manuallyUnavailableToday) {
+          throw new Error(`${menuItem.name} is marked unavailable today`)
+        }
         return { menuItem, qty }
       })
 

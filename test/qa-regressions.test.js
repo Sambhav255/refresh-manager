@@ -429,3 +429,102 @@ describe('QA P0-2 — restaurant checkout error surface', () => {
     expect(after).toBe(before - 1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// C-3 — grey out menu items the kitchen can't make. restaurant-menu:list must
+// surface stock/availability so the till can grey a tile out BEFORE it's
+// added to a cart; restaurant-menu:set-availability is the same-day manual
+// "86 this item" override (auto-clears the next day); and restaurant:checkout
+// must reject a manually-86'd line even if a stale cart somehow retained it —
+// the frontend greying it out is a UX nicety, not the actual guard.
+// ---------------------------------------------------------------------------
+describe('C-3 — restaurant menu availability (stock + manual override)', () => {
+  it('list surfaces linked stock and marks a zero-stock item unavailable, a low-but-nonzero one only low', async () => {
+    // restaurant-inventory:adjust is owner-only; the resulting list is read
+    // as staff, since that's who's actually looking at the POS tiles.
+    loginOwner(ids)
+    // ids.rInvId ('Tea leaves') starts at stock 10, reorder 3 (see helpers.js).
+    await __invoke('restaurant-inventory:adjust', {
+      itemId: ids.rInvId,
+      newQuantity: 2,
+      reason: 'test: low stock'
+    })
+    loginStaff(ids)
+    let { items } = await __invoke('restaurant-menu:list', {})
+    let tea = items.find((i) => i.id === ids.menuLinkedId)
+    expect(tea.currentStock).toBe(2)
+    expect(tea.isAvailable).toBe(true)
+    expect(tea.isLowStock).toBe(true)
+
+    loginOwner(ids)
+    await __invoke('restaurant-inventory:adjust', {
+      itemId: ids.rInvId,
+      newQuantity: 0,
+      reason: 'test: zero stock'
+    })
+    loginStaff(ids)
+    ;({ items } = await __invoke('restaurant-menu:list', {}))
+    tea = items.find((i) => i.id === ids.menuLinkedId)
+    expect(tea.isAvailable).toBe(false)
+
+    // An item with no linked stock item is always available, low-stock never
+    // applies to it, and it is unaffected by any of the above.
+    const chips = items.find((i) => i.id === ids.menuPlainId)
+    expect(chips.isAvailable).toBe(true)
+    expect(chips.isLowStock).toBe(false)
+  })
+
+  it('a manual same-day override greys out a tile with plenty of stock, and clears on restore', async () => {
+    loginStaff(ids)
+    let { items } = await __invoke('restaurant-menu:list', {})
+    expect(items.find((i) => i.id === ids.menuPlainId).isAvailable).toBe(true)
+
+    const off = await __invoke('restaurant-menu:set-availability', {
+      id: ids.menuPlainId,
+      unavailable: true
+    })
+    expect(off.success).toBe(true)
+    ;({ items } = await __invoke('restaurant-menu:list', {}))
+    const chips = items.find((i) => i.id === ids.menuPlainId)
+    expect(chips.isAvailable).toBe(false)
+    expect(chips.manuallyUnavailableToday).toBe(true)
+
+    const on = await __invoke('restaurant-menu:set-availability', {
+      id: ids.menuPlainId,
+      unavailable: false
+    })
+    expect(on.success).toBe(true)
+    ;({ items } = await __invoke('restaurant-menu:list', {}))
+    expect(items.find((i) => i.id === ids.menuPlainId).isAvailable).toBe(true)
+  })
+
+  it('checkout rejects a manually-86d item even with plenty of stock, and writes nothing', async () => {
+    loginStaff(ids)
+    await __invoke('restaurant-menu:set-availability', { id: ids.menuPlainId, unavailable: true })
+    const res = await __invoke('restaurant:checkout', {
+      items: [{ id: ids.menuPlainId, quantity: 1 }],
+      paymentMethod: 'cash'
+    })
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('Chips')
+    const n = db.prepare(`SELECT COUNT(*) AS n FROM transactions`).get().n
+    expect(n).toBe(0)
+  })
+
+  it('a stale manual override from a previous day auto-clears without any cron job', async () => {
+    loginStaff(ids)
+    db.prepare(
+      `UPDATE restaurant_menu_items SET manually_unavailable_at = datetime('now','localtime','-1 day') WHERE id = ?`
+    ).run(ids.menuPlainId)
+    const { items } = await __invoke('restaurant-menu:list', {})
+    const chips = items.find((i) => i.id === ids.menuPlainId)
+    expect(chips.manuallyUnavailableToday).toBe(false)
+    expect(chips.isAvailable).toBe(true)
+
+    const res = await __invoke('restaurant:checkout', {
+      items: [{ id: ids.menuPlainId, quantity: 1 }],
+      paymentMethod: 'cash'
+    })
+    expect(res.success).toBe(true)
+  })
+})
