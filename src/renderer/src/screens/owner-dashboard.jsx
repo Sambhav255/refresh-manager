@@ -124,7 +124,7 @@ export function OwnerDashboard({ go }) {
     {
       label: 'Footfall today',
       value: String(footfall),
-      sub: 'member check-ins',
+      sub: 'check-ins + day passes',
       tone: 'muted'
     }
   ]
