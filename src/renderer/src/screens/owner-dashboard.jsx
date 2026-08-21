@@ -26,7 +26,6 @@ export function OwnerDashboard({ go }) {
   const [needsRecoveryCode, setNeedsRecoveryCode] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [sendingReminders, setSendingReminders] = useState(false)
   const today = todayLocal()
 
   const loadData = useCallback(() => {
@@ -85,17 +84,6 @@ export function OwnerDashboard({ go }) {
     }
   }
 
-  // P1-5: guided one-at-a-time flow — open (and mark sent) only the next
-  // pending member's WhatsApp chat, never a burst of tabs.
-  const sendNextReminder = async () => {
-    if (!reminders.length) return
-    setSendingReminders(true)
-    await api.sendReminder({ membershipId: reminders[0].membershipId })
-    const rem = await api.getExpiringReminders({})
-    setReminders(rem.members || [])
-    setSendingReminders(false)
-  }
-
   const kpis = [
     {
       label: 'Pool revenue',
@@ -130,13 +118,21 @@ export function OwnerDashboard({ go }) {
   ]
 
   const alerts = []
+  // C-7 Part C: this used to be a "Send next reminder (N left)" button that
+  // opened one WhatsApp chat at a time from the dashboard. That one-at-a-time
+  // interaction was flagged as strange (H-C7) — the fix in scope for this task
+  // is a plain navigate to Members, pre-filtered to the rows that need a
+  // renewal (Expiring soon + Expired), where the real per-row Send
+  // reminder/Renew actions already live. A bulk-send UI with a
+  // checkbox/message-preview flow is a larger feature and out of scope here.
   if (reminders.length)
     alerts.push({
       c: 'amber',
       icon: 'message-circle',
       t: reminders.length + ' members need renewal reminders',
       d: 'Send WhatsApp reminders',
-      action: true
+      goTo: 'members',
+      filter: 'Needs renewal'
     })
   else if (expiring.length)
     alerts.push({
@@ -144,7 +140,8 @@ export function OwnerDashboard({ go }) {
       icon: 'calendar-clock',
       t: expiring.length + ' memberships expiring',
       d: 'Within your renewal warning window',
-      goTo: 'members'
+      goTo: 'members',
+      filter: 'Needs renewal'
     })
   // 6-C: flag a stale backup (no success in >36h) so it's noticed early.
   const lastBk = backupStatus?.lastBackupAt
@@ -307,25 +304,12 @@ export function OwnerDashboard({ go }) {
                 key={a.t}
                 className={'alert ' + a.c}
                 style={a.goTo && go ? { cursor: 'pointer' } : undefined}
-                onClick={a.goTo && go ? () => go(a.goTo) : undefined}
+                onClick={a.goTo && go ? () => go(a.goTo, a.filter) : undefined}
               >
                 <Icon name={a.icon} size={17} />
                 <div style={{ flex: 1 }}>
                   <div className="a-title">{a.t}</div>
                   <div className="a-desc">{a.d}</div>
-                  {a.action && (
-                    <button
-                      className="btn btn-ghost"
-                      style={{ marginTop: 8, padding: '5px 10px', fontSize: 12 }}
-                      disabled={sendingReminders}
-                      onClick={sendNextReminder}
-                    >
-                      <Icon name="message-circle" size={14} />
-                      {sendingReminders
-                        ? 'Opening…'
-                        : `Send next reminder (${reminders.length} left)`}
-                    </button>
-                  )}
                 </div>
               </div>
             ))

@@ -909,6 +909,20 @@ function StaffApp({ session, onLogout }) {
 
 function OwnerApp({ session, onLogout }) {
   const [tab, setTab] = useState('dashboard')
+  // C-7 Part C: the dashboard's renewal-reminders alert used to open one
+  // WhatsApp chat at a time via a "Send next reminder (N left)" button.
+  // It now just navigates here to the Members screen's own per-row Send
+  // reminder buttons, pre-filtered to the rows that actually need one —
+  // membersFilter carries that one-shot filter across the tab switch.
+  const [membersFilter, setMembersFilter] = useState('')
+  const goOwner = (t, filter) => {
+    if (t === 'members') setMembersFilter(filter || '')
+    setTab(t)
+  }
+  const selectTab = (k) => {
+    setMembersFilter('')
+    setTab(k)
+  }
   const nav = [
     { k: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
     { k: 'transactions', icon: 'receipt-text', label: 'Transactions' },
@@ -920,9 +934,10 @@ function OwnerApp({ session, onLogout }) {
     { k: 'settings', icon: 'settings', label: 'Settings' }
   ]
   let ownerScreen
-  if (tab === 'dashboard') ownerScreen = <OwnerDashboard key="dashboard" go={setTab} />
+  if (tab === 'dashboard') ownerScreen = <OwnerDashboard key="dashboard" go={goOwner} />
   else if (tab === 'transactions') ownerScreen = <OwnerTransactions key="transactions" />
-  else if (tab === 'members') ownerScreen = <OwnerMembers key="members" />
+  else if (tab === 'members')
+    ownerScreen = <OwnerMembers key="members" initialFilter={membersFilter} />
   else if (tab === 'bookings') ownerScreen = <OwnerBookings key="bookings" session={session} />
   else if (tab === 'inventory') ownerScreen = <OwnerInventory key="inventory" session={session} />
   else if (tab === 'restaurant')
@@ -939,7 +954,7 @@ function OwnerApp({ session, onLogout }) {
             <div
               key={n.k}
               className={'nav-item' + (n.k === tab ? ' active' : '')}
-              onClick={() => setTab(n.k)}
+              onClick={() => selectTab(n.k)}
             >
               <span className="ni-icon">
                 <Icon name={n.icon} size={17} />

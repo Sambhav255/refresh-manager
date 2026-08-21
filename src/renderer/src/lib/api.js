@@ -58,6 +58,7 @@ export const api = {
   addMembership: (data) => invoke('addMembership', data),
   pauseMembership: (data) => invoke('pauseMembership', data),
   resumeMembership: (data) => invoke('resumeMembership', data),
+  renewMembership: (data) => invoke('renewMembership', data),
 
   listPoolInventory: async (data) => unwrap(await invoke('listPoolInventory', data), { items: [] }),
   poolLowStock: async () => unwrap(await invoke('poolLowStock'), { items: [] }),

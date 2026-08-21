@@ -1,6 +1,27 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
+import { todayLocal } from '../lib/format'
 import { Icon, Badge, Avatar, SectionHead } from '../components/ui'
+
+// C-7: "day after the lapsed/current membership's end date", matching the
+// addDays convention in src/main/ipc/utils.js — but clamped to never land in
+// the past. The server recomputes the real end date from the product's
+// duration regardless of what start date is sent, so this is only the
+// dialog's pre-filled default (staff can always edit it) — but an
+// already-expired membership's end date is, by definition, in the past, and
+// defaulting straight to "day after that" would pre-fill a backdated start
+// that immediately re-expires the new membership. Today is the safe floor.
+function defaultRenewStart(endDateIso) {
+  const today = todayLocal()
+  if (!endDateIso) return today
+  const d = new Date(endDateIso + 'T00:00:00')
+  d.setDate(d.getDate() + 1)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const dayAfter = `${y}-${m}-${day}`
+  return dayAfter > today ? dayAfter : today
+}
 
 function MemberAvatar({ member, status }) {
   const [src, setSrc] = useState(null)
@@ -19,11 +40,11 @@ function MemberAvatar({ member, status }) {
   return <Avatar initials={member.initials} status={status} />
 }
 
-export function OwnerMembers() {
+export function OwnerMembers({ initialFilter = '' } = {}) {
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState(initialFilter)
   const [busy, setBusy] = useState(null)
   // Pause flow uses an in-app reason card — window.prompt() is not supported in
   // Electron renderers (it throws), so never use it.
@@ -31,6 +52,13 @@ export function OwnerMembers() {
   const [pauseReason, setPauseReason] = useState('')
   const [error, setError] = useState('')
   const [history, setHistory] = useState(null)
+  // C-7: renew dialog. { membershipId, name, type, endDate } — endDate is the
+  // raw ISO end date of the row's current/lapsed membership, used only to
+  // compute the dialog's default start date.
+  const [renewTarget, setRenewTarget] = useState(null)
+  const [renewDate, setRenewDate] = useState('')
+  const [renewPay, setRenewPay] = useState('Cash')
+  const [renewNotice, setRenewNotice] = useState('')
 
   useEffect(() => {
     api.listAllMembers().then((r) => {
@@ -111,6 +139,46 @@ export function OwnerMembers() {
     await reload()
   }
 
+  // C-7: membershipId is mem?.id for an expiring-soon member (their still-
+  // active row — status='active' in the DB, end_date just hasn't passed yet)
+  // and last?.id for an expired member (their most recent, already-lapsed
+  // row, which members:list-all only populates as lastMembership when there
+  // is no active/paused row — see mapMember there). members:renew marks
+  // whatever id it's given 'expired' and creates the new active row, so
+  // passing the wrong one for an expiring-soon member would expire a
+  // membership that's still genuinely active instead of the row that's meant
+  // to be replaced.
+  const openRenew = (target) => {
+    setError('')
+    setRenewNotice('')
+    setRenewTarget(target)
+    setRenewDate(defaultRenewStart(target.endDate))
+    setRenewPay('Cash')
+  }
+
+  const closeRenew = () => {
+    setRenewTarget(null)
+  }
+
+  const confirmRenew = async () => {
+    if (!renewTarget) return
+    setBusy(renewTarget.membershipId)
+    setError('')
+    const res = await api.renewMembership({
+      membershipId: renewTarget.membershipId,
+      newStartDate: renewDate,
+      paymentMethod: renewPay
+    })
+    setBusy(null)
+    if (res?.success === false) {
+      setError(res.error || 'Renewal failed')
+      return
+    }
+    setRenewNotice(`${renewTarget.name} renewed on ${renewTarget.type} — now Active.`)
+    setRenewTarget(null)
+    await reload()
+  }
+
   // Single source of truth for a member's displayed status. The filter used to
   // derive this without the paused check while the row renderer included it,
   // so paused members were listed under "Expired" with a "Paused" badge.
@@ -128,7 +196,14 @@ export function OwnerMembers() {
       !needle ||
       m.name.toLowerCase().includes(needle) ||
       (m.phone || '').toLowerCase().includes(needle)
-    const matchStatus = !statusFilter || memberStatus(m) === statusFilter
+    // C-7 Part C: the dashboard's renewal alert navigates here with this
+    // combined filter instead of a single exact status, since a member who
+    // needs a renewal is either Expiring soon or already Expired.
+    const matchStatus =
+      !statusFilter ||
+      (statusFilter === 'Needs renewal'
+        ? ['Expiring soon', 'Expired'].includes(memberStatus(m))
+        : memberStatus(m) === statusFilter)
     return matchQ && matchStatus
   })
 
@@ -140,6 +215,11 @@ export function OwnerMembers() {
           {history ? 'Hide reminder history' : 'Reminder history'}
         </button>
       </SectionHead>
+      {renewNotice && (
+        <div className="alert green" style={{ marginBottom: 14 }}>
+          <div className="a-desc">{renewNotice}</div>
+        </div>
+      )}
       {history && (
         <div className="card" style={{ padding: 16, marginBottom: 14 }}>
           <div style={{ fontWeight: 500, marginBottom: 8 }}>Renewal reminders sent</div>
@@ -197,6 +277,7 @@ export function OwnerMembers() {
           onChange={(e) => setStatusFilter(e.target.value)}
         >
           <option value="">All statuses</option>
+          <option>Needs renewal</option>
           <option>Active</option>
           <option>Expiring soon</option>
           <option>Paused</option>
@@ -210,7 +291,7 @@ export function OwnerMembers() {
             <th style={{ width: 180 }}>Membership type</th>
             <th style={{ width: 130 }}>Status</th>
             <th style={{ width: 140 }}>Expiry date</th>
-            <th style={{ width: 120 }}>Actions</th>
+            <th style={{ width: 230 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -222,6 +303,14 @@ export function OwnerMembers() {
             const last = x.lastMembership
             const type = (mem || paused)?.productName || last?.productName || '—'
             const expiry = (mem || paused)?.endDisplay || (last ? `ended ${last.endDisplay}` : '—')
+            // C-7: mem?.id for Expiring soon (their still-active row), last?.id
+            // for Expired (their most recent lapsed row — members:list-all only
+            // ever populates lastMembership when there is no active/paused row,
+            // so this never picks up a stray older membership by mistake). See
+            // openRenew above for the fuller id-choice rationale.
+            const canRenew = status === 'Expired' || status === 'Expiring soon'
+            const renewMembershipId = mem?.id || last?.id
+            const renewEndDate = (mem || last)?.endDate
             return (
               <tr key={x.id}>
                 <td>
@@ -252,16 +341,49 @@ export function OwnerMembers() {
                   {expiry}
                 </td>
                 <td>
-                  {/* P-3: owner surface, 32px minimum. Pause/Send reminder/
-                      Allow re-send/Resume aren't in the brief's destructive
-                      list (Void/Refund/Delete/deactivate) — pausing is
-                      reversible via Resume right below it — so 32px, not
+                  {/* P-3: owner surface, 32px minimum. Renew/Pause/Send
+                      reminder/Allow re-send/Resume aren't in the brief's
+                      destructive list (Void/Refund/Delete/deactivate) —
+                      pausing is reversible via Resume right below it, and
+                      renewing is a normal positive action — so 32px, not
                       40px, is the target. Shares the exact
                       `padding: '4px 8px', fontSize: 11` style the brief
                       measured Void/Refund at (~23px tall before a fix), so
                       minHeight: 32 is applied on the same evidence rather
-                      than a separate live measurement of each variant. */}
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      than a separate live measurement of each variant.
+
+                      C-7/H-24: the action set is status-driven — Renew (+
+                      Send reminder) for Expiring soon, Renew alone for
+                      Expired, Pause alone for Active, Resume alone for
+                      Paused — so no row ever needs more than two buttons.
+                      flexWrap stays 'nowrap' (unlike the old always-wrap
+                      layout) so a two-button row never grows a second line
+                      and breaks row-height alignment against its neighbours. */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 4,
+                      flexWrap: 'nowrap',
+                      alignItems: 'center'
+                    }}
+                  >
+                    {canRenew && renewMembershipId && (
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: '4px 10px', fontSize: 11, minHeight: 32 }}
+                        disabled={busy === renewMembershipId}
+                        onClick={() =>
+                          openRenew({
+                            membershipId: renewMembershipId,
+                            name: x.name,
+                            type,
+                            endDate: renewEndDate
+                          })
+                        }
+                      >
+                        {busy === renewMembershipId ? '…' : 'Renew'}
+                      </button>
+                    )}
                     {status === 'Expiring soon' &&
                       x.phone &&
                       mem?.id &&
@@ -288,7 +410,7 @@ export function OwnerMembers() {
                           {busy === mem.id ? '…' : 'Send reminder'}
                         </button>
                       ))}
-                    {mem?.id && status !== 'Expired' && (
+                    {status === 'Active' && mem?.id && (
                       <button
                         className="btn btn-ghost"
                         style={{ padding: '4px 8px', fontSize: 11, minHeight: 32 }}
@@ -323,7 +445,7 @@ export function OwnerMembers() {
       {!loading && filtered.length === 0 && (
         <div className="sub">No members match your search.</div>
       )}
-      {error && !pauseTarget && (
+      {error && !pauseTarget && !renewTarget && (
         <div className="alert red" style={{ marginTop: 12, maxWidth: 480 }}>
           <div className="a-desc">{error}</div>
         </div>
@@ -358,6 +480,75 @@ export function OwnerMembers() {
             <button className="btn btn-ghost" onClick={() => setPauseTarget(null)}>
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+      {/* C-7 Part B: a normal positive-action dialog, not a destructive
+          confirm — reuses the .modal-backdrop/.modal visual language
+          ConfirmDestructive established (app.css) rather than that
+          component itself, which is specifically for irreversible actions
+          with a mandatory reason. Renewing has neither property. */}
+      {renewTarget && (
+        <div className="modal-backdrop" onClick={closeRenew}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>
+              Renew — {renewTarget.name}
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: 'var(--text-secondary)',
+                background: 'var(--bg)',
+                borderRadius: 8,
+                padding: '10px 12px',
+                marginBottom: 14
+              }}
+            >
+              Current plan: {renewTarget.type}
+            </div>
+            <div className="field">
+              <label>Start date</label>
+              <input
+                className="input"
+                type="date"
+                value={renewDate}
+                onChange={(e) => setRenewDate(e.target.value)}
+              />
+            </div>
+            <div className="field" style={{ marginBottom: 4 }}>
+              <label>Payment method</label>
+              <div className="toggle-row">
+                <button
+                  className={'toggle-btn' + (renewPay === 'Cash' ? ' sel' : '')}
+                  onClick={() => setRenewPay('Cash')}
+                >
+                  <Icon name="banknote" size={17} /> Cash
+                </button>
+                <button
+                  className={'toggle-btn' + (renewPay === 'QR' ? ' sel' : '')}
+                  onClick={() => setRenewPay('QR')}
+                >
+                  <Icon name="qr-code" size={17} /> QR (eSewa / Khalti)
+                </button>
+              </div>
+            </div>
+            {error && (
+              <div className="alert red" style={{ marginTop: 10 }}>
+                <div className="a-desc">{error}</div>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <button className="btn btn-ghost" onClick={closeRenew}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={busy === renewTarget.membershipId || !renewDate}
+                onClick={confirmRenew}
+              >
+                {busy === renewTarget.membershipId ? 'Renewing…' : 'Confirm renewal'}
+              </button>
+            </div>
           </div>
         </div>
       )}
