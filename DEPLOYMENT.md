@@ -100,6 +100,11 @@ churn-risk list for renewal outreach.
 
 # Operations & maintenance
 
+> See also [`docs/RELEASES_AND_SCALING.md`](docs/RELEASES_AND_SCALING.md) for what's
+> actually been shipped so far, a release checklist, exactly what the automatic
+> update-safety net below does and doesn't cover, and what would need to change to
+> scale past one venue / one till.
+
 ## Building a release on the Mac and moving it to the Windows PC
 
 The Windows installer is cross-built on the Mac — no Windows machine needed to build.
@@ -187,7 +192,11 @@ is ever distributed more widely, buy an OV/EV code-signing certificate and sign 
 ## Developer note — native module ABI
 
 `better-sqlite3` is a native addon and Electron (ABI 140) and Node (ABI 127) differ.
-The npm scripts handle this automatically: `npm test` rebuilds it for Node
-(`pretest`), and `npm run dev` / `npm start` rebuild it for Electron
-(`predev`/`prestart`). If you ever hit a `NODE_MODULE_VERSION` error, run
-`npm run postinstall` (for the app) or `npm rebuild better-sqlite3` (for tests).
+`npm test` reliably rebuilds it for Node (`pretest`). **`predev`/`prestart`'s
+`electron-builder install-app-deps` is not reliable for the Electron side** —
+confirmed empirically (on `ux-punchlist-phase1`) to report success without actually
+rebuilding the module. If you hit a `NODE_MODULE_VERSION` error, run
+`npx electron-rebuild -f -w better-sqlite3` — that one is reliable.
+`ux-punchlist-phase1` also added a `posttest` script so `npm test` rebuilds back to
+Electron's ABI automatically afterward; that fix isn't on `main` yet as of this
+writing. See `docs/RELEASES_AND_SCALING.md` §3 for more on this.
