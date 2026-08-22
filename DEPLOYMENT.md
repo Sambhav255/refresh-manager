@@ -160,10 +160,11 @@ pre-update snapshot in `pre-update-backups/` (or Settings → Backup → Restore
 back.
 
 > **Deploying a change involving a schema migration:** add one entry to the
-> `MIGRATIONS` array in `src/main/db/migrations.js` (see `docs/PROGRESS.md` →
-> "Migrations"), keep it guarded/idempotent, extend `test/migration.test.js` against a
-> populated fixture, and bump the app `version` in `package.json`. The runner and the
-> safety net handle the rest.
+> `MIGRATIONS` array in `src/main/db/migrations.js` (see `docs/archive/PROGRESS.md` →
+> "Migrations" for the original writeup, or just read a couple of existing entries in
+> `migrations.js` for the house style), keep it guarded/idempotent, extend
+> `test/migration.test.js` against a populated fixture, and bump the app `version` in
+> `package.json`. The runner and the safety net handle the rest.
 
 ## Windows signing / SmartScreen
 

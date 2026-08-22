@@ -4,7 +4,7 @@ Desktop management software for **Refresh Recreation Center**, Boudha, Kathmandu
 
 One machine at the reception desk runs the whole business: pool and gym entry, memberships, a restaurant till, stock for both, event bookings, and the owner's reporting and settings.
 
-> **New to this codebase?** Read [ABOUT.md](ABOUT.md) — it covers what was built, every bug found and fixed, and the reasoning behind the decisions that aren't obvious from the code.
+> **New to this codebase?** Start with [docs/HANDOFF.md](docs/HANDOFF.md) — current branch state and what to do next. Then [ABOUT.md](ABOUT.md) — it covers what was built, every bug found and fixed, and the reasoning behind the decisions that aren't obvious from the code.
 
 ---
 

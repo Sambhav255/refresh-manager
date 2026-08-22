@@ -222,7 +222,7 @@ Existing installs keep their items. Deleting rows referenced by historical sales
 
 **Green:** 305 unit tests across 32 files, 182 end-to-end checks across ten suites, 0 lint errors, no runtime console errors.
 
-**Known and unfixed — the recovery code has no redemption path.** An admin can generate one and the dashboard prompts them to, but there is nowhere on the login screen to *type* it. Until that is wired, the feature does not yet do the thing it exists for. When it is built, the admin name must be a picker, not a free-text field: the handler deliberately cannot say "no such admin" (that would make it an account-name oracle), so a typo is indistinguishable from a wrong code.
+**Fixed since first written — the recovery code redemption path is now wired.** The login screen now has a "Forgot your password?" affordance (shown only when `api.hasRecoveryCode()` returns `{exists: true}`), the admin name is a picker (not free text, matching the reasoning below), and a successful reset sends the user back to the normal login rather than signing them in directly. See commit `9a82bdb`.
 
 Two smaller ones from the same review: the pricing screen's week grid renders blank for a retired product instead of saying why, and its live preview can warn that a new rule will be "replaced" when saving will in fact overwrite the rule it is comparing against.
 
@@ -231,5 +231,15 @@ Two smaller ones from the same review: the pricing screen's week grid renders bl
 **Needs a human, cannot be automated:** the thermal printer on real hardware (the receipt-timestamp fix has never met one), camera capture, one real WhatsApp send, behaviour across local midnight, a two-staff till day, and a full backup-then-restore drill.
 
 **Not done, deliberately:** an opening-stock field on Add Item (restock immediately after achieves the same and records an auditable movement).
+
+**Since this was written:** a UX/UI review and its implementation happened on branch
+`ux-punchlist-phase1` (not yet merged to `main`) — colour/contrast fixes, shared
+components, touch targets, a corrected dashboard metric, an End of Day rebuild, void/
+refund reworked with a mandatory reason and an overflow menu, a Members renewal action,
+Restaurant POS availability checking, and staff-side void. Read
+[`docs/HANDOFF.md`](docs/HANDOFF.md) first, then
+[`REFRESH_MANAGER_UX_PUNCHLIST.md`](REFRESH_MANAGER_UX_PUNCHLIST.md) for the full detail
+and what's still open — the highest-leverage remaining piece (a rewrite of the New
+Transaction screen) was deliberately not started; see that document's closing note.
 
 The prioritised list lives in [docs/qa/SHIP_READINESS.md](docs/qa/SHIP_READINESS.md); the plan that produced this round is [docs/ROADMAP.md](docs/ROADMAP.md).

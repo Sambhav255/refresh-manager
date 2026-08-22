@@ -1,0 +1,94 @@
+---
+description: Refresh Manager project context — read this before making any change
+globs:
+alwaysApply: true
+---
+
+# Refresh Manager
+
+Offline Electron + React + SQLite point-of-sale for a real pool/gym/restaurant business
+(Refresh Recreation Center, Boudha, Kathmandu). Real cash goes through it. The users are
+non-technical family members in their 50s.
+
+**Before touching anything, read in this order:**
+1. `docs/HANDOFF.md` — current state, what to do next, this is the entry point
+2. `ABOUT.md` — full project history and the reasoning behind non-obvious decisions
+3. `REFRESH_MANAGER_UX_PUNCHLIST.md` — the active UX work stream: what's done, what
+   was corrected from the original review, what's still open
+
+## Current branch state
+
+Active work lives on `ux-punchlist-phase1`, pushed to `origin` but **not merged to
+`main`**. Check `git branch --show-current` and `git log --oneline -5` before assuming
+which branch you're on — `docs/HANDOFF.md` has the exact commit range and what's in it.
+
+## The one thing that will cost you ten minutes if you don't know it
+
+`better-sqlite3` is a native module. It must be compiled for **Node's** ABI to run
+`npm test` (vitest, outside Electron) but for **Electron's** ABI to run the actual app
+or any `test/e2e/*.mjs` script. These are mutually exclusive states of the same
+`node_modules` folder.
+
+- `npm test` already rebuilds for Node automatically (`pretest`) and rebuilds back to
+  Electron automatically afterward (`posttest`) — this self-heals now, added on
+  `ux-punchlist-phase1`. If you're on an older branch/commit without that `posttest`
+  script, you'll need `npx electron-rebuild -f -w better-sqlite3` manually after
+  running tests and before launching the app.
+- **Do not trust `electron-builder install-app-deps`** — it can report success without
+  actually rebuilding. `electron-rebuild -f -w better-sqlite3` is the reliable one.
+- A startup error mentioning `NODE_MODULE_VERSION` is always this.
+
+## Non-negotiable invariants
+
+Each of these exists because breaking it already cost real money or real data once
+(see `ABOUT.md` for the incidents):
+
+1. **Money and identity are derived in the main process, never trusted from the
+   renderer.** A cart sends `{kind, refId, tier, quantity}` — never a price, an amount,
+   or a `staffId`. Handlers must not read one if sent.
+2. **Multi-write operations run in one `db.transaction()`.** No partial writes.
+3. **`transactions.amount` stays the sale total** — every report, End of Day, and the
+   WhatsApp message read it.
+4. **Reporting derives from `transaction_lines` (breakdown) and `transaction_payments`
+   (cash/QR split)**, never from header columns directly, except as a fallback for rows
+   with no lines (refunds, pre-sale-model history).
+5. **All timestamps are local** (`datetime('now','localtime')`) — the business closes
+   at midnight in Kathmandu, not UTC.
+6. **No silent no-ops.** Every click-path early return shows a message or corresponds
+   to a visibly disabled control.
+7. **Cross-process shared logic lives in `src/shared/`.** Parallel copies in main and
+   renderer drift — this has already caused two different screens to disagree about
+   the same day's numbers.
+8. **Never hard-delete anything referenced by historical sales.** Retire it
+   (`is_active = 0`), don't delete the row.
+
+## Workflow conventions already established on this repo
+
+- **Schema changes go through `src/main/db/migrations.js`**, guarded/idempotent (check
+  `hasColumn`/`tableExists` helpers already in that file), never a hand-edit to
+  `schema.js` for an already-shipped table. Extend `test/migration.test.js` against a
+  populated fixture.
+- **Two test layers, and the E2E one matters**: `npm test` (vitest, main-process/IPC/DB
+  logic) and `test/e2e/*.mjs` (Playwright driving the real Electron app via
+  `test/e2e/harness.mjs` — see `launchApp`, `completeSetup`, `loginOwner`, `loginStaff`,
+  `shot`, `seedShop`). Renderer components have no unit-test harness; verify UI changes
+  by actually launching the app through the E2E harness, not by trusting that the code
+  "looks right."
+- **`docs/qa/screenshots/` and `.superpowers/` are gitignored** — screenshots and any
+  throwaway verification scripts you write should go there / be deleted after use, not
+  committed. Several `test/e2e/verify-*.mjs`-style scripts in git history were meant as
+  one-off evidence, not a permanent suite.
+- Full punch-list task history (what was tried, what a reviewer found, fix rounds) for
+  the `ux-punchlist-phase1` work lives in `.superpowers/sdd/REFRESH_MANAGER_UX_PUNCHLIST/`
+  on the machine this branch was built on — gitignored, so it won't be present on a
+  fresh clone. If it's missing, `REFRESH_MANAGER_UX_PUNCHLIST.md` is the durable,
+  in-git record of the same information.
+
+## Before claiming something is fixed or broken
+
+Verify against the actual running app or actual source, not the screenshot/description
+you started from. A recurring pattern in this project's history: a review or bug report
+written from screenshots alone got several things wrong — a feature already existed but
+wasn't exercised by the demo data shown, or a bug's stated root cause was wrong even
+though the symptom was real. Check the code and, where practical, click through the
+real app before changing anything a report claims is broken.
