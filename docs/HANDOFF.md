@@ -27,7 +27,7 @@ Repo: `/Users/sambhav/Refresh Manager/refresh-manager` · remote
 **You are almost certainly on `ux-punchlist-phase1`, not `main`.** Run
 `git branch --show-current` to confirm. This branch is:
 
-- **16 commits ahead of `main`**, all pushed to `origin/ux-punchlist-phase1`.
+- **18 commits ahead of `main`**, all pushed to `origin/ux-punchlist-phase1`.
 - **Not merged.** A PR is ready to open at
   `https://github.com/Sambhav255/refresh-manager/pull/new/ux-punchlist-phase1` but
   nobody has opened or merged it yet — that decision was left for the human.
@@ -102,12 +102,11 @@ till rewrite: owner dashboard trend deltas (the data already exists, nothing ask
 the app's own dashboard alert as unresolved, and by the original review's own words as
 "the most dangerous line in the entire app").
 
-### 3. Two small loose ends from before this session, still open
-- Pricing screen: "Check the week" renders 21 blank cells for a **retired** product
-  instead of saying why (`sales:quote` refuses an inactive product and the error is
-  swallowed).
-- Pricing screen: the live preview can warn a new rule will be "replaced" when saving
-  will actually **overwrite** the rule it's comparing against.
+### 3. Two small loose ends from before this session — now fixed
+Both were fixed and verified against the real running app after the rest of this
+handoff was first drafted (commit `06aad79`): the retired-product week-check now shows
+a clear message instead of 21 blank cells, and the live preview no longer tells the
+owner a new rule will be "replaced" by one it actually supersedes.
 
 ### 4. Things only a human can do
 Never done, cannot be automated: **thermal printer** on real hardware, **camera
