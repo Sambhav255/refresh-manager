@@ -354,6 +354,14 @@ export function PricingManager({ back }) {
   const openWeek = async (product) => {
     setError('')
     closePanels()
+    // sales:quote refuses to price a retired product (correctly — it can't be
+    // sold), so every one of the 7 days × 3 tiers below would fail silently
+    // and the grid would render as 21 blank cells with no explanation. Say
+    // why instead of attempting a quote that can only ever fail.
+    if (product.is_active === 0) {
+      setError(`${product.name} is no longer sold, so there's no current pricing to check.`)
+      return
+    }
     const days = []
     for (let i = 0; i < 7; i += 1) {
       const iso = shiftDate(today, i)
@@ -396,17 +404,27 @@ export function PricingManager({ back }) {
     if (!editor) return null
     const problem = priceProblem(editor.price)
     if (problem) return null
+    const existingSiblings = rulesFor(editor.productId).filter(
+      (r) => !editor.original || r.id !== editor.original.id
+    )
     const draft = {
-      id: editor.original ? editor.original.id : -1,
+      // A brand-new rule doesn't have a real id yet, but winningRule()'s tie
+      // break (highest id wins) has to already treat it the way it'll behave
+      // once saved: a genuinely new row gets an id higher than every existing
+      // one. Giving it `-1` here did the opposite — a draft that exactly
+      // matches an existing rule's tier/day/date always LOST that tiebreak to
+      // the real row, so the preview said the new rule would be "replaced by"
+      // the old one, when saving actually does the reverse (the new row wins
+      // and the old one stops applying).
+      id: editor.original
+        ? editor.original.id
+        : Math.max(0, ...existingSiblings.map((r) => r.id)) + 1,
       tier: editor.tier || null,
       dayOfWeek: editor.day === '' ? null : Number(editor.day),
       price: Number(editor.price),
       activeFrom: editor.activeFrom || today
     }
-    const siblings = [
-      ...rulesFor(editor.productId).filter((r) => !editor.original || r.id !== editor.original.id),
-      draft
-    ]
+    const siblings = [...existingSiblings, draft]
     const note = analyseRule(draft, siblings, today)
     return note ? { ...note, title: `Before you save — ${note.title.toLowerCase()}` } : null
   }
