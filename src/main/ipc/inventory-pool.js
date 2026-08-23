@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
 import { requireAmount, requireRestockQuantity, requireText } from './utils.js'
+import { executeSale } from './sales.js'
 
 // 0/1 gate for `is_active`. A stray '' or 'false' from the renderer must not
 // land in the column as text — SQLite would store it verbatim and every
@@ -160,7 +161,6 @@ export function registerPoolInventoryHandlers() {
     // transaction. P0-1: amount and staff are derived server-side. P0-4: guarded.
     wrap(({ itemId, quantity, paymentMethod, customerName }) => {
       const session = requireStaffOrOwner()
-      const staffId = session.userId
       const qty = Number(quantity)
       if (!Number.isInteger(qty) || qty <= 0 || qty > 999) throw new Error('Invalid quantity')
 
@@ -169,35 +169,17 @@ export function registerPoolInventoryHandlers() {
       if (!item || !item.is_active) throw new Error('Item not available')
       if (!(item.selling_price > 0)) throw new Error('Item has no selling price')
 
-      const pay = paymentMethod?.toLowerCase() === 'qr' ? 'qr' : 'cash'
-      const amount = qty * item.selling_price
-      const name = customerName || 'Walk-in'
-      const label = item.variant ? `${item.name} (${item.variant})` : item.name
-
-      const run = db.transaction(() => {
-        if (qty > item.current_stock) {
-          throw new Error(`Not enough stock: only ${item.current_stock} left`)
-        }
-        const result = db
-          .prepare(
-            `INSERT INTO transactions
-             (transaction_type, source, customer_name, amount, payment_method, staff_id, notes)
-             VALUES ('pool_inventory', 'pool', ?, ?, ?, ?, ?)`
-          )
-          .run(name, amount, pay, staffId, `${label} x${qty}`)
-        const transactionId = result.lastInsertRowid
-        db.prepare(
-          `INSERT INTO pool_inventory_transactions (item_id, txn_type, quantity, transaction_id, staff_id, unit_price)
-           VALUES (?, 'out', ?, ?, ?, ?)`
-        ).run(itemId, qty, transactionId, staffId, item.selling_price)
-        db.prepare(
-          `UPDATE pool_inventory_items SET current_stock = current_stock - ? WHERE id = ?`
-        ).run(qty, itemId)
-        return transactionId
+      const result = executeSale(session, {
+        customerName,
+        cart: [{ kind: 'pool_item', refId: itemId, quantity: qty }],
+        paymentMethod
       })
-
-      const transactionId = run()
-      return { success: true, transactionId, total: amount, paymentMethod: pay }
+      return {
+        success: true,
+        transactionId: result.transactionId,
+        total: result.total,
+        paymentMethod: result.paymentMethod
+      }
     })
   )
 

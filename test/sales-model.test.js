@@ -5,6 +5,8 @@ import { runMigrations } from '../src/main/db/migrations.js'
 import { freshDb, seed, loginStaff, loginOwner } from './helpers.js'
 import { registerSalesHandlers } from '../src/main/ipc/sales.js'
 import { registerPricingHandlers } from '../src/main/ipc/pricing.js'
+import { registerPoolInventoryHandlers } from '../src/main/ipc/inventory-pool.js'
+import { registerRestaurantMenuHandlers } from '../src/main/ipc/restaurant-menu.js'
 
 let db
 let ids
@@ -15,6 +17,8 @@ beforeEach(() => {
   // helpers.js wires the pre-existing modules; the sale model registers its own.
   registerPricingHandlers()
   registerSalesHandlers()
+  registerPoolInventoryHandlers()
+  registerRestaurantMenuHandlers()
 })
 
 const dayPass = (extra = {}) => ({ kind: 'product', refId: ids.dayPassId, quantity: 1, ...extra })
@@ -381,6 +385,67 @@ describe('sales — session and access', () => {
     const res = await __invoke('sales:create', { cart: [dayPass()], paymentMethod: 'cash' })
     expect(res.success).toBe(false)
     expect(res.error).toMatch(/Not authenticated/)
+  })
+})
+
+
+describe('channel parity — legacy handlers write transaction_lines', () => {
+  it('pool-inventory:sell-item writes pool_item lines like sales:create', async () => {
+    loginStaff(ids)
+    const res = await __invoke('pool-inventory:sell-item', {
+      itemId: ids.poolItemId,
+      quantity: 2,
+      paymentMethod: 'cash'
+    })
+    expect(res.success).toBe(true)
+    const lines = linesOf(res.transactionId)
+    expect(lines).toHaveLength(1)
+    expect(lines[0].kind).toBe('pool_item')
+    expect(lines[0].ref_id).toBe(ids.poolItemId)
+    expect(lines[0].quantity).toBe(2)
+    expect(lines[0].unit_price).toBe(200)
+    expect(lines[0].line_total).toBe(400)
+    expect(paymentsOf(res.transactionId)).toHaveLength(1)
+    expect(paymentsOf(res.transactionId)[0].amount).toBe(400)
+    const header = db.prepare('SELECT * FROM transactions WHERE id = ?').get(res.transactionId)
+    expect(header.transaction_type).toBe('pool_inventory')
+    expect(header.source).toBe('pool')
+    expect(header.amount).toBe(400)
+    expect(poolStock()).toBe(8)
+  })
+
+  it('restaurant:checkout writes menu_item lines like sales:create', async () => {
+    loginStaff(ids)
+    const res = await __invoke('restaurant:checkout', {
+      items: [{ id: ids.menuLinkedId, quantity: 2 }],
+      paymentMethod: 'qr'
+    })
+    expect(res.success).toBe(true)
+    const lines = linesOf(res.transactionId)
+    expect(lines).toHaveLength(1)
+    expect(lines[0].kind).toBe('menu_item')
+    expect(lines[0].ref_id).toBe(ids.menuLinkedId)
+    expect(lines[0].quantity).toBe(2)
+    expect(lines[0].unit_price).toBe(150)
+    expect(lines[0].line_total).toBe(300)
+    expect(paymentsOf(res.transactionId)).toHaveLength(1)
+    expect(paymentsOf(res.transactionId)[0].amount).toBe(300)
+    const header = db.prepare('SELECT * FROM transactions WHERE id = ?').get(res.transactionId)
+    expect(header.transaction_type).toBe('restaurant')
+    expect(header.source).toBe('restaurant')
+    expect(header.amount).toBe(300)
+  })
+
+  it('goggles-only via sales:create stays pool_inventory on EOD header', async () => {
+    loginStaff(ids)
+    const res = await __invoke('sales:create', {
+      cart: [goggles({ quantity: 1 })],
+      paymentMethod: 'cash'
+    })
+    expect(res.success).toBe(true)
+    const header = db.prepare('SELECT * FROM transactions WHERE id = ?').get(res.saleId)
+    expect(header.transaction_type).toBe('pool_inventory')
+    expect(header.source).toBe('pool')
   })
 })
 

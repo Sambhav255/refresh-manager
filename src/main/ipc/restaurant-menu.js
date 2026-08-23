@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import { getDb } from '../db/index.js'
 import { requireOwner, requireStaffOrOwner } from '../session.js'
 import { requireAmount, requireText } from './utils.js'
+import { executeSale } from './sales.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -183,19 +184,9 @@ export function registerRestaurantMenuHandlers() {
     // P0-2: the sale and any linked stock draw-down happen in one DB transaction.
     wrap(({ items, paymentMethod, customerName }) => {
       const session = requireStaffOrOwner()
-      const staffId = session.userId
       if (!items?.length) throw new Error('Cart is empty')
 
       const db = getDb()
-      const pay = paymentMethod?.toLowerCase() === 'qr' ? 'qr' : 'cash'
-      const name = customerName || 'Walk-in'
-
-      // Resolve every cart line against the catalogue up front: reject unknown
-      // or inactive items, and use the catalogue price (ignore any payload price).
-      // C-3: manuallyUnavailableToday computed with the same date(...) =
-      // date('now','localtime') rule as restaurant-menu:list, so a stale cart
-      // holding an item 86'd after it was added still gets rejected here —
-      // greying it out client-side is a UX nicety, not the actual guard.
       const menuStmt = db.prepare(`
         SELECT *,
                CASE
@@ -205,10 +196,8 @@ export function registerRestaurantMenuHandlers() {
                END AS manuallyUnavailableToday
         FROM restaurant_menu_items WHERE id = ?
       `)
-      const lines = items.map((i) => {
+      const cart = items.map((i) => {
         const qty = Number(i.quantity)
-        // Cap per line: unlinked items have no stock check, so an absurd qty
-        // (1e21 passes Number.isInteger) would otherwise corrupt daily totals.
         if (!Number.isInteger(qty) || qty <= 0 || qty > 999) throw new Error('Invalid quantity')
         const menuItem = menuStmt.get(i.id)
         if (!menuItem) throw new Error(`Menu item not found: ${i.name || i.id}`)
@@ -216,60 +205,19 @@ export function registerRestaurantMenuHandlers() {
         if (menuItem.manuallyUnavailableToday) {
           throw new Error(`${menuItem.name} is marked unavailable today`)
         }
-        return { menuItem, qty }
+        return { kind: 'menu_item', refId: i.id, quantity: qty }
       })
 
-      const total = lines.reduce((s, l) => s + l.menuItem.price * l.qty, 0)
-      const notes = lines.map((l) => `${l.menuItem.name} x${l.qty}`).join(', ')
-
-      const run = db.transaction(() => {
-        const result = db
-          .prepare(
-            `INSERT INTO transactions
-             (transaction_type, source, customer_name, amount, payment_method, staff_id, notes)
-             VALUES ('restaurant', 'restaurant', ?, ?, ?, ?, ?)`
-          )
-          .run(name, total, pay, staffId, notes)
-        const transactionId = result.lastInsertRowid
-
-        // P0-2 Phase A: draw down 1:1 for any line linked to a stock item.
-        for (const { menuItem, qty } of lines) {
-          if (!menuItem.inventory_item_id) continue
-          const stock = db
-            .prepare(
-              `SELECT current_stock, name, is_active FROM restaurant_inventory_items WHERE id = ?`
-            )
-            .get(menuItem.inventory_item_id)
-          // A dangling or deactivated link must stop the sale, not silently
-          // skip the draw-down: a deactivated stock item is invisible in every
-          // list and alert, so its stock would drain unnoticed.
-          if (!stock) throw new Error(`Stock item missing for ${menuItem.name}`)
-          if (!stock.is_active) {
-            throw new Error(`${stock.name} is no longer stocked — ${menuItem.name} cannot be sold`)
-          }
-          // P0-4: never let stock go negative.
-          if (qty > stock.current_stock) {
-            throw new Error(`Not enough stock for ${stock.name}: only ${stock.current_stock} left`)
-          }
-          db.prepare(
-            `INSERT INTO restaurant_inventory_transactions (item_id, txn_type, quantity, transaction_id, staff_id, unit_price)
-             VALUES (?, 'out', ?, ?, ?, ?)`
-          ).run(menuItem.inventory_item_id, qty, transactionId, staffId, menuItem.price)
-          db.prepare(
-            `UPDATE restaurant_inventory_items SET current_stock = ROUND(current_stock - ?, 3) WHERE id = ?`
-          ).run(qty, menuItem.inventory_item_id)
-        }
-
-        return transactionId
+      const result = executeSale(session, {
+        customerName,
+        cart,
+        paymentMethod
       })
-
-      const transactionId = run()
-
       return {
         success: true,
-        transactionId,
-        total,
-        paymentMethod: pay
+        transactionId: result.transactionId,
+        total: result.total,
+        paymentMethod: result.paymentMethod
       }
     })
   )

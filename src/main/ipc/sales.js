@@ -323,6 +323,136 @@ function loadSale(db, saleId) {
   }
 }
 
+export function executeSale(session, { customerName, phone, memberId, notes, cart, payments, paymentMethod } = {}) {
+  const staffId = session.userId
+  const db = getDb()
+  if (!cart?.length) throw new Error('Cart is empty')
+
+  // The server clock, never a date from the payload: letting the cart pick
+  // the date would let it pick the Saturday rate on a Tuesday.
+  const priced = priceCart(db, cart, { date: todayLocal() })
+  const collected = normalisePayments({ payments, paymentMethod }, priced.total)
+  const paid = round2(collected.reduce((sum, p) => sum + p.amount, 0))
+  // Taking more than the sale is worth turns the till into a black hole: the
+  // day's cash no longer reconciles and there is no record of a refund.
+  if (paid > priced.total + EPSILON) {
+    throw new Error(`Payments (Rs. ${paid}) are more than the sale total (Rs. ${priced.total})`)
+  }
+
+  const header = deriveHeader(db, priced.lines)
+  const summary = priced.lines.map((l) => `${l.description} x${l.quantity}`).join(', ')
+
+  const run = db.transaction(() => {
+    // Inside the transaction, so the check and the draw-down cannot drift.
+    assertStockAvailable(db, priced.stockNeeds)
+
+    const saleId = db
+      .prepare(
+        `INSERT INTO transactions
+         (transaction_type, source, customer_name, phone, product_id, member_id, amount,
+          payment_method, staff_id, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        header.transactionType,
+        header.source,
+        customerName?.trim() || 'Walk-in',
+        phone || null,
+        header.productId,
+        memberId || null,
+        priced.total,
+        headerPaymentMethod(collected),
+        staffId,
+        notes ? `${summary} — ${notes}` : summary
+      ).lastInsertRowid
+
+    const insertLine = db.prepare(
+      `INSERT INTO transaction_lines
+       (transaction_id, kind, ref_id, description, tier, quantity, unit_price,
+        line_discount, discount_reason, line_total)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const line of priced.lines) {
+      insertLine.run(
+        saleId,
+        line.kind,
+        line.refId,
+        line.description,
+        line.tier,
+        line.quantity,
+        line.unitPrice,
+        line.lineDiscount,
+        line.discountReason,
+        line.lineTotal
+      )
+    }
+
+    const insertPayment = db.prepare(
+      `INSERT INTO transaction_payments (transaction_id, amount, payment_method, staff_id)
+       VALUES (?, ?, ?, ?)`
+    )
+    for (const payment of collected) {
+      insertPayment.run(saleId, payment.amount, payment.method, staffId)
+    }
+
+    // One movement row per LINE (not per item) so the price actually charged
+    // stays attached to the units that moved — void and refund reversals
+    // replay these rows to put stock back at the right price.
+    for (const line of priced.lines) {
+      if (line.kind === 'pool_item') {
+        drawDown(db, {
+          movementTable: 'pool_inventory_transactions',
+          itemTable: 'pool_inventory_items',
+          itemId: line.refId,
+          line,
+          saleId,
+          staffId
+        })
+      } else if (line.kind === 'menu_item') {
+        const menuItem = db
+          .prepare('SELECT inventory_item_id FROM restaurant_menu_items WHERE id = ?')
+          .get(line.refId)
+        if (menuItem?.inventory_item_id) {
+          drawDown(db, {
+            movementTable: 'restaurant_inventory_transactions',
+            itemTable: 'restaurant_inventory_items',
+            itemId: menuItem.inventory_item_id,
+            line,
+            saleId,
+            staffId
+          })
+        }
+      }
+    }
+
+    return saleId
+  })
+
+  const saleId = run()
+  if (priced.discountTotal > 0) {
+    writeAudit(session.userId, 'sale:discount', {
+      saleId,
+      discountTotal: priced.discountTotal,
+      reasons: priced.lines
+        .filter((l) => l.lineDiscount > 0)
+        .map((l) => ({
+          description: l.description,
+          amount: l.lineDiscount,
+          reason: l.discountReason
+        }))
+    })
+  }
+  return {
+    saleId,
+    transactionId: saleId,
+    total: priced.total,
+    paid,
+    balance: round2(priced.total - paid),
+    paymentMethod: headerPaymentMethod(collected),
+    lines: priced.lines
+  }
+}
+
 export function registerSalesHandlers() {
   // Price a cart without touching the database, so the till can show a running
   // total that is exactly what checkout will charge.
@@ -358,134 +488,16 @@ export function registerSalesHandlers() {
     // says about them is ignored (they are not even destructured).
     wrap(({ customerName, phone, memberId, notes, cart, payments, paymentMethod } = {}) => {
       const session = requireStaffOrOwner()
-      const staffId = session.userId
-      const db = getDb()
-      if (!cart?.length) throw new Error('Cart is empty')
-
-      // The server clock, never a date from the payload: letting the cart pick
-      // the date would let it pick the Saturday rate on a Tuesday.
-      const priced = priceCart(db, cart, { date: todayLocal() })
-      const collected = normalisePayments({ payments, paymentMethod }, priced.total)
-      const paid = round2(collected.reduce((sum, p) => sum + p.amount, 0))
-      // Taking more than the sale is worth turns the till into a black hole: the
-      // day's cash no longer reconciles and there is no record of a refund.
-      if (paid > priced.total + EPSILON) {
-        throw new Error(`Payments (Rs. ${paid}) are more than the sale total (Rs. ${priced.total})`)
-      }
-
-      const header = deriveHeader(db, priced.lines)
-      const summary = priced.lines.map((l) => `${l.description} x${l.quantity}`).join(', ')
-
-      const run = db.transaction(() => {
-        // Inside the transaction, so the check and the draw-down cannot drift.
-        assertStockAvailable(db, priced.stockNeeds)
-
-        const saleId = db
-          .prepare(
-            `INSERT INTO transactions
-             (transaction_type, source, customer_name, phone, product_id, member_id, amount,
-              payment_method, staff_id, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .run(
-            header.transactionType,
-            header.source,
-            customerName?.trim() || 'Walk-in',
-            phone || null,
-            header.productId,
-            memberId || null,
-            priced.total,
-            headerPaymentMethod(collected),
-            staffId,
-            notes ? `${summary} — ${notes}` : summary
-          ).lastInsertRowid
-
-        const insertLine = db.prepare(
-          `INSERT INTO transaction_lines
-           (transaction_id, kind, ref_id, description, tier, quantity, unit_price,
-            line_discount, discount_reason, line_total)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        for (const line of priced.lines) {
-          insertLine.run(
-            saleId,
-            line.kind,
-            line.refId,
-            line.description,
-            line.tier,
-            line.quantity,
-            line.unitPrice,
-            line.lineDiscount,
-            line.discountReason,
-            line.lineTotal
-          )
-        }
-
-        const insertPayment = db.prepare(
-          `INSERT INTO transaction_payments (transaction_id, amount, payment_method, staff_id)
-           VALUES (?, ?, ?, ?)`
-        )
-        for (const payment of collected) {
-          insertPayment.run(saleId, payment.amount, payment.method, staffId)
-        }
-
-        // One movement row per LINE (not per item) so the price actually charged
-        // stays attached to the units that moved — void and refund reversals
-        // replay these rows to put stock back at the right price.
-        for (const line of priced.lines) {
-          if (line.kind === 'pool_item') {
-            drawDown(db, {
-              movementTable: 'pool_inventory_transactions',
-              itemTable: 'pool_inventory_items',
-              itemId: line.refId,
-              line,
-              saleId,
-              staffId
-            })
-          } else if (line.kind === 'menu_item') {
-            const menuItem = db
-              .prepare('SELECT inventory_item_id FROM restaurant_menu_items WHERE id = ?')
-              .get(line.refId)
-            if (menuItem?.inventory_item_id) {
-              drawDown(db, {
-                movementTable: 'restaurant_inventory_transactions',
-                itemTable: 'restaurant_inventory_items',
-                itemId: menuItem.inventory_item_id,
-                line,
-                saleId,
-                staffId
-              })
-            }
-          }
-        }
-
-        return saleId
+      const result = executeSale(session, {
+        customerName,
+        phone,
+        memberId,
+        notes,
+        cart,
+        payments,
+        paymentMethod
       })
-
-      const saleId = run()
-      if (priced.discountTotal > 0) {
-        writeAudit(session.userId, 'sale:discount', {
-          saleId,
-          discountTotal: priced.discountTotal,
-          reasons: priced.lines
-            .filter((l) => l.lineDiscount > 0)
-            .map((l) => ({
-              description: l.description,
-              amount: l.lineDiscount,
-              reason: l.discountReason
-            }))
-        })
-      }
-      return {
-        success: true,
-        saleId,
-        // Same row — every existing caller of the old path speaks transactionId.
-        transactionId: saleId,
-        total: priced.total,
-        paid,
-        balance: round2(priced.total - paid),
-        lines: priced.lines
-      }
+      return { success: true, ...result }
     })
   )
 
