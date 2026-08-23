@@ -106,6 +106,23 @@ export async function ownerTab(page, label) {
   await page.waitForTimeout(600)
 }
 
+// Turn on the one-screen till (StaffTill) via owner Settings. Ends on the login
+// screen so the next call can be loginStaff.
+export async function enableUnifiedTill(page) {
+  const onLogin = await page.locator('text=Owner / Admin Login').count()
+  if (onLogin) await loginOwner(page)
+  await ownerTab(page, 'Settings')
+  await page.click('.settings-card:has-text("One-screen till")')
+  await page.waitForTimeout(600)
+  const tillToggle = page.locator('label:has-text("Use the one-screen till") input[type="checkbox"]')
+  if (!(await tillToggle.isChecked())) {
+    await tillToggle.click()
+    await page.waitForTimeout(800)
+  }
+  await page.click('button:has-text("Log out")')
+  await page.waitForSelector('text=Owner / Admin Login', { timeout: 10000 })
+}
+
 export async function shot(page, area, name) {
   const path = join(shotDir(area), `${name}.png`)
   await page.screenshot({ path })

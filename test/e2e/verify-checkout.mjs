@@ -1,4 +1,4 @@
-// Verifies the rebuilt staff checkout screen against the sale model, through
+// Verifies the unified one-screen till (StaffTill) against the sale model, through
 // the real UI — every claim here is something reception does at the desk:
 //
 //   * quantity +/- moves the running total (the "plus minus so I can just do
@@ -10,7 +10,7 @@
 //   * a part payment leaves the right balance behind;
 //   * the two-step membership picker still files exactly one member;
 //   * the member photo step is gone and Day Pass / Day Package are renamed.
-import { launchApp, completeSetup, loginStaff, shot, seedShop } from './harness.mjs'
+import { launchApp, completeSetup, loginStaff, shot, seedShop, enableUnifiedTill } from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'checkout' })
 const results = []
@@ -19,26 +19,33 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`)
 }
 
-// Rs. 1,250 -> 1250. Reading the value span, not the whole box, keeps the
-// label's own digits out of the number.
-const money = (text) => Number(String(text).replace(/[^\d]/g, ''))
-const lastAmount = async () =>
-  money(await page.locator('.amount-box').last().locator('.a-value').innerText())
-const continueBtn = () => page.locator('.card button:has-text("Continue")')
-const goOn = async (times = 1) => {
-  for (let i = 0; i < times; i++) {
-    await continueBtn().click()
-    await page.waitForTimeout(500)
-  }
-}
+const money = (text) => Number(String(text).replace(/[^\d]/g, ""))
+const dueAmount = async () =>
+  money(await page.locator('.amount-box:has(.a-label:has-text("Due")) .a-value').innerText())
+const chargeBtn = () => page.locator('.card button:has-text("Charge")').last()
+const cartLine = () => page.locator(".cart-line").first()
 const openTill = async () => {
   await page.click('.tab:has-text("New Transaction")')
   await page.waitForTimeout(900)
 }
+const tillTab = async (label) => {
+  await page.click(`.seg button:has-text("${label}")`)
+  await page.waitForTimeout(400)
+}
+const addEntry = async (name) => {
+  await tillTab("Entry")
+  await page.locator("button.card").filter({ hasText: name }).first().click()
+  await page.waitForTimeout(500)
+}
+const addShop = async (name) => {
+  await tillTab("Shop")
+  await page.locator("button.card").filter({ hasText: name }).first().click()
+  await page.waitForTimeout(500)
+}
 // The saved card offers a fresh sale; using it (rather than the tab) also proves
 // reset() clears the basket between customers.
 const nextCustomer = async () => {
-  await page.click('.card button:has-text("New transaction")')
+  await page.click('.card button:has-text("New sale")')
   await page.waitForTimeout(700)
 }
 
@@ -49,46 +56,47 @@ try {
   // Goggles 250 with 20 in stock.
   const ids = await seedShop(page)
 
-  await page.click('button:has-text("Log out")')
-  await page.waitForSelector('text=Owner / Admin Login', { timeout: 10000 })
+  await enableUnifiedTill(page)
   await loginStaff(page)
 
   // ---------- Renaming: no more "what's the difference?" ----------
   await openTill()
-  const typeOptions = await page.locator('.card select').first().locator('option').allInnerTexts()
+  await tillTab('Entry')
+  const categoryHeaders = await page
+    .locator('.card .sub')
+    .filter({ hasText: 'Ticket' })
+    .allInnerTexts()
   check(
-    'the type dropdown is renamed to Entry Ticket / Combo Ticket',
-    typeOptions.includes('Entry Ticket') &&
-      typeOptions.includes('Combo Ticket') &&
-      !typeOptions.some((t) => /day pass|day package/i.test(t)),
-    typeOptions.join(' / ')
+    'the entry catalog is renamed to Entry Ticket / Combo Ticket',
+    categoryHeaders.includes('Entry Ticket') &&
+      categoryHeaders.includes('Combo Ticket') &&
+      !categoryHeaders.some((h) => /day pass|day package/i.test(h)),
+    categoryHeaders.join(' / ')
   )
 
   // ---------- Quantity +/- moves the total ----------
-  await goOn() // Type -> Items, with the most-sold ticket already in the basket
-  await page.waitForTimeout(400)
-  const oneAdult = await lastAmount()
-  check('the basket opens with the most-sold ticket in it', oneAdult === 300, `Rs. ${oneAdult}`)
+  await addEntry('Pool Day Pass')
+  const oneAdult = await dueAmount()
+  check('a Pool Day Pass in the basket shows Rs. 300 due', oneAdult === 300, `Rs. ${oneAdult}`)
 
-  await page.click('button[aria-label="One more Pool Day Pass"]')
+  await cartLine().locator('[aria-label="Increase quantity"]').click()
   await page.waitForTimeout(500)
-  await page.click('button[aria-label="One more Pool Day Pass"]')
+  await cartLine().locator('[aria-label="Increase quantity"]').click()
   await page.waitForTimeout(500)
-  const three = await lastAmount()
+  const three = await dueAmount()
   check('+ raises the quantity and the total follows', three === 900, `Rs. ${three}`)
   await shot(page, 'checkout', '01-basket-quantity')
 
-  await page.click('button[aria-label="One less Pool Day Pass"]')
+  await cartLine().locator('[aria-label="Decrease quantity"]').click()
   await page.waitForTimeout(500)
-  const two = await lastAmount()
+  const two = await dueAmount()
   check('− lowers the quantity and the total follows', two === 600, `Rs. ${two}`)
 
   // ---------- A ticket and an add-on in ONE sale ----------
-  await page.click('button[aria-label="One less Pool Day Pass"]')
+  await cartLine().locator('[aria-label="Decrease quantity"]').click()
   await page.waitForTimeout(400)
-  await page.locator('.field:has(label:has-text("Add goggles")) select').selectOption({ index: 1 })
-  await page.waitForTimeout(700)
-  const withGoggles = await lastAmount()
+  await addShop('Goggles')
+  const withGoggles = await dueAmount()
   check(
     'a pool add-on joins the same basket as the ticket',
     withGoggles === 550,
@@ -96,11 +104,8 @@ try {
   )
   await shot(page, 'checkout', '02-ticket-plus-addon')
 
-  await goOn() // Items -> Customer
-  await page.fill('input[placeholder="Full name"]', 'Basket Test')
-  await goOn(2) // Customer -> Payment -> Confirm
-  await shot(page, 'checkout', '03-confirm-mixed-basket')
-  await page.click('.card button:has-text("Confirm")')
+  await page.fill('input[placeholder="Walk-in"]', 'Basket Test')
+  await chargeBtn().click()
   await page.waitForTimeout(1800)
 
   const mixed = await page.evaluate(async (seed) => {
@@ -131,34 +136,32 @@ try {
 
   // ---------- A discount without a reason is refused where it is typed ----------
   await nextCustomer()
-  await goOn()
-  await page.locator('.card button:has-text("Discount")').first().click()
+  await addEntry('Pool Day Pass')
+  await cartLine().locator('button:has-text("Discount")').click()
   await page.waitForTimeout(300)
-  await page.fill('input[placeholder="Rs. off"]', '100')
+  await cartLine().locator('input[placeholder="Rs. off"]').fill('100')
   await page.waitForTimeout(600)
-  const cardText = await page.locator('.card').first().innerText()
-  const blocked = await continueBtn().isDisabled()
+  const cartText = await page.locator('.card').filter({ hasText: 'Cart' }).innerText()
+  const blocked = await chargeBtn().isDisabled()
   check(
-    'a discount with no reason is refused visibly, before the click',
-    /reason is required/i.test(cardText) && blocked,
+    'a discount with no reason is refused visibly, before Charge',
+    /reason is required/i.test(cartText) && blocked,
     `blocked=${blocked}`
   )
   await shot(page, 'checkout', '04-discount-needs-reason')
 
-  await page.fill('input[placeholder="Reason for the discount"]', 'Owner approved')
+  await cartLine().locator('input[placeholder="Reason for the discount"]').fill('Owner approved')
   await page.waitForTimeout(800)
-  const discounted = await lastAmount()
-  const unblocked = !(await continueBtn().isDisabled())
+  const discounted = await dueAmount()
+  const unblocked = !(await chargeBtn().isDisabled())
   check(
     'with a reason the discount applies and the sale can go on',
     discounted === 200 && unblocked,
     `Rs. ${discounted} blocked=${!unblocked}`
   )
 
-  await goOn() // Items -> Customer
-  await page.fill('input[placeholder="Full name"]', 'Discount Test')
-  await goOn(2)
-  await page.click('.card button:has-text("Confirm")')
+  await page.fill('input[placeholder="Walk-in"]', 'Discount Test')
+  await chargeBtn().click()
   await page.waitForTimeout(1800)
   const discountSale = await page.evaluate(async () => {
     const tx = (await window.api.listTransactions({})).transactions || []
@@ -174,20 +177,18 @@ try {
 
   // ---------- Part payment leaves the right balance ----------
   await nextCustomer()
-  await goOn(2) // Type -> Items -> Customer
-  await page.fill('input[placeholder="Full name"]', 'Part Pay')
-  await goOn() // -> Payment
-  await page.click('.card button:has-text("Part payment")')
-  await page.waitForTimeout(300)
-  await page.fill('input[placeholder="e.g. 5000"]', '100')
+  await addEntry('Pool Day Pass')
+  await page.fill('input[placeholder="Walk-in"]', 'Part Pay')
+  await page.fill('input[placeholder="Full amount"]', '100')
   await page.waitForTimeout(500)
-  const remaining = money(
-    await page.locator('.amount-box:has-text("Remaining after this payment") .a-value').innerText()
+  const payBar = await page.locator('.card').filter({ hasText: 'Part pay' }).innerText()
+  check(
+    'the till shows what is left to collect before Charge',
+    /200/.test(payBar) && /remaining/i.test(payBar),
+    payBar.replace(/\n/g, ' ').slice(0, 110)
   )
-  check('the payment step shows what is left to collect', remaining === 200, `Rs. ${remaining}`)
   await shot(page, 'checkout', '05-part-payment')
-  await goOn()
-  await page.click('.card button:has-text("Confirm")')
+  await chargeBtn().click()
   await page.waitForTimeout(1800)
   const savedCard = await page.locator('.card').first().innerText()
   check(
@@ -218,34 +219,42 @@ try {
 
   // ---------- Membership: two questions, one member, no photo step ----------
   await nextCustomer()
-  await page.locator('.card select').first().selectOption('Membership')
-  await page.waitForTimeout(500)
-  await goOn() // Type -> Plan
+  await tillTab('Member')
   const planOptions = await page
     .locator('.field:has(label:text-is("Membership type")) select option')
     .allInnerTexts()
   const durationShown = await page.locator('.field:has(label:text-is("How long")) select').count()
   check(
     'membership asks for the type first, then the duration',
-    durationShown === 1 &&
+    durationShown === 0 &&
       planOptions.includes('Gym Only') &&
-      // The old single dropdown listed every plan × every length together.
       !planOptions.some((o) => o.includes('—')),
     `plans=${planOptions.join('/')} durationSelects=${durationShown}`
   )
+  await page.locator('.field:has(label:text-is("Membership type")) select').selectOption('Gym Only')
+  await page.waitForTimeout(400)
+  const durationAfterPlan = await page.locator('.field:has(label:text-is("How long")) select').count()
+  const durationOptions = await page
+    .locator('.field:has(label:text-is("How long")) select option')
+    .allInnerTexts()
+  check(
+    'choosing a type reveals the duration step',
+    durationAfterPlan === 1 && durationOptions.some((o) => /Monthly/i.test(o)),
+    `durationSelects=${durationAfterPlan} opts=${durationOptions.join('/')}`
+  )
   await shot(page, 'checkout', '07-membership-two-step')
 
-  await goOn() // Plan -> Customer
-  const customerStep = await page.locator('.card').first().innerText()
+  await page.locator('.field:has(label:text-is("How long")) select').selectOption({ index: 1 })
+  await page.waitForTimeout(400)
+  const memberPanel = await page.locator('.card').first().innerText()
   check(
     'the member photo step is gone from the flow',
-    !/member photo|take photo/i.test(customerStep),
-    customerStep.replace(/\n/g, ' ').slice(0, 110)
+    !/member photo|take photo/i.test(memberPanel),
+    memberPanel.replace(/\n/g, ' ').slice(0, 110)
   )
   await page.fill('input[placeholder="Full name"]', 'Sita Rai')
   await page.fill('input[placeholder="98XXXXXXXX"]', '9841000123')
-  await goOn(2)
-  await page.click('.card button:has-text("Confirm")')
+  await chargeBtn().click()
   await page.waitForTimeout(2000)
   await shot(page, 'checkout', '08-membership-saved')
 
