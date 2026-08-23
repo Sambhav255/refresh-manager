@@ -865,8 +865,26 @@ function StaffApp({ session, onLogout, unifiedTill }) {
   else if (tab === 'inv') screen = <StaffInventory key="inv" back={() => setTab('home')} />
   else if (tab === 'bookings') screen = <StaffBookings key="bookings" back={() => setTab('home')} />
   else if (tab === 'restaurant')
-    screen = <StaffRestaurantPos session={session} back={() => setTab(STATIONS[station].landing)} />
-  else if (tab === 'sellitem') screen = <SellItem key="sellitem" back={() => setTab('home')} />
+    screen = unifiedTill ? (
+      <StaffTill
+        key="restaurant"
+        onDone={() => setTab(STATIONS[station].landing)}
+        initialTab="kitchen"
+      />
+    ) : (
+      <StaffRestaurantPos session={session} back={() => setTab(STATIONS[station].landing)} />
+    )
+  else if (tab === 'sellitem')
+    screen = unifiedTill ? (
+      <StaffTill
+        key="sellitem"
+        onDone={() => setTab('home')}
+        hideKitchen={STATIONS[station].hiddenTiles.includes(STAFF_TILES.RESTAURANT)}
+        initialTab="shop"
+      />
+    ) : (
+      <SellItem key="sellitem" back={() => setTab('home')} />
+    )
 
   // Screens opened from a tile have no nav entry of their own, so they light up
   // Home — the place they were opened from.

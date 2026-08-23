@@ -148,6 +148,9 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
   const [matches, setMatches] = useState([])
   const [savingChoice, setSavingChoice] = useState(null)
   const [photoBase64, setPhotoBase64] = useState(null)
+  const [menuOpenId, setMenuOpenId] = useState(null)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
+  const [busyId, setBusyId] = useState(null)
   const quoteSeqRef = useRef(0)
 
   const isMember = tab === 'member'
@@ -161,6 +164,25 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
       cartGuard.hasItems = false
     }
   }, [])
+
+  useEffect(() => {
+    if (menuOpenId == null) return
+    const onDocClick = (e) => {
+      if (!e.target.closest('[data-rowmenu]')) setMenuOpenId(null)
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') setMenuOpenId(null)
+    }
+    const onScroll = () => setMenuOpenId(null)
+    document.addEventListener('mousedown', onDocClick)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [menuOpenId])
 
   useEffect(() => {
     Promise.all([
@@ -247,6 +269,33 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
     }
     setCart((c) =>
       c.map((l) => (l.uid === uid ? { ...l, quantity: Math.min(MAX_LINE_QUANTITY, quantity) } : l))
+    )
+  }
+
+  const toggleAvailability = async (item) => {
+    if (busyId) return
+    const unavailable = !item.manuallyUnavailableToday
+    setBusyId(item.id)
+    const r = await api.setMenuItemAvailability({ id: item.id, unavailable })
+    setBusyId(null)
+    setMenuOpenId(null)
+    if (r?.success === false) {
+      setError(r.error || 'Could not update availability')
+      return
+    }
+    setError('')
+    setMenu((prev) =>
+      prev.map((m) =>
+        m.id === item.id
+          ? {
+              ...m,
+              manuallyUnavailableToday: unavailable,
+              isAvailable:
+                !unavailable &&
+                (m.currentStock == null || (m.currentStock > 0 && m.stockItemActive !== 0))
+            }
+          : m
+      )
     )
   }
 
@@ -732,15 +781,13 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                   {kitchenItems.map((item) => {
                     const available = item.isAvailable !== false
+                    const showLowDot = available && item.isLowStock
                     return (
-                      <button
+                      <div
                         key={item.id}
-                        type="button"
                         className="card"
-                        disabled={!available}
                         style={{
                           padding: 12,
-                          textAlign: 'left',
                           position: 'relative',
                           cursor: available ? 'pointer' : 'not-allowed',
                           opacity: available ? 1 : 0.55,
@@ -748,13 +795,92 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
                         }}
                         onClick={() => available && addOrBump(menuLine(item))}
                       >
-                        <div style={{ fontWeight: 500, fontSize: 13 }}>{item.name}</div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: 4
+                          }}
+                        >
+                          <div style={{ fontWeight: 500, fontSize: 13 }}>
+                            {showLowDot && (
+                              <span
+                                title="Low stock"
+                                style={{
+                                  display: 'inline-block',
+                                  width: 7,
+                                  height: 7,
+                                  borderRadius: '50%',
+                                  background: 'var(--badge-exp-tx)',
+                                  marginRight: 6,
+                                  verticalAlign: 'middle'
+                                }}
+                              />
+                            )}
+                            {item.name}
+                          </div>
+                          <div
+                            data-rowmenu
+                            style={{ position: 'relative', zIndex: 2 }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              className="rowmenu"
+                              aria-label={`More actions for ${item.name}`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const next = menuOpenId === item.id ? null : item.id
+                                if (next) {
+                                  const r = e.currentTarget.getBoundingClientRect()
+                                  setMenuPos({ top: r.bottom + 4, left: r.right - 200 })
+                                }
+                                setMenuOpenId(next)
+                              }}
+                            >
+                              <Icon name="more-vertical" size={14} />
+                            </button>
+                            {menuOpenId === item.id && (
+                              <div
+                                data-rowmenu
+                                className="card"
+                                style={{
+                                  position: 'fixed',
+                                  top: menuPos.top,
+                                  left: menuPos.left,
+                                  zIndex: 1000,
+                                  padding: 4,
+                                  minWidth: 200,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 2
+                                }}
+                              >
+                                <button
+                                  className="btn btn-ghost"
+                                  style={{
+                                    justifyContent: 'flex-start',
+                                    minHeight: 36,
+                                    fontSize: 12.5
+                                  }}
+                                  disabled={busyId === item.id}
+                                  onClick={() => toggleAvailability(item)}
+                                >
+                                  {item.manuallyUnavailableToday
+                                    ? 'Mark available'
+                                    : 'Mark unavailable for today'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                         <div className="sub">{fmt(item.price)}</div>
                         {!available && (
                           <div
                             style={{
                               position: 'absolute',
                               inset: 0,
+                              zIndex: 1,
                               display: 'grid',
                               placeItems: 'center',
                               background: 'rgba(255,255,255,0.6)',
@@ -765,7 +891,7 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
                             <span className="badge b-dead">Unavailable</span>
                           </div>
                         )}
-                      </button>
+                      </div>
                     )
                   })}
                 </div>
