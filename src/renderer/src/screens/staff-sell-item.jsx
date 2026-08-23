@@ -2,65 +2,7 @@ import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { fmt } from '../lib/format'
 import { Icon, SectionHead } from '../components/ui'
-
-// Hoisted to module scope so it doesn't remount (losing input focus) on every
-// parent render. Supports both tap (+/−) and direct typing, clamped to
-// [min, max] — max is the available stock.
-function QtyStepper({ value, min = 1, max, disabled, onChange, onEnter }) {
-  const [text, setText] = useState(String(value))
-  // Resync the draft text when the committed value changes from outside
-  // (recommended adjust-state-during-render pattern, no effect needed).
-  const [lastValue, setLastValue] = useState(value)
-  if (value !== lastValue) {
-    setLastValue(value)
-    setText(String(value))
-  }
-  const clamp = (n) => Math.max(min, Math.min(max, n))
-  return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <button
-        className="btn btn-ghost"
-        style={{ padding: '2px 10px' }}
-        disabled={disabled || value <= min}
-        aria-label="Decrease quantity"
-        onClick={() => onChange(clamp(value - 1))}
-      >
-        −
-      </button>
-      <input
-        className="input"
-        style={{ width: 56, padding: '4px 6px', textAlign: 'center' }}
-        inputMode="numeric"
-        value={text}
-        disabled={disabled}
-        onChange={(e) => {
-          const raw = e.target.value.replace(/[^0-9]/g, '')
-          setText(raw)
-          if (raw === '') return
-          const n = clamp(parseInt(raw, 10))
-          if (String(n) !== raw) setText(String(n))
-          onChange(n)
-        }}
-        onBlur={() => setText(String(value))}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && onEnter) {
-            e.preventDefault()
-            onEnter()
-          }
-        }}
-      />
-      <button
-        className="btn btn-ghost"
-        style={{ padding: '2px 10px' }}
-        disabled={disabled || value >= max}
-        aria-label="Increase quantity"
-        onClick={() => onChange(clamp(value + 1))}
-      >
-        +
-      </button>
-    </div>
-  )
-}
+import { QtyStepper } from '../components/qty-stepper'
 
 // P2-1: staff-facing sale of a pool inventory item (goggles, caps, bottled
 // water, …). Amount, staff, and stock draw-down are all handled server-side in
