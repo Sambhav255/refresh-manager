@@ -44,7 +44,7 @@ Unchanged from the original review — none of this was touched, and none of it 
 
 Three structural problems were named as generating most of the individual issues. Status on each:
 
-**(a) The staff surface is built like a form, not like a till.** — **Still true, still open.** The New Transaction wizard (C-1) and the three-separate-tills problem (C-2) are the only Critical items not yet addressed. See §5.
+**(a) The staff surface is built like a form, not like a till.** — **Addressed behind a flag (Aug 2026).** `StaffTill` (`staff-till.jsx`) replaces the 5-step wizard and unifies Entry / Shop / Kitchen / Member on one screen when Owner → Settings → **Use the one-screen till** is on (`unified_till`, default off). The old wizard remains the default until an owner explicitly enables the new flow. See §5 (`C-1`/`C-2`).
 
 **(b) The owner surface reports "today" and cannot report "trend."** — **Partially addressed.** The booking-count/footfall trust bugs underneath this are fixed (C-6). Trend deltas, sparklines, and the KPI restructure itself (H-11, H-12) are still open — see §6.
 
@@ -76,13 +76,18 @@ Everything in this section shipped as Task 1–3 on `ux-punchlist-phase1` (commi
 
 ## 5. CRITICAL
 
-### `C-1` / `C-2` — New Transaction wizard / three separate sale surfaces — ⏳ OPEN, NOT YET STARTED
+### `C-1` / `C-2` — New Transaction wizard / three separate sale surfaces — ✅ DONE (behind flag; commits `f0195a2`–`96a5e63`)
 
-**Still fully real, and if anything understated by the original review.** Confirmed against source: `staff-transaction.jsx` is a genuine 5-step wizard (1544 lines). Investigating further while queuing this work turned up a **fourth** independent sale-writing backend path beyond the three the original review counted (`sales:create` for New Transaction, `pool-inventory:sell-item` for Sell Item, `restaurant:checkout` for Restaurant POS, plus membership signup/renewal inserting its own transaction row directly) — meaning the backend is at least as fragmented as the UI.
+**Shipped on `ux-punchlist-phase1`, default off.** Owner → Settings → **Use the one-screen till** toggles `unified_till`. When on:
 
-One piece of good news found while investigating: `sales:create`'s cart model already natively supports `pool_item` and `menu_item` line kinds, so it can likely absorb both `pool-inventory:sell-item` and `restaurant:checkout` outright rather than needing new backend logic — the unification may mostly be "migrate two screens' frontends onto the endpoint that already does what they need," not "invent a new one."
+- **One screen (`staff-till.jsx`)** replaces the 5-step wizard for goods: Entry / Shop / Kitchen tabs on the left, cart + **Due** on the right, **Charge** at the bottom. Membership sales use the **Member** tab via `createMemberWithMembership` (not the goods cart).
+- **Sell Item** and **Restaurant POS** tiles route into the till (Shop / Kitchen tabs) instead of separate checkout screens.
+- **Backend unification:** `pool-inventory:sell-item` and `restaurant:checkout` are thin adapters over exported `executeSale` / `sales:create`. Menu items marked unavailable today are rejected in `sales:create` (same rule as restaurant checkout).
+- **Regression:** checkout E2E (`test/e2e/verify-checkout.mjs`) runs against StaffTill with the flag on; includes Escape-not-logout while the cart has items.
 
-**This is the single highest-blast-radius change in the whole punch list** — it replaces the screen staff use for every sale, all day, at a live money-handling business. Deliberately not started without your explicit go-ahead; see the note at the end of this document.
+**Still the old flow when the flag is off:** `staff-transaction.jsx` wizard unchanged — deliberate parallel-run safety.
+
+**Before venue use:** enable the flag only after a real parallel week (original advice) or explicit owner sign-off. Do not flip it remotely without someone at the desk watching.
 
 ### `C-3` — Restaurant POS sells items the kitchen can't make — ✅ DONE (commits `d55f6c7`, `6415923`)
 
@@ -156,7 +161,7 @@ Unchanged from the original review (`P-7` through `P-20`, table form) — none a
 
 Original Phases 1 and 2 are done (with the scope corrections above folded in), plus two Phase-4-labeled items (`C-7`, and the `H-32`/`H-33` inventory chip) that turned out cheap enough to fold in early. Everything below is unchanged from the original plan and still applies as written in the prior version of this document:
 
-- **Phase 3 — the till rewrite** (`C-1`, `C-2`, `H-42`, `P-11`–`P-13`): not started. See the note below.
+- **Phase 3 — the till rewrite** (`C-1`, `C-2`, `H-42`, `P-11`–`P-13`): **`C-1`/`C-2` done behind `unified_till` (default off).** Remaining Phase 3 items (`H-42`, `P-11`–`P-13`) still open.
 - **Phase 4 — owner intelligence** (`H-11`–`H-23`, `H-25`, `H-26`, `H-34`–`H-38`, `F-7`): mostly open (`C-7` and the inventory chip already done, as noted above).
 - **Phase 5 — bookings, then growth features** (`H-27`–`H-31`, `F-1`–`F-6`, `F-10`, `F-11`): fully open.
 
@@ -197,7 +202,7 @@ Most of these turned out to already be answered by existing code, or were resolv
 
 If picking up where this leaves off:
 
-1. **The till rewrite (`C-1`/`C-2`).** Still the single highest-leverage remaining item, and now better-scoped than the original review knew (a 4th sale-writing path found, and evidence the existing `sales:create` endpoint can likely absorb the other two without new backend logic). The highest-blast-radius change in the document — deliberately not started without an explicit go-ahead. See the note below.
+1. **Enable the unified till at the venue (`C-1`/`C-2` flag flip + parallel week).** Code is on branch `ux-punchlist-phase1`; default remains the old wizard until Owner → Settings → **Use the one-screen till** is turned on. See the note below.
 2. **Owner dashboard trends (`H-11`).** ~30 days of data already exist in the database; nothing currently asks it "is this good?" Independent of the till rewrite, safe to parallelize.
 3. **Bookings deposit/payment visibility (`H-28`).** This business takes advance deposits on private events; whether money has landed doesn't appear anywhere in either interface yet.
 4. **Backups (`F-9`).** Flagged by the app's own Dashboard alert as unresolved and is, by the original review's own words, "the most dangerous line in the entire app."
@@ -207,8 +212,12 @@ If picking up where this leaves off:
 
 ## A note on the till rewrite
 
-Before starting `C-1`/`C-2`: this replaces the screen staff use for every single sale, all day, at a business that's already operating on real money. The original review's own advice was to ship it behind a feature flag and run both flows in parallel for a week in the real world — not something achievable inside an agent session. The plan, when this resumes, is to build it with the same rigor as everything above (fresh implementer, full independent review, thorough test and screenshot verification) — but to flag it explicitly before it lands rather than let a core POS rewrite replace the live flow unseen. This is the one piece of the whole document worth a hands-on look before it ships, not just a report to read after the fact.
+**Built (Aug 2026), not yet live by default.** The unified till ships behind `unified_till` (Owner → Settings, default off). Turning it on replaces every staff sale surface with `StaffTill` — still the highest-blast-radius toggle in the app.
+
+**Recommended venue rollout:** run both flows in parallel for a week (flag on for one shift, off the next, or two staff comparing receipts) before committing. Manual checks before flip: Entry + shop add-on → one Today's Log row and stock −1; membership on Member tab; Escape with items in cart must not log out; flag off → old 5-step wizard unchanged.
+
+E2E covers the flag-on path; human-only checks (thermal printer, camera, WhatsApp, midnight, two-staff day) remain unchanged from the handoff.
 
 ---
 
-*Status current as of `ux-punchlist-phase1` @ `afe2c83`. Reference item IDs in commits, as before.*
+*Status current as of `ux-punchlist-phase1` @ `96a5e63` (unified till tasks 1–10). Reference item IDs in commits, as before.*
