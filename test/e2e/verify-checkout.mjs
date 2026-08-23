@@ -92,6 +92,18 @@ try {
   const two = await dueAmount()
   check('− lowers the quantity and the total follows', two === 600, `Rs. ${two}`)
 
+  // ---------- Escape must not discard an in-progress cart ----------
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(500)
+  const stillOnTill =
+    (await page.locator('.botnav').count()) > 0 &&
+    (await page.locator('.amount-box:has(.a-label:has-text("Due"))').count()) > 0
+  check(
+    'Escape with items in the cart does not log out',
+    stillOnTill,
+    stillOnTill ? '' : 'landed on login or lost the till'
+  )
+
   // ---------- A ticket and an add-on in ONE sale ----------
   await cartLine().locator('[aria-label="Decrease quantity"]').click()
   await page.waitForTimeout(400)
