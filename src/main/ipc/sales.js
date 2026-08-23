@@ -101,9 +101,20 @@ function priceLine(db, entry, { date, needs }) {
     })
   } else {
     if (tier) throw new Error('Tier pricing applies to products, not menu items')
-    const item = db.prepare('SELECT * FROM restaurant_menu_items WHERE id = ?').get(refId)
+    const item = db.prepare(`
+      SELECT *,
+             CASE
+               WHEN manually_unavailable_at IS NOT NULL
+                    AND date(manually_unavailable_at) = date('now','localtime')
+               THEN 1 ELSE 0
+             END AS manuallyUnavailableToday
+      FROM restaurant_menu_items WHERE id = ?
+    `).get(refId)
     if (!item) throw new Error('Menu item not found')
     if (!item.is_active) throw new Error(`${item.name} is unavailable`)
+    if (item.manuallyUnavailableToday) {
+      throw new Error(`${item.name} is marked unavailable today`)
+    }
     unitPrice = round2(item.price)
     description = item.name
     if (item.inventory_item_id) {

@@ -330,6 +330,22 @@ describe('sales — stock can never go negative', () => {
   })
 })
 
+describe("sales — 86'd menu items", () => {
+  it('refuses a menu item marked unavailable today and writes nothing', async () => {
+    loginStaff(ids)
+    db.prepare(
+      `UPDATE restaurant_menu_items SET manually_unavailable_at = datetime('now','localtime') WHERE id = ?`
+    ).run(ids.menuLinkedId)
+    const res = await __invoke('sales:create', {
+      cart: [{ kind: 'menu_item', refId: ids.menuLinkedId, quantity: 1 }],
+      paymentMethod: 'cash'
+    })
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/unavailable/i)
+    expect(db.prepare('SELECT COUNT(*) c FROM transactions').get().c).toBe(0)
+  })
+})
+
 describe('sales — a failure mid-sale writes nothing', () => {
   it('rolls back the whole sale when a later line is invalid', async () => {
     loginStaff(ids)
