@@ -11,7 +11,8 @@ import {
   EndOfDay,
   StaffBookings,
   StaffRestaurantPos,
-  SellItem
+  SellItem,
+  StaffTill
 } from './screens/staff'
 import { cartGuard } from './screens/staff-transaction'
 import {
@@ -813,7 +814,6 @@ function parseUnifiedTill(settings) {
 }
 
 function StaffApp({ session, onLogout, unifiedTill }) {
-  void unifiedTill
   const [station, setStation] = useState(() => readStation(session?.userId))
   const [tab, setTab] = useState(() => STATIONS[readStation(session?.userId)]?.landing || 'home')
 
@@ -848,7 +848,17 @@ function StaffApp({ session, onLogout, unifiedTill }) {
   let screen
   if (tab === 'home')
     screen = <StaffHome key="home" go={setTab} hiddenTiles={STATIONS[station].hiddenTiles} />
-  else if (tab === 'new') screen = <NewTransaction key="new" session={session} onDone={setTab} />
+  else if (tab === 'new')
+    screen = unifiedTill ? (
+      <StaffTill
+        key="new"
+        onDone={setTab}
+        hideKitchen={STATIONS[station].hiddenTiles.includes(STAFF_TILES.RESTAURANT)}
+        initialTab="entry"
+      />
+    ) : (
+      <NewTransaction key="new" session={session} onDone={setTab} />
+    )
   else if (tab === 'members') screen = <MemberSearch key="members" />
   else if (tab === 'log') screen = <TodaysLog key="log" />
   else if (tab === 'eod') screen = <EndOfDay key="eod" session={session} />

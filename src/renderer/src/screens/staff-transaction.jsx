@@ -218,7 +218,7 @@ function poolLine(item) {
 // because it only needs to answer one yes/no question for one consumer.
 export const cartGuard = { hasItems: false }
 
-function cartPayload(cart) {
+export function cartPayload(cart) {
   return cart.map((l) => {
     const entry = { kind: l.kind, refId: l.refId, quantity: l.quantity }
     if (l.kind === 'product' && l.tier) entry.tier = l.tier
@@ -231,7 +231,7 @@ function cartPayload(cart) {
   })
 }
 
-function discountsNeedReason(cart) {
+export function discountsNeedReason(cart) {
   return cart.some((l) => Number(l.discount) > 0 && !l.discountReason.trim())
 }
 
