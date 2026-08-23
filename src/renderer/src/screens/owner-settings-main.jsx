@@ -5,7 +5,12 @@ import { PricingManager } from './owner-settings-pricing'
 import { ManageStaff } from './owner-settings-staff'
 import { BackupSettings } from './owner-settings-backup'
 import { RestaurantMenuSettings } from './owner-settings-restaurant-menu'
-import { WhatsAppSettings, BusinessInfo, RenewalTemplateSettings } from './owner-settings-extras'
+import {
+  WhatsAppSettings,
+  BusinessInfo,
+  RenewalTemplateSettings,
+  UnifiedTillSettings
+} from './owner-settings-extras'
 import { AuditLog } from './owner-settings-audit'
 
 const SUB_SCREENS = {
@@ -16,6 +21,7 @@ const SUB_SCREENS = {
   'Restaurant menu': 'restaurant-menu',
   'Renewal reminders': 'reminders',
   'Business info': 'business',
+  'One-screen till': 'unified-till',
   'Audit log': 'audit'
 }
 
@@ -29,6 +35,7 @@ export function OwnerSettings() {
   if (sub === 'restaurant-menu') return <RestaurantMenuSettings back={() => setSub(null)} />
   if (sub === 'reminders') return <RenewalTemplateSettings back={() => setSub(null)} />
   if (sub === 'business') return <BusinessInfo back={() => setSub(null)} />
+  if (sub === 'unified-till') return <UnifiedTillSettings back={() => setSub(null)} />
   if (sub === 'audit') return <AuditLog back={() => setSub(null)} />
 
   const cards = [
@@ -38,6 +45,11 @@ export function OwnerSettings() {
       icon: 'message-circle',
       title: 'Renewal reminders',
       desc: 'WhatsApp template for expiring members'
+    },
+    {
+      icon: 'layout-grid',
+      title: 'One-screen till',
+      desc: 'Single cart instead of the five-step wizard'
     },
     { icon: 'shield', title: 'Audit log', desc: 'Voids, refunds, restores, changes' }
   ]

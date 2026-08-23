@@ -808,7 +808,12 @@ function StationPicker({ session, onPick, onLogout }) {
   )
 }
 
-function StaffApp({ session, onLogout }) {
+function parseUnifiedTill(settings) {
+  return settings?.unified_till === '1'
+}
+
+function StaffApp({ session, onLogout, unifiedTill }) {
+  void unifiedTill
   const [station, setStation] = useState(() => readStation(session?.userId))
   const [tab, setTab] = useState(() => STATIONS[readStation(session?.userId)]?.landing || 'home')
 
@@ -907,7 +912,8 @@ function StaffApp({ session, onLogout }) {
   )
 }
 
-function OwnerApp({ session, onLogout }) {
+function OwnerApp({ session, onLogout, unifiedTill }) {
+  void unifiedTill
   const [tab, setTab] = useState('dashboard')
   // C-7 Part C: the dashboard's renewal-reminders alert used to open one
   // WhatsApp chat at a time via a "Send next reminder (N left)" button.
@@ -972,6 +978,7 @@ function OwnerApp({ session, onLogout }) {
 export default function App() {
   const [view, setView] = useState('loading')
   const [session, setSession] = useState(null)
+  const [unifiedTill, setUnifiedTill] = useState(false)
   const timeoutRef = useRef(null)
   const timeoutMinutesRef = useRef(30)
 
@@ -999,6 +1006,7 @@ export default function App() {
         setView(user.role)
         const settings = await api.getSettings()
         timeoutMinutesRef.current = Number(settings.settings?.session_timeout_minutes) || 30
+        setUnifiedTill(parseUnifiedTill(settings.settings))
       } else setView('login')
     }
     init()
@@ -1038,11 +1046,13 @@ export default function App() {
     setView(user.role)
     const settings = await api.getSettings()
     timeoutMinutesRef.current = Number(settings.settings?.session_timeout_minutes) || 30
+    setUnifiedTill(parseUnifiedTill(settings.settings))
   }
   const handleLogout = async () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     await api.logout()
     setSession(null)
+    setUnifiedTill(false)
     setView('login')
   }
 
@@ -1073,8 +1083,12 @@ export default function App() {
     <Window onClose={() => window.close()}>
       {view === 'setup' && <SetupWizard onDone={handleLogin} />}
       {view === 'login' && <Login onLogin={handleLogin} />}
-      {view === 'staff' && <StaffApp key="staff" session={session} onLogout={handleLogout} />}
-      {view === 'owner' && <OwnerApp key="owner" session={session} onLogout={handleLogout} />}
+      {view === 'staff' && (
+        <StaffApp key="staff" session={session} onLogout={handleLogout} unifiedTill={unifiedTill} />
+      )}
+      {view === 'owner' && (
+        <OwnerApp key="owner" session={session} onLogout={handleLogout} unifiedTill={unifiedTill} />
+      )}
     </Window>
   )
 }

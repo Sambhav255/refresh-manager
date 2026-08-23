@@ -163,6 +163,73 @@ export function BusinessInfo({ back }) {
   )
 }
 
+export function UnifiedTillSettings({ back }) {
+  const [enabled, setEnabled] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    api.getSettings().then((r) => {
+      setEnabled(r.settings?.unified_till === '1')
+      setLoading(false)
+    })
+  }, [])
+
+  const toggle = async (next) => {
+    if (busy) return
+    setError('')
+    setBusy(true)
+    const r = await api.setSetting({ key: 'unified_till', value: next ? '1' : '0' })
+    setBusy(false)
+    if (r?.success === false) {
+      setError(r.error || 'Could not save the till layout setting')
+      return
+    }
+    setEnabled(next)
+  }
+
+  if (loading)
+    return (
+      <div className="content">
+        <div className="sub">Loading…</div>
+      </div>
+    )
+
+  return (
+    <div className="content fade-in">
+      <SectionHead title="One-screen till">
+        <button className="btn btn-ghost" onClick={back}>
+          <Icon name="chevron-left" size={15} /> Back
+        </button>
+      </SectionHead>
+      <div className="card" style={{ padding: 16, maxWidth: 520 }}>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13.5 }}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            disabled={busy}
+            onChange={(e) => toggle(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span>
+            <span style={{ fontWeight: 500 }}>Use the one-screen till</span>
+            <div className="sub" style={{ marginTop: 4 }}>
+              Staff see a single cart instead of the five-step New Transaction wizard. Turn off to go
+              back.
+            </div>
+          </span>
+        </label>
+        {error && (
+          <div className="alert red" style={{ marginTop: 10 }}>
+            <div className="a-desc">{error}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function RenewalTemplateSettings({ back }) {
   const [template, setTemplate] = useState('')
   const [timeout, setTimeout_] = useState('30')
