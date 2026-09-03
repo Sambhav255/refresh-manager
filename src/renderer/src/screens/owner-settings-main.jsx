@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Icon, SectionHead } from '../components/ui'
-import { settings } from '../data/mock'
+import { settings } from '../data/hub-cards'
 import { PricingManager } from './owner-settings-pricing'
 import { ManageStaff } from './owner-settings-staff'
 import { BackupSettings } from './owner-settings-backup'

@@ -176,7 +176,6 @@ const api = {
   installUpdateFromFile: (data) => invoke('updates:install-from-file', data),
   getChangelog: () => invoke('updates:get-changelog'),
 
-
   // Frameless window: the custom title-bar buttons are the only chrome.
   minimizeWindow: () => invoke('window:minimize'),
   toggleMaximizeWindow: () => invoke('window:toggle-maximize')

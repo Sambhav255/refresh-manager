@@ -1086,7 +1086,6 @@ function StaffApp({ session, onLogout, onSessionChange, unifiedTill }) {
   )
 }
 
-
 function semverGt(a, b) {
   if (!a) return false
   if (!b) return true

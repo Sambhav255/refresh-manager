@@ -107,7 +107,6 @@ export function registerTicketHandlers() {
     })
   )
 
-
   ipcMain.handle(
     'tickets:print-kitchen',
     wrap(async ({ transactionId, customerName, items, datetime }) => {

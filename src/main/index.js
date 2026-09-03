@@ -171,8 +171,6 @@ app.whenReady().then(() => {
   startMaintenanceScheduler()
   logInfo('app', 'startup complete — handlers registered, database ready')
 
-  ipcMain.on('ping', () => console.log('pong'))
-
   createWindow()
 
   app.on('render-process-gone', () => {

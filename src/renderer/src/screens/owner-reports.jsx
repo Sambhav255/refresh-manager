@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { fmt, todayLocal } from '../lib/format'
 import { Icon, SectionHead } from '../components/ui'
-import { reports } from '../data/mock'
+import { reports } from '../data/hub-cards'
 
 // Local-timezone ISO date (yyyy-mm-dd), matching todayLocal's format.
 function isoLocal(d) {

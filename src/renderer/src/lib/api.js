@@ -200,6 +200,5 @@ export const api = {
   installDownloadedUpdate: () => invoke('installDownloadedUpdate'),
   pickUpdateInstaller: () => invoke('pickUpdateInstaller'),
   installUpdateFromFile: (data) => invoke('installUpdateFromFile', data),
-  getChangelog: async () => unwrap(await invoke('getChangelog'), { content: '' }),
-
+  getChangelog: async () => unwrap(await invoke('getChangelog'), { content: '' })
 }

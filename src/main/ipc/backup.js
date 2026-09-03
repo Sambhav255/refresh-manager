@@ -109,8 +109,6 @@ function readDiagnosticsBundle() {
   return parts.join('\n')
 }
 
-
-
 function wrap(handler) {
   return async (_event, payload) => {
     try {
