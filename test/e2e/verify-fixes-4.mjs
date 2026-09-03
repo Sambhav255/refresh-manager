@@ -1,7 +1,7 @@
 // Verifies the final UI round: booking deposits + cancel flow, transactions
 // filters/paging/voided toggle, POS clear-order, inventory adjust & price
 // controls, and the dashboard alert navigation.
-import { launchApp, completeSetup, logout, loginStaff, shot, seedShop } from './harness.mjs'
+import { launchApp, completeSetup, logout, loginStaff, ownerTab, shot, seedShop } from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'verify4' })
 const results = []
@@ -9,10 +9,7 @@ const check = (name, ok, detail = '') => {
   results.push({ name, ok })
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`)
 }
-const tab = async (label) => {
-  await page.click(`.nav-item:has-text("${label}")`)
-  await page.waitForTimeout(700)
-}
+const tab = async (label) => ownerTab(page, label)
 
 try {
   await completeSetup(page)
@@ -143,10 +140,11 @@ try {
 
   // ---------- Inventory: price + adjust controls ----------
   await tab('Inventory')
+  await page.waitForSelector('text=Goggles', { timeout: 15000 })
   const invText = await page.locator('.content').innerText()
   check('reorder banner wording fixed', !/below reorder threshold/i.test(invText))
   // Four per-row buttons were replaced by one panel opened by clicking the row.
-  await page.locator('tbody tr').first().click()
+  await page.locator('tbody tr').filter({ hasText: 'Goggles' }).first().click()
   await page.waitForTimeout(500)
   check(
     'the item panel offers Price, Adjust, Restock, History and Retire',
@@ -200,20 +198,18 @@ try {
   await page.evaluate(async () => {
     const inv = (await window.api.listRestaurantInventory()).items || []
     await window.api.restockRestaurantItem({ itemId: inv[0].id, quantity: 20 })
-    await window.api.addMenuItem({ name: 'Chiya', category: 'bev', price: 50 })
   })
   await logout(page)
-  await loginStaff(page)
-  await page.click('text=Restaurant')
-  await page.waitForTimeout(900)
-  await page.click('text=Chiya')
+  await loginStaff(page, 'Restaurant')
+  await page.waitForSelector('.card >> text=Tea', { timeout: 15000 })
+  await page.getByText('Tea', { exact: true }).first().click()
   await page.waitForTimeout(400)
-  const hasClear = await page.locator('button:has-text("Clear order")').count()
-  check('POS has a Clear order button', hasClear === 1)
-  await page.click('button:has-text("Clear order")')
+  const removeBtn = page.locator('[aria-label="Remove Tea"]')
+  check('kitchen till has a way to clear the cart', (await removeBtn.count()) === 1)
+  await removeBtn.click()
   await page.waitForTimeout(400)
-  const cartEmptied = await page.locator('button:has-text("Clear order")').count()
-  check('Clear order empties the cart', cartEmptied === 0)
+  const cartEmptied = await page.locator('text=Tap items to add').count()
+  check('removing the line empties the cart', cartEmptied === 1)
   await shot(page, 'verify4', '05-pos-cleared')
 
   console.log('\nconsole errors:', errors.length ? errors : 'none')

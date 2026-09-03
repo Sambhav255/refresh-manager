@@ -42,7 +42,7 @@ export function BackupSettings({ back }) {
 
   // "Save settings" used to write three settings, discard every result, and give
   // no confirmation at all — success and total failure looked identical. Returns
-  // whether the write landed so the "Backup now" path can stop rather than back
+  // whether the write landed so the "Save a copy now" path can stop rather than back
   // up under a schedule the owner thinks they just changed.
   const saveSettings = async () => {
     setError('')
@@ -79,12 +79,27 @@ export function BackupSettings({ back }) {
     else load()
   }
 
+  const openFolder = async () => {
+    setError("")
+    const r = await api.openBackupFolder()
+    if (r?.success === false) setError(r.error || "Could not open backup folder")
+  }
+
+  const exportLogs = async () => {
+    setBusy("logs")
+    setError("")
+    const r = await api.exportSupportLogs()
+    setBusy("")
+    if (r?.cancelled) return
+    if (r?.success === false) setError(r.error || "Could not export support logs")
+  }
+
   const restore = async () => {
     if (!restorePath || !restorePassword) {
       setError('Select a backup and enter owner password')
       return
     }
-    if (!confirm('Restore will overwrite all current data. Continue?')) return
+    if (!confirm('Restore will replace ALL data on this computer with the selected backup. Anything newer will be lost. Continue?')) return
     setBusy('restore')
     setError('')
     const r = await api.restoreBackup({
@@ -137,6 +152,10 @@ export function BackupSettings({ back }) {
       </SectionHead>
 
       <div className="card" style={{ padding: 16, marginBottom: 14, maxWidth: 520 }}>
+        <div className="sub" style={{ marginBottom: 12 }}>
+          Keep a copy of your data on a USB drive or another folder on this PC. Daily Excel exports are saved
+          to the same folder when backups run.
+        </div>
         <div className="field">
           <label>Backup folder</label>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -192,15 +211,22 @@ export function BackupSettings({ back }) {
               backupNow()
             }}
           >
-            {busy === 'backup' ? 'Backing up…' : 'Backup now'}
+            {busy === 'backup' ? 'Saving…' : 'Save a copy now'}
+          </button>
+          <button className="btn btn-ghost" disabled={!!busy || !status?.backupPath} onClick={openFolder}>
+            Open backup folder
+          </button>
+          <button className="btn btn-ghost" disabled={!!busy} onClick={exportLogs}>
+            {busy === 'logs' ? 'Exporting…' : 'Export support logs'}
           </button>
           <button className="btn btn-ghost" disabled={!!busy} onClick={saveSettings}>
-            {saved ? 'Saved ✓' : 'Save settings'}
+            {saved ? 'Saved ✓' : 'Save automatic backup settings'}
           </button>
         </div>
         {status?.lastBackupAt && (
           <div className="sub" style={{ marginTop: 10 }}>
-            Last backup: {status.lastBackupAt} — {status.status === 'success' ? '✓' : 'Failed'}
+            Last copy: {status.lastBackupAt} — {status.status === 'success' ? '✓' : 'Failed'}
+            {status?.backupStale ? ' (stale — save a new copy)' : ''}
           </div>
         )}
       </div>
@@ -211,7 +237,12 @@ export function BackupSettings({ back }) {
         </div>
       )}
 
-      <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Recent backups</div>
+      <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Restore from a copy</div>
+      <div className="sub" style={{ marginBottom: 10, maxWidth: 520 }}>
+        Restoring replaces all sales, members, and inventory on this computer with the chosen backup.
+        Anything entered after that backup date will be lost. Have staff log out first.
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Recent copies in your folder</div>
       {backups.length === 0 ? (
         <div className="sub">No backups found in the configured folder.</div>
       ) : (
@@ -243,8 +274,8 @@ export function BackupSettings({ back }) {
 
       {restorePath && (
         <div className="card" style={{ padding: 14, marginTop: 14, maxWidth: 420 }}>
-          <div className="alert amber" style={{ marginBottom: 10 }}>
-            <div className="a-desc">Dangerous: restores {restorePath.split('/').pop()}</div>
+          <div className="alert red" style={{ marginBottom: 10 }}>
+            <div className="a-desc">Restoring {restorePath.split(/[/\\]/).pop()} — current data on this PC will be replaced.</div>
           </div>
           <div className="field">
             <label>Owner password</label>

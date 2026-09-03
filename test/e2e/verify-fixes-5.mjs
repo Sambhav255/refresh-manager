@@ -2,7 +2,7 @@
 //   1. Inventory movement history is reachable and reads correctly.
 //   2. Selling a membership to an existing customer no longer duplicates them.
 // Both had tested handlers but no UI; this proves the renderer actually uses them.
-import { launchApp, completeSetup, loginStaff, shot, seedShop } from './harness.mjs'
+import { launchApp, completeSetup, loginStaff, ownerTab, shot, seedShop } from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'verify5' })
 const results = []
@@ -10,10 +10,7 @@ const check = (name, ok, detail = '') => {
   results.push({ name, ok, detail })
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`)
 }
-const tab = async (label) => {
-  await page.click(`.nav-item:has-text("${label}")`)
-  await page.waitForTimeout(700)
-}
+const tab = async (label) => ownerTab(page, label)
 // Escape does not log out while focus is in a text field (by design).
 const logoutViaButton = async () => {
   await page.click('button:has-text("Log out")')
@@ -53,8 +50,8 @@ try {
 
   // ---------- 1. Inventory history through the UI ----------
   await tab('Inventory')
-  // History moved into the single item panel that a row click opens.
-  await page.locator('tbody tr').first().click()
+  await page.waitForSelector('text=Goggles', { timeout: 15000 })
+  await page.locator('tbody tr').filter({ hasText: 'Goggles' }).first().click()
   await page.waitForTimeout(500)
   const historyButtons = await page.locator('.seg button:has-text("History")').count()
   check('History is offered in the item panel', historyButtons > 0, `${historyButtons} found`)
@@ -97,32 +94,28 @@ try {
 
   // Walk the 5-step wizard to the Customer step. Step 0 and 1 are <select>s
   // (Type, Product); step 2 has Customer name + Phone inputs.
-  const wizardToCustomer = async (customer, phone) => {
-    await page.click('.tab:has-text("New Transaction")')
-    await page.waitForTimeout(900)
-    await page.locator('select').first().selectOption('Membership')
+  const tillTab = async (label) => {
+    await page.click(`.seg button:has-text("${label}")`)
     await page.waitForTimeout(400)
-    await page.click('button:has-text("Continue")')
-    await page.waitForTimeout(600)
-    await page.click('button:has-text("Continue")') // product is preselected
-    await page.waitForTimeout(600)
+  }
+  const chargeBtn = () => page.locator('.card button:has-text("Charge")').last()
+  const fillMemberSale = async (customer, phone) => {
+    await tillTab('Member')
+    await page.locator('.field:has(label:text-is("Membership type")) select').selectOption('Gym Only')
+    await page.waitForTimeout(400)
+    await page.locator('.field:has(label:text-is("How long")) select').selectOption({ index: 1 })
     await page.fill('input[placeholder="Full name"]', customer)
     await page.fill('input[placeholder="98XXXXXXXX"]', phone)
     await page.waitForTimeout(400)
   }
-  // Customer -> Payment -> Confirm -> save.
-  const finishSale = async () => {
-    await page.click('button:has-text("Continue")')
-    await page.waitForTimeout(600)
-    await page.click('button:has-text("Continue")')
-    await page.waitForTimeout(600)
-    await page.click('button:has-text("Confirm")')
+  const finishMemberSale = async () => {
+    await chargeBtn().click()
     await page.waitForTimeout(1800)
   }
 
-  await wizardToCustomer('Hari Shrestha', '9841000001')
-  await shot(page, 'verify5', '02-wizard-customer-step')
-  await finishSale()
+  await fillMemberSale('Hari Shrestha', '9841000001')
+  await shot(page, 'verify5', '02-member-form')
+  await finishMemberSale()
   await shot(page, 'verify5', '03-first-membership-saved')
 
   const afterFirst = await page.evaluate(async () => {
@@ -146,23 +139,17 @@ try {
     JSON.stringify(matchOffered)
   )
 
-  await page.click('.tab:has-text("Home")')
-  await page.waitForTimeout(400)
-  await wizardToCustomer('Hari Shrestha', '9841000001')
-  // Continue through Payment to Confirm, then save — the match picker must
-  // interrupt here rather than silently creating a second Hari Shrestha.
-  await page.click('button:has-text("Continue")')
-  await page.waitForTimeout(600)
-  await page.click('button:has-text("Continue")')
-  await page.waitForTimeout(600)
-  await page.click('button:has-text("Confirm")')
-  await page.waitForTimeout(1500)
-  const wizardText = await page.locator('.content').innerText()
+  await page.click('button:has-text("New sale")')
+  await page.waitForTimeout(700)
+  await fillMemberSale('Hari Shrestha', '9841000001')
+  await finishMemberSale()
+  await page.waitForTimeout(1200)
+  const matchText = await page.locator('.content').innerText()
   await shot(page, 'verify5', '04-existing-member-offered')
   check(
-    'wizard offers the existing member instead of duplicating',
-    /this is them|none of these/i.test(wizardText),
-    wizardText.replace(/\n/g, ' ').slice(0, 160)
+    'till offers the existing member instead of duplicating',
+    /this is them|none of these|already be a member/i.test(matchText),
+    matchText.replace(/\n/g, ' ').slice(0, 160)
   )
 
   // Choosing the existing member must NOT create a second record.

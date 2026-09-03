@@ -23,11 +23,17 @@ export function shotDir(area) {
   return dir
 }
 
-export async function launchApp({ area = 'misc', keepData = null } = {}) {
+export async function launchApp({ area = 'misc', keepData = null, e2eBackupDir = null } = {}) {
   const userDataDir = keepData || mkdtempSync(join(tmpdir(), `refresh-e2e-${area}-`))
+  const backupDir = e2eBackupDir || mkdtempSync(join(tmpdir(), `refresh-e2e-backup-${area}-`))
+  mkdirSync(backupDir, { recursive: true })
   const app = await electron.launch({
     args: [MAIN, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, NODE_ENV: 'production' }
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      REFRESH_E2E_BACKUP_DIR: backupDir
+    }
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
@@ -42,27 +48,62 @@ export async function launchApp({ area = 'misc', keepData = null } = {}) {
     app,
     page,
     userDataDir,
+    backupDir,
     errors,
-    cleanup: () => rmSync(userDataDir, { recursive: true, force: true })
+    cleanup: () => {
+      rmSync(userDataDir, { recursive: true, force: true })
+      if (!e2eBackupDir) rmSync(backupDir, { recursive: true, force: true })
+    }
   }
 }
 
 // First run shows the setup wizard; complete it to get an owner + staff account.
 export async function completeSetup(page) {
   await page.waitForSelector('text=Welcome to Refresh Manager', { timeout: 20000 })
-  const inputs = page.locator('.card input')
+  const inputs = page.locator('.card input:not([readonly])')
   await inputs.nth(0).fill(OWNER.name)
   await inputs.nth(1).fill(OWNER.password)
   await inputs.nth(2).fill(OWNER.password)
   await inputs.nth(3).fill(STAFF.name)
-  await inputs.nth(4).fill(STAFF.pin)
+  await page.click('button:has-text("Browse")')
+  const backupInput = page.locator('.card input[readonly]')
+  await backupInput.waitFor({
+    state: 'visible',
+    timeout: 5000
+  })
+  await page.waitForFunction(
+    (el) => !el.value.includes('Not selected'),
+    await backupInput.elementHandle(),
+    { timeout: 5000 }
+  )
+  await page.locator('.card input[inputmode="numeric"]').fill(STAFF.pin)
   await page.click('button:has-text("Complete setup")')
-  await page.waitForSelector('.sidebar', { timeout: 20000 })
+  try {
+    await page.waitForSelector('.sidebar', { timeout: 20000 })
+  } catch (err) {
+    const onWizard = await page.locator('text=Welcome to Refresh Manager').count()
+    if (onWizard) {
+      const alerts = await page.locator('.alert.red .a-desc').allTextContents()
+      if (alerts.length) {
+        console.error('[completeSetup] still on wizard — alert text:', alerts.join(' | '))
+      }
+    }
+    throw err
+  }
 }
 
 export async function logout(page) {
   await page.keyboard.press('Escape')
   await page.waitForSelector('text=Owner / Admin Login', { timeout: 10000 })
+}
+
+// v1.1.0 shows a What's New dialog on first owner login after upgrade.
+export async function dismissWhatsNew(page) {
+  const gotIt = page.locator('button:has-text("Got it")')
+  if (await gotIt.count()) {
+    await gotIt.first().click()
+    await page.waitForTimeout(300)
+  }
 }
 
 // The admin username is now a <select> of the account names when any exist —
@@ -82,6 +123,7 @@ export async function loginOwner(page, password = OWNER.password) {
   }
   await page.click('.card button:has-text("Sign in")')
   await page.waitForSelector('.sidebar', { timeout: 15000 })
+  await dismissWhatsNew(page)
 }
 
 // After the PIN, staff now pick a station (Pool desk / Restaurant) the first
@@ -102,15 +144,23 @@ export async function loginStaff(page, station = 'Pool desk') {
 }
 
 export async function ownerTab(page, label) {
+  await dismissWhatsNew(page)
   await page.click(`.nav-item:has-text("${label}")`)
   await page.waitForTimeout(600)
 }
 
-// Turn on the one-screen till (StaffTill) via owner Settings. Ends on the login
-// screen so the next call can be loginStaff.
-export async function enableUnifiedTill(page) {
+// Fresh installs seed unified_till=1. Only toggles via Settings when it is off.
+export async function ensureUnifiedTill(page) {
   const onLogin = await page.locator('text=Owner / Admin Login').count()
   if (onLogin) await loginOwner(page)
+  else await dismissWhatsNew(page)
+
+  const alreadyOn = await page.evaluate(async () => {
+    const r = await window.api.getSettings()
+    return r?.settings?.unified_till === '1'
+  })
+  if (alreadyOn) return
+
   await ownerTab(page, 'Settings')
   await page.click('.settings-card:has-text("One-screen till")')
   await page.waitForTimeout(600)
@@ -119,6 +169,13 @@ export async function enableUnifiedTill(page) {
     await tillToggle.click()
     await page.waitForTimeout(800)
   }
+}
+
+// Back-compat alias — most suites no longer need to log out after this.
+export async function enableUnifiedTill(page) {
+  await ensureUnifiedTill(page)
+  const onStaff = await page.locator('.botnav').count()
+  if (onStaff) return
   await page.click('button:has-text("Log out")')
   await page.waitForSelector('text=Owner / Admin Login', { timeout: 10000 })
 }

@@ -1,4 +1,4 @@
-import { app, ipcMain, dialog } from 'electron'
+import { app, ipcMain, dialog, shell } from 'electron'
 import {
   copyFileSync,
   existsSync,
@@ -14,7 +14,14 @@ import {
 } from 'fs'
 import { join, dirname, basename } from 'path'
 import Database from 'better-sqlite3'
-import { getDb, closeDatabase } from '../db/index.js'
+import { getDb, closeDatabase, hasUsers } from '../db/index.js'
+import {
+  writeDailyExport,
+  markExportDone,
+  markExportFailed
+} from '../daily-export.js'
+import { getBuildIdentity } from '../build-info.js'
+import { getDiagnosticsInfo } from '../diagnostics.js'
 import { requireOwner } from '../session.js'
 import { packEncrypted, unpackEncrypted, isEncryptedBackup } from '../backup-archive.js'
 import bcrypt from 'bcryptjs'
@@ -69,6 +76,40 @@ function removeSidecars(dbPath) {
 
 const MAX_BACKUPS = 30
 const BACKUP_PREFIX = 'refresh_backup_'
+
+const STALE_MS = 36 * 3600 * 1000
+
+function isStaleAt(isoOrLocal) {
+  if (!isoOrLocal) return true
+  const s = String(isoOrLocal).trim()
+  const parsed = Date.parse(s.includes('T') ? s : s.replace(' ', 'T'))
+  if (Number.isNaN(parsed)) return true
+  return Date.now() - parsed > STALE_MS
+}
+
+function readDiagnosticsBundle() {
+  const { logDir, logFile } = getDiagnosticsInfo()
+  const parts = []
+  parts.push('=== Diagnostics logs ===')
+  parts.push(`Log directory: ${logDir}`)
+  if (logFile && existsSync(logFile)) {
+    parts.push(`--- ${basename(logFile)} ---`)
+    parts.push(readFileSync(logFile, 'utf8'))
+  } else if (logDir && existsSync(logDir)) {
+    const files = readdirSync(logDir)
+      .filter((f) => f.startsWith('diagnostics-') && f.endsWith('.log'))
+      .sort()
+      .reverse()
+      .slice(0, 3)
+    for (const f of files) {
+      parts.push(`--- ${f} ---`)
+      parts.push(readFileSync(join(logDir, f), 'utf8'))
+    }
+  }
+  return parts.join('\n')
+}
+
+
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -155,7 +196,7 @@ function gatherPhotoEntries() {
     .map((f) => ({ name: `photos/${f}`, data: readFileSync(join(dir, f)) }))
 }
 
-export function performBackup({ destinationPath, skipOwnerCheck = false } = {}) {
+export async function performBackup({ destinationPath, skipOwnerCheck = false } = {}) {
   if (!skipOwnerCheck) requireOwner()
   const db = getDb()
   db.pragma('wal_checkpoint(TRUNCATE)')
@@ -217,6 +258,14 @@ export function performBackup({ destinationPath, skipOwnerCheck = false } = {}) 
   pruneOldBackups(dest)
   updateBackupStatus(db, { status: 'success', filePath, encrypted })
 
+  const today = db.prepare(`SELECT date('now','localtime') AS d`).get().d
+  try {
+    const excelPath = await writeDailyExport(db, dest, today)
+    markExportDone(db, excelPath)
+  } catch {
+    markExportFailed(db)
+  }
+
   return { success: true, filePath, encrypted }
 }
 
@@ -254,9 +303,9 @@ function scheduleRelaunch() {
 export function registerBackupHandlers() {
   ipcMain.handle(
     'backup:create',
-    wrap((payload) => {
+    wrap(async (payload) => {
       try {
-        return performBackup(payload)
+        return await performBackup(payload)
       } catch (err) {
         const db = getDb()
         updateBackupStatus(db, { status: 'failed', filePath: '' })
@@ -283,7 +332,7 @@ export function registerBackupHandlers() {
       const db = getDb()
       const rows = db
         .prepare(
-          `SELECT key, value FROM settings WHERE key IN ('last_backup_at','last_backup_path','last_backup_status','last_backup_encrypted','backup_path','backup_schedule','backup_auto_enabled','backup_passphrase')`
+          `SELECT key, value FROM settings WHERE key IN ('last_backup_at','last_backup_path','last_backup_status','last_backup_encrypted','backup_path','backup_schedule','backup_auto_enabled','backup_passphrase','last_excel_at','last_excel_path','last_excel_status')`
         )
         .all()
       const settings = Object.fromEntries(rows.map((r) => [r.key, r.value]))
@@ -296,7 +345,12 @@ export function registerBackupHandlers() {
         schedule: settings.backup_schedule || '23:59',
         autoEnabled: settings.backup_auto_enabled !== 'false',
         // Never return the passphrase itself — just whether one is configured.
-        encryptionConfigured: !!(settings.backup_passphrase || '').trim()
+        encryptionConfigured: !!(settings.backup_passphrase || '').trim(),
+        lastExcelAt: settings.last_excel_at || null,
+        lastExcelPath: settings.last_excel_path || null,
+        lastExcelStatus: settings.last_excel_status || null,
+        excelStale: isStaleAt(settings.last_excel_at),
+        backupStale: isStaleAt(settings.last_backup_at)
       }
     })
   )
@@ -304,7 +358,14 @@ export function registerBackupHandlers() {
   ipcMain.handle(
     'backup:pick-folder',
     wrap(async () => {
-      requireOwner()
+      if (hasUsers()) requireOwner()
+      const e2eFolder = (process.env.REFRESH_E2E_BACKUP_DIR || '').trim()
+      if (e2eFolder) {
+        getDb()
+          .prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('backup_path', ?)`)
+          .run(e2eFolder)
+        return { success: true, folder: e2eFolder }
+      }
       const result = await dialog.showOpenDialog({
         properties: ['openDirectory', 'createDirectory']
       })
@@ -412,6 +473,49 @@ export function registerBackupHandlers() {
       auditRestore(livePath, session, backupFilePath)
       scheduleRelaunch()
       return { success: true, willRelaunch: true }
+    })
+  )
+
+  ipcMain.handle(
+    'backup:open-folder',
+    wrap(() => {
+      requireOwner()
+      const db = getDb()
+      const folder = getBackupFolder(db)
+      if (!folder) throw new Error('Backup folder not configured')
+      shell.openPath(folder)
+      return { success: true, folder }
+    })
+  )
+
+  ipcMain.handle(
+    'backup:export-logs',
+    wrap(async () => {
+      requireOwner()
+      const identity = getBuildIdentity()
+      const result = await dialog.showSaveDialog({
+        title: 'Save support bundle',
+        defaultPath: `refresh-support-${new Date().toISOString().slice(0, 10)}.txt`,
+        filters: [{ name: 'Text', extensions: ['txt'] }]
+      })
+      if (result.canceled || !result.filePath) {
+        return { success: false, cancelled: true }
+      }
+      const body = [
+        '=== Refresh Manager support bundle ===',
+        `Generated: ${new Date().toISOString()}`,
+        '',
+        '=== Version ===',
+        `Version: ${identity.version}`,
+        `Git SHA: ${identity.gitSha}`,
+        `Build date: ${identity.buildDate}`,
+        `Electron: ${process.versions.electron}`,
+        `Platform: ${process.platform}`,
+        '',
+        readDiagnosticsBundle()
+      ].join('\n')
+      writeFileSync(result.filePath, body, 'utf8')
+      return { success: true, filePath: result.filePath }
     })
   )
 }

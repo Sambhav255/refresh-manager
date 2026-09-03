@@ -8,6 +8,8 @@ const api = {
   setup: (data) => invoke('auth:setup', data),
   login: (data) => invoke('auth:login', data),
   logout: () => invoke('auth:logout'),
+  switchStaffPin: (data) => invoke('auth:switch-staff-pin', data),
+  setCartGuard: (data) => invoke('auth:set-cart-guard', data),
   getSession: () => invoke('auth:get-session'),
   addStaff: (data) => invoke('auth:add-staff', data),
   listStaff: () => invoke('auth:list-staff'),
@@ -17,6 +19,9 @@ const api = {
   listAdmins: () => invoke('auth:list-admins'),
   deactivateAdmin: (data) => invoke('auth:deactivate-admin', data),
   changeAdminPassword: (data) => invoke('auth:change-admin-password', data),
+
+  // Dashboard (owner)
+  getDashboardSummary: (data) => invoke('dashboard:summary', data),
 
   // Transactions
   createTransaction: (data) => invoke('transactions:create', data),
@@ -117,6 +122,8 @@ const api = {
   getBackupStatus: () => invoke('backup:get-status'),
   restoreBackup: (data) => invoke('backup:restore', data),
   pickBackupFolder: () => invoke('backup:pick-folder'),
+  openBackupFolder: () => invoke('backup:open-folder'),
+  exportSupportLogs: () => invoke('backup:export-logs'),
 
   // Reminders
   getExpiringReminders: (data) => invoke('reminders:get-expiring', data),
@@ -153,12 +160,22 @@ const api = {
 
   // Tickets
   printTicket: (data) => invoke('tickets:print', data),
+  printKitchenTicket: (data) => invoke('tickets:print-kitchen', data),
   printMembershipCard: (data) => invoke('tickets:print-membership-card', data),
 
   // Diagnostics
   logDiagnostic: (data) => invoke('diagnostics:log', data),
   getDiagnosticsInfo: () => invoke('diagnostics:get-info'),
   openDiagnosticsFolder: () => invoke('diagnostics:open-folder'),
+  // Updates
+  getUpdateInfo: () => invoke('updates:get-info'),
+  checkForUpdates: () => invoke('updates:check'),
+  downloadUpdate: () => invoke('updates:download'),
+  installDownloadedUpdate: () => invoke('updates:install-downloaded'),
+  pickUpdateInstaller: () => invoke('updates:pick-installer'),
+  installUpdateFromFile: (data) => invoke('updates:install-from-file', data),
+  getChangelog: () => invoke('updates:get-changelog'),
+
 
   // Frameless window: the custom title-bar buttons are the only chrome.
   minimizeWindow: () => invoke('window:minimize'),

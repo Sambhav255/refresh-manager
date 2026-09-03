@@ -76,6 +76,18 @@ export function initDatabase() {
   initSchema(db)
   seedData(db)
 
+  if (existed) {
+    const check = db.pragma('quick_check', { simple: true })
+    if (check !== 'ok') {
+      closeDatabase()
+      const err = new Error(
+        `Database integrity check failed (${check}). Your data file may be corrupt — contact support or restore from a backup.`
+      )
+      err.code = 'DB_CORRUPT'
+      throw err
+    }
+  }
+
   // Snapshot a populated DB before applying any pending migration.
   let snapshotPath = null
   if (existed && fromVersion < SCHEMA_VERSION) {

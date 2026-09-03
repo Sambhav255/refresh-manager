@@ -1,5 +1,6 @@
 import { ipcMain, shell } from 'electron'
 import { getDiagnosticsInfo, writeDiag } from '../diagnostics.js'
+import { getBuildIdentity } from '../build-info.js'
 
 // Bridge for the renderer to record its own errors (window.onerror,
 // unhandledrejection, React error boundaries) into the same diagnostics log as
@@ -13,7 +14,7 @@ export function registerDiagnosticsHandlers() {
 
   ipcMain.handle('diagnostics:get-info', () => {
     const { logDir, logFile } = getDiagnosticsInfo()
-    return { success: true, logDir, logFile }
+    return { success: true, logDir, logFile, ...getBuildIdentity() }
   })
 
   ipcMain.handle('diagnostics:open-folder', () => {

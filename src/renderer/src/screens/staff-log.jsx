@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { fmt, todayLocal, formatDateDisplay } from '../lib/format'
-import { PayBadge, SectionHead, ConfirmDestructive } from '../components/ui'
+import { PayBadge, SectionHead, ConfirmDestructive, EmptyState } from '../components/ui'
 
 // C-4: same reason categories Task 6 (C-8) put on the owner Transactions
 // screen's Void/Refund dialogs — not re-exported from there (it doesn't
@@ -120,6 +120,9 @@ export function TodaysLog() {
   return (
     <div className="content fade-in" style={{ maxWidth: 860, margin: '0 auto' }}>
       <SectionHead title="Today's Log" date={formatDateDisplay(today)} />
+{tx.length === 0 ? (
+        <EmptyState title="No transactions yet today" body="Sales will appear here as staff ring them up." />
+      ) : (
       <table className="tbl">
         <thead>
           <tr>
@@ -129,6 +132,7 @@ export function TodaysLog() {
               Amount
             </th>
             <th style={{ width: 90 }}>Payment</th>
+            <th style={{ width: 110 }}>Staff</th>
             <th style={{ width: 90 }}></th>
           </tr>
         </thead>
@@ -147,6 +151,7 @@ export function TodaysLog() {
               <td>
                 <PayBadge pay={t.pay} />
               </td>
+              <td style={{ color: "var(--text-secondary)" }}>{t.staff || "—"}</td>
               <td>
                 {t.isVoided ? (
                   <span style={{ color: '#ef4444', fontSize: 11 }} title={voidTitle(t)}>
@@ -172,10 +177,11 @@ export function TodaysLog() {
           ))}
         </tbody>
       </table>
-      <div className="tbl-foot">
+      )}
+      {tx.length > 0 && <div className="tbl-foot">
         <span>{tx.length} transactions · today</span>
         <span className="total">Total: {fmt(total)}</span>
-      </div>
+      </div>}
       {voidTx && (
         <ConfirmDestructive
           open

@@ -8,11 +8,16 @@ import { performBackup } from './ipc/backup.js'
 import { expireLapsedMemberships } from './ipc/maintenance.js'
 import { clearSession } from './session.js'
 import { initDiagnostics, logInfo, logError } from './diagnostics.js'
+import { initAutoUpdater } from './ipc/updates.js'
+import {
+  shouldRunCatchupExport,
+  writeDailyExport,
+  markExportDone,
+  markExportFailed
+} from './daily-export.js'
 
 let dbLossReported = false
 
-// P2-2: if the database file is deleted or its disk/USB disconnects at runtime,
-// surface a clear dialog instead of dying silently or freezing.
 function reportDatabaseLoss() {
   if (dbLossReported) return
   dbLossReported = true
@@ -46,15 +51,10 @@ function createWindow() {
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      // Chromium OS sandbox stays ON (Electron default): the preload uses only
-      // contextBridge/ipcRenderer, which are sandbox-compatible.
       sandbox: true
     }
   })
 
-  // Defense in depth: the app is fully local, so no window may ever open a
-  // popup or navigate away from the bundled renderer (external links go
-  // through shell.openExternal in the main process, never the webContents).
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const devUrl = is.dev ? process.env['ELECTRON_RENDERER_URL'] : null
@@ -71,7 +71,6 @@ function createWindow() {
     clearSession()
   })
 
-  // P2-2: lightweight liveness probe when the window regains focus.
   mainWindow.on('focus', () => {
     if (!isDatabaseHealthy()) reportDatabaseLoss()
   })
@@ -91,21 +90,34 @@ function shouldRunCatchupBackup(db) {
   const last = db.prepare(`SELECT value FROM settings WHERE key = 'last_backup_at'`).get()
   if (!last?.value) return true
   const lastDate = last.value.slice(0, 10)
-  // Both sides local. last_backup_at is written with datetime('now','localtime'),
-  // so comparing it against a UTC date meant that between midnight and 05:45 in
-  // Kathmandu a due catch-up backup did not look due yet.
   const today = db.prepare(`SELECT date('now','localtime') AS d`).get().d
   return lastDate < today
 }
 
-function runScheduledBackup() {
+async function runScheduledBackup() {
   try {
     const db = getDb()
     const auto = db.prepare(`SELECT value FROM settings WHERE key = 'backup_auto_enabled'`).get()
     if (auto?.value === 'false') return
-    performBackup({ skipOwnerCheck: true })
+    await performBackup({ skipOwnerCheck: true })
   } catch (err) {
     console.error('Scheduled backup failed:', err.message)
+    logError('backup', err)
+  }
+}
+
+function runCatchupExportIfNeeded() {
+  try {
+    const db = getDb()
+    if (!shouldRunCatchupExport(db)) return
+    const today = db.prepare(`SELECT date('now','localtime') AS d`).get().d
+    const folder = db.prepare(`SELECT value FROM settings WHERE key = 'backup_path'`).get()?.value
+    if (!folder) return
+    writeDailyExport(db, folder, today)
+      .then((p) => markExportDone(db, p))
+      .catch(() => markExportFailed(db))
+  } catch (err) {
+    logError('export', err)
   }
 }
 
@@ -120,29 +132,24 @@ function startBackupScheduler() {
 
   if (shouldRunCatchupBackup(db)) {
     runScheduledBackup()
+  } else {
+    runCatchupExportIfNeeded()
   }
 }
 
-// P1-1: expire lapsed memberships at startup and again just after midnight.
 function startMaintenanceScheduler() {
   expireLapsedMemberships()
   cron.schedule('5 0 * * *', expireLapsedMemberships)
 }
 
 app.whenReady().then(() => {
-  // Start diagnostics first so even database/startup failures are captured to
-  // the on-disk log (there is no visible console in a packaged build).
   initDiagnostics()
-
   electronApp.setAppUserModelId('com.refreshrecreation.manager')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // Bring the DB up to date safely. On any failure, show a clear dialog and
-  // quit cleanly rather than leaving a blank/frozen window — and never proceed
-  // to register handlers or open the app against a bad/absent database.
   try {
     initDatabase()
   } catch (err) {
@@ -159,6 +166,7 @@ app.whenReady().then(() => {
   }
 
   registerAllHandlers()
+  initAutoUpdater()
   startBackupScheduler()
   startMaintenanceScheduler()
   logInfo('app', 'startup complete — handlers registered, database ready')
@@ -166,6 +174,25 @@ app.whenReady().then(() => {
   ipcMain.on('ping', () => console.log('pong'))
 
   createWindow()
+
+  app.on('render-process-gone', () => {
+    logError('renderer', 'Render process gone')
+    dialog
+      .showMessageBox({
+        type: 'warning',
+        title: 'Refresh Manager stopped unexpectedly',
+        message: 'The screen stopped working.',
+        detail: 'Your sales are saved. Click Restart to reopen the app.',
+        buttons: ['Restart', 'Close'],
+        defaultId: 0
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          app.relaunch()
+          app.exit(0)
+        }
+      })
+  })
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -178,8 +205,6 @@ app.on('window-all-closed', () => {
   }
 })
 
-// P2-2: never die silently. If an unexpected error escapes (often a lost DB
-// handle), tell the user how to recover instead of leaving a frozen window.
 function handleFatal(err) {
   logError('uncaught', err)
   console.error('Uncaught error in main process:', err)

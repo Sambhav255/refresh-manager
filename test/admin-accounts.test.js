@@ -105,7 +105,7 @@ describe('multi-admin accounts', () => {
     loginOwner(ids)
     await __invoke('auth:add-admin', { name: 'Admin Two', password: 'secondpass' })
     const backupDir = mkdtempSync(join(tmpdir(), 'refresh-adm-'))
-    const { filePath } = performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
+    const { filePath } = await performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
 
     const wrong = await __invoke('backup:restore', {
       backupFilePath: filePath,

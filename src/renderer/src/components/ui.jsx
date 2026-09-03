@@ -61,6 +61,11 @@ import {
 // itself, the same way it already checks `cartGuard.hasItems`.
 export const rowMenuGuard = { open: false }
 
+// Same pattern as rowMenuGuard: App.jsx's global Escape-to-logout runs at
+// mount, before StaffApp's switch-staff modal exists, so closing the modal has
+// to be gated here rather than relying on listener order.
+export const switchStaffGuard = { open: false }
+
 const ICONS = {
   'alert-triangle': AlertTriangle,
   banknote: Banknote,
@@ -217,7 +222,7 @@ export function Window({ children, onClose }) {
   )
 }
 
-export function AppHeader({ role, session, onLogout }) {
+export function AppHeader({ role, session, onLogout, onSwitchStaff }) {
   const userLabel = session?.name
     ? `${session.name} · ${role === 'staff' ? 'Reception' : 'Admin'}`
     : role === 'staff'
@@ -236,6 +241,11 @@ export function AppHeader({ role, session, onLogout }) {
           <Icon name={role === 'staff' ? 'user' : 'shield'} size={15} color="#bcd4ee" />
           <span>{userLabel}</span>
         </div>
+        {role === 'staff' && onSwitchStaff && (
+          <button className="ghost-btn" onClick={onSwitchStaff}>
+            <Icon name="users" size={14} /> Switch staff
+          </button>
+        )}
         <button className="ghost-btn" onClick={onLogout}>
           <Icon name="log-out" size={14} /> Log out
         </button>

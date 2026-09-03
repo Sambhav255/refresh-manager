@@ -60,21 +60,19 @@ try {
   })
   check('shop seeded for POS test', !!seeded.ok)
 
-  // --- FIX 2: restaurant POS checkout actually completes ---
+  // --- FIX 2: restaurant kitchen checkout actually completes (unified till) ---
   await logout(page)
-  await loginStaff(page)
-  await page.click('text=Restaurant')
-  await page.waitForTimeout(900)
-  await page.click('text=Tea')
+  await loginStaff(page, 'Restaurant')
+  await page.getByText('Tea', { exact: true }).first().click()
   await page.waitForTimeout(400)
   await shot(page, 'verify', '02-pos-cart')
-  await page.click('button:has-text("Confirm order")')
+  await page.locator('.card button:has-text("Charge")').last().click()
   await page.waitForTimeout(1500)
 
   const posErr = await page.locator('.alert.red').count()
   const posBody = await page.locator('.app').innerText()
   check('P0-2 POS checkout shows no error', posErr === 0)
-  check('P0-2 POS reached the saved state', /saved|order/i.test(posBody))
+  check('P0-2 POS reached the saved state', /Sale saved|saved/i.test(posBody))
   await shot(page, 'verify', '03-pos-after-checkout')
 
   const after = await page.evaluate(async () => {

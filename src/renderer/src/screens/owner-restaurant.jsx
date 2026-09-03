@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
 import { fmt } from '../lib/format'
-import { Icon, SectionHead } from '../components/ui'
+import { Icon, SectionHead, EmptyState, Money } from '../components/ui'
 
 // Restaurant stock is measured in kg/litres, so quantities are genuinely
 // fractional — round to 3dp and drop trailing zeros rather than showing whole
@@ -16,6 +16,15 @@ const signedQty = (delta) => (Number(delta) > 0 ? '+' : '') + qtyText(delta)
 const stockText = (item) => `${qtyText(item?.stock)} ${item?.unit || 'pcs'}`
 
 const labelOf = (item) => (item ? item.item : '')
+
+const matchesSearch = (item, query) => {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const hay = [item.item, item.category, item.variant].filter(Boolean).join(' ').toLowerCase()
+  return hay.includes(q)
+}
+
+const stockValueOf = (item) => (Number(item?.stock) || 0) * (Number(item?.price) || 0)
 
 // Anything needing attention floats to the top — out of stock first, then at or
 // below reorder level — so "what do we have left" is the first few rows rather
@@ -64,6 +73,10 @@ export function OwnerRestaurantInventory() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState("")
+  const [editName, setEditName] = useState("")
+  const [editCategory, setEditCategory] = useState("")
   const historyReq = useRef(0)
 
   const closePanels = () => {
@@ -113,6 +126,12 @@ export function OwnerRestaurantInventory() {
     setMode('price')
     setPriceValue(String(item.price ?? 0))
   }
+  const openEdit = (item) => {
+    setError('')
+    setMode('edit')
+    setEditName(item.item || '')
+    setEditCategory(item.category || '')
+  }
   const openAdjust = (item) => {
     setError('')
     setMode('adjust')
@@ -151,7 +170,13 @@ export function OwnerRestaurantInventory() {
   }, [])
 
   const retiredCount = inv.filter((i) => i.retired).length
-  const visible = inv.filter((i) => showRetired || !i.retired).sort(byUrgency)
+  const categories = [...new Set(inv.map((i) => i.category).filter(Boolean))].sort()
+  const visible = inv
+    .filter((i) => showRetired || !i.retired)
+    .filter((i) => !categoryFilter || i.category === categoryFilter)
+    .filter((i) => matchesSearch(i, search))
+    .sort(byUrgency)
+  const totalStockValue = visible.reduce((s, i) => s + stockValueOf(i), 0)
   const target = inv.find((i) => i.id === panelId)
 
   const handleAdd = async () => {
@@ -222,6 +247,21 @@ export function OwnerRestaurantInventory() {
     setError('')
     setAdjustValue('')
     setAdjustReason('')
+    setMode('menu')
+    load()
+  }
+
+  const handleSaveEdit = async () => {
+    if (!target) return
+    const r = await api.updateRestaurantItem({
+      itemId: target.id,
+      fields: { name: editName.trim(), category: editCategory.trim() }
+    })
+    if (r?.success === false) {
+      setError(r.error || 'Could not update item')
+      return
+    }
+    setError('')
     setMode('menu')
     load()
   }
@@ -311,6 +351,25 @@ export function OwnerRestaurantInventory() {
           </div>
         </div>
       ) : (
+        <>
+          <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "center" }}>
+            <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
+              <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", display: "flex" }}>
+                <Icon name="search" size={15} color="#94a3b8" />
+              </span>
+              <input className="input" style={{ paddingLeft: 34 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or category…" />
+            </div>
+            {categories.length > 0 && (
+              <select className="select" style={{ width: 170 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                <option value="">All categories</option>
+                {categories.map((c) => (<option key={c} value={c}>{c}</option>))}
+              </select>
+            )}
+          </div>
+          {visible.length === 0 ? (
+            <EmptyState title="No items match your search" body="Try a different name or category, or clear the filters." />
+          ) : (
+        <>
         <table className="tbl">
           <thead>
             <tr>
@@ -325,7 +384,10 @@ export function OwnerRestaurantInventory() {
               <th className="num" style={{ width: 90 }}>
                 Price
               </th>
-              <th style={{ width: 110 }}>Status</th>
+              <th className="num" style={{ width: 100 }}>
+                Stock value
+              </th>
+              <th style={{ width: 100 }}>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -366,6 +428,7 @@ export function OwnerRestaurantInventory() {
                   {qtyText(r.reorder)}
                 </td>
                 <td className="num">{fmt(r.price)}</td>
+                <td className="num"><Money value={stockValueOf(r)} /></td>
                 <td>
                   <StatusChip item={r} />
                 </td>
@@ -373,6 +436,18 @@ export function OwnerRestaurantInventory() {
             ))}
           </tbody>
         </table>
+              <div className="tbl-foot">
+                <span>
+                  {visible.length} item{visible.length === 1 ? '' : 's'}
+                  {(search || categoryFilter) && ' matching filters'}
+                </span>
+                <span className="total">
+                  Total stock value: <Money value={totalStockValue} />
+                </span>
+              </div>
+        </>
+          )}
+        </>
       )}
       {showAdd && (
         <div className="card" style={{ marginTop: 14, padding: 16 }}>
@@ -459,6 +534,9 @@ export function OwnerRestaurantInventory() {
               <button className={mode === 'price' ? 'on' : ''} onClick={() => openPrice(target)}>
                 Price
               </button>
+              <button className={mode === 'edit' ? 'on' : ''} onClick={() => openEdit(target)}>
+                Edit
+              </button>
               <button
                 className={mode === 'history' ? 'on' : ''}
                 onClick={() => openHistory(target)}
@@ -536,6 +614,23 @@ export function OwnerRestaurantInventory() {
                 <button className="btn btn-ghost" onClick={() => setMode('menu')}>
                   Cancel
                 </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'edit' && (
+            <div>
+              <div className="field">
+                <label>Name</label>
+                <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus />
+              </div>
+              <div className="field">
+                <label>Category</label>
+                <input className="input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" onClick={handleSaveEdit}>Save changes</button>
+                <button className="btn btn-ghost" onClick={() => setMode('menu')}>Cancel</button>
               </div>
             </div>
           )}

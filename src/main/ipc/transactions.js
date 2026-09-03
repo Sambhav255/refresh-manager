@@ -254,12 +254,18 @@ export function registerTransactionHandlers() {
     // Transactions with no lines/payments of their own (refunds, and anything
     // written before the sale model) fall back to their header, so nothing
     // drops out of the totals.
-    wrap(({ source } = {}) => {
-      requireStaffOrOwner()
+    wrap(({ source, staffId } = {}) => {
+      const session = requireStaffOrOwner()
       const today = todayLocal()
       const db = getDb()
-      const filter = source ? ' AND t.source = ?' : ''
+      const effectiveStaffId =
+        staffId != null ? staffId : session.role === 'staff' ? session.userId : null
+      let filter = source ? ' AND t.source = ?' : ''
       const params = source ? [today, source] : [today]
+      if (effectiveStaffId != null) {
+        filter += ' AND t.staff_id = ?'
+        params.push(effectiveStaffId)
+      }
 
       let cash = 0
       let qr = 0

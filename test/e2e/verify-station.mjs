@@ -36,7 +36,15 @@ const signOut = async () => {
 
 const tileTitles = () => page.locator('.tiles .t-title').allInnerTexts()
 const activeTab = () => page.locator('.botnav .tab.active').innerText()
-const onRestaurantPos = () => page.locator('.h1', { hasText: 'Restaurant POS' }).count()
+const onRestaurantTill = async () => {
+  const kitchenActive = await page.locator('.seg button.active:has-text("Kitchen")').count()
+  const chargeBtn = await page.locator('.card button:has-text("Charge")').count()
+  return kitchenActive > 0 || chargeBtn > 0
+}
+const goHome = async () => {
+  await page.locator('.botnav .tab').filter({ hasText: 'Home' }).first().click()
+  await page.waitForTimeout(1500)
+}
 
 const focused = () =>
   page.evaluate(() => {
@@ -92,9 +100,10 @@ try {
   await page.waitForSelector('.botnav', { timeout: 15000 })
   check('Enter activates the focused station option', (await page.locator('.botnav').count()) === 1)
 
-  // ---------- Pool desk: lands on home, no Restaurant POS tile ----------
+  // ---------- Pool desk: lands on New Transaction (unified till), no Restaurant POS tile ----------
   const poolTab = await activeTab()
-  check('Pool desk lands on the pool home', /Home/i.test(poolTab), poolTab)
+  check('Pool desk lands on New Transaction', /New Transaction/i.test(poolTab), poolTab)
+  await goHome()
   let titles = await tileTitles()
   check(
     'the Restaurant POS tile is absent for Pool desk',
@@ -127,7 +136,7 @@ try {
   // ---------- Switching station mid-shift, without logging out ----------
   await page.locator('button.btn').filter({ hasText: 'Restaurant' }).first().click()
   await page.waitForTimeout(1200)
-  check('switching to Restaurant lands on the POS', (await onRestaurantPos()) === 1)
+  check('switching to Restaurant lands on the till', (await onRestaurantTill()))
   const switchedTab = await activeTab()
   check('the bottom nav follows the station', /Restaurant/i.test(switchedTab), switchedTab)
   await shot(page, 'station', '03-switched-to-restaurant')
@@ -155,7 +164,7 @@ try {
     're-login does not ask for the station again',
     (await page.locator('.tiles button.tile').count()) === 0
   )
-  check('re-login lands back on the remembered Restaurant', (await onRestaurantPos()) === 1)
+  check('re-login lands back on the remembered Restaurant till', (await onRestaurantTill()))
 
   // ---------- Space activates too, and a fresh Restaurant pick lands on the POS ----------
   await page.evaluate(() => window.sessionStorage.clear())
@@ -175,8 +184,8 @@ try {
   await page.keyboard.press('Space')
   await page.waitForSelector('.botnav', { timeout: 15000 })
   check(
-    'Space activates the option and Restaurant lands on the POS',
-    (await onRestaurantPos()) === 1
+    'Space activates the option and Restaurant lands on the till',
+    (await onRestaurantTill())
   )
   await shot(page, 'station', '05-restaurant-via-keyboard')
 
@@ -188,10 +197,11 @@ try {
   await loginStaff(page, 'Pool desk')
   await page.waitForTimeout(1200)
   const helperTab = await activeTab()
+  await goHome()
   const helperTitles = await tileTitles()
   check(
     'harness loginStaff() still picks a station',
-    /Home/i.test(helperTab) && !helperTitles.includes('Restaurant POS'),
+    /New Transaction/i.test(helperTab) && !helperTitles.includes('Restaurant POS'),
     `${helperTab} · ${helperTitles.length} tiles`
   )
 

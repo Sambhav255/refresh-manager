@@ -4,6 +4,7 @@ import { is } from '@electron-toolkit/utils'
 import { getDb } from '../db/index.js'
 import { requireStaffOrOwner } from '../session.js'
 import { formatShortDate, formatTime } from './utils.js'
+import { normalizeKitchenItems } from '../kitchen-ticket-format.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -18,6 +19,33 @@ function wrap(handler) {
 function getSetting(key, fallback = '') {
   const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key)
   return row?.value || fallback
+}
+
+async function printHiddenHtml(ticketHtml, params, opts) {
+  const ticketWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      sandbox: true
+    }
+  })
+
+  await ticketWindow.loadFile(ticketHtml, {
+    search: params.toString()
+  })
+
+  return new Promise((resolve) => {
+    ticketWindow.webContents.print(opts, (success, failureReason) => {
+      ticketWindow.close()
+      if (success) {
+        resolve({ success: true })
+      } else {
+        resolve({
+          success: false,
+          error: failureReason || 'No printer connected. Check printer in Settings.'
+        })
+      }
+    })
+  })
 }
 
 // 3-D: reception desks commonly use 58mm / 80mm thermal roll printers. Build
@@ -71,34 +99,41 @@ export function registerTicketHandlers() {
         phone: getSetting('business_phone', '+977 9801010422')
       })
 
-      const ticketWindow = new BrowserWindow({
-        show: false,
-        webPreferences: {
-          sandbox: true
-        }
-      })
-
       const ticketHtml = is.dev
         ? join(__dirname, '../../src/renderer/ticket.html')
         : join(__dirname, '../renderer/ticket.html')
 
-      await ticketWindow.loadFile(ticketHtml, {
-        search: params.toString()
+      return printHiddenHtml(ticketHtml, params, opts)
+    })
+  )
+
+
+  ipcMain.handle(
+    'tickets:print-kitchen',
+    wrap(async ({ transactionId, customerName, items, datetime }) => {
+      requireStaffOrOwner()
+
+      const kitchenItems = normalizeKitchenItems(items)
+      const dt = datetime || getDb().prepare(`SELECT datetime('now','localtime') AS n`).get().n
+      const datePart = dt.includes('T') ? dt.slice(0, 10) : dt.slice(0, 10)
+      const timePart = formatTime(dt.replace('T', ' ').slice(0, 19))
+
+      const { opts, width } = receiptPrintOptions()
+      const params = new URLSearchParams({
+        id: String(transactionId || ''),
+        customerName: customerName || '',
+        date: formatShortDate(datePart),
+        time: timePart,
+        w: width,
+        address: getSetting('business_address', 'Nayabasti, Boudha, Kathmandu'),
+        items: JSON.stringify(kitchenItems)
       })
 
-      return new Promise((resolve) => {
-        ticketWindow.webContents.print(opts, (success, failureReason) => {
-          ticketWindow.close()
-          if (success) {
-            resolve({ success: true })
-          } else {
-            resolve({
-              success: false,
-              error: failureReason || 'No printer connected. Check printer in Settings.'
-            })
-          }
-        })
-      })
+      const ticketHtml = is.dev
+        ? join(__dirname, '../../src/renderer/kitchen-ticket.html')
+        : join(__dirname, '../renderer/kitchen-ticket.html')
+
+      return printHiddenHtml(ticketHtml, params, opts)
     })
   )
 

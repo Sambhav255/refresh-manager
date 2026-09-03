@@ -7,8 +7,14 @@ Do this on the reception PC after installing the .exe.
 1. Run Refresh Manager from the desktop shortcut
 2. Setup wizard appears
 3. Enter admin name and a strong password (write it down and keep it safe)
-4. Enter first staff member name and a 4-digit PIN
-5. Click Complete setup — admin dashboard opens
+4. Enter first staff member name
+5. **Pick a backup folder** (required) — use a USB drive or a folder that syncs to
+   Google Drive. Daily database copies (`.rmbak` or `.db`) and a daily Excel export
+   are written here automatically once auto-backup is enabled.
+6. Enter a 4-digit PIN for the first staff member
+7. Click Complete setup — admin dashboard opens
+
+> Day-to-day install, backup, update, and restore steps: [`docs/OWNER_RUNBOOK.md`](docs/OWNER_RUNBOOK.md)
 
 ## Configure before first real transaction
 
@@ -28,8 +34,16 @@ Enter the admin's WhatsApp number in international format: 9779801010422
 
 ### Settings → Backup settings
 
-Set a backup folder — recommended: a USB drive or a folder that syncs to Google Drive.
-Enable auto-backup (daily).
+Confirm the backup folder from setup (change it here if the USB path moved).
+Enable auto-backup (daily). With auto-backup on, the app writes a database copy
+(`.rmbak` when encryption is configured, otherwise `.db`) and a daily Excel export
+to that folder.
+
+### Settings → About & updates
+
+Check for updates from GitHub (**Check for updates**), or install a supplier-provided
+`.exe` with **Install from file**. Log out staff and finish End of Day before
+installing — the screen warns if a staff session is still active.
 
 ### Settings → Business info
 

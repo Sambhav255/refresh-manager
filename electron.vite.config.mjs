@@ -2,11 +2,17 @@ import { resolve } from 'path'
 import { copyFileSync } from 'fs'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import { viteDefine } from './scripts/build-info.mjs'
 
 export default defineConfig({
-  main: {},
-  preload: {},
+  main: {
+    define: viteDefine()
+  },
+  preload: {
+    define: viteDefine()
+  },
   renderer: {
+    define: viteDefine(),
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src')
@@ -21,6 +27,10 @@ export default defineConfig({
           copyFileSync(
             resolve('src/renderer/membership-card.html'),
             resolve('out/renderer/membership-card.html')
+          )
+          copyFileSync(
+            resolve('src/renderer/kitchen-ticket.html'),
+            resolve('out/renderer/kitchen-ticket.html')
           )
         }
       }

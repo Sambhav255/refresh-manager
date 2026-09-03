@@ -3,51 +3,42 @@ import { api } from '../lib/api'
 import { fmt, todayLocal, formatDateDisplay } from '../lib/format'
 import { Icon, PayBadge, SectionHead } from '../components/ui'
 
+function formatChange(percent) {
+  if (percent == null) return 'new vs prior'
+  if (percent === 0) return 'same as prior'
+  const sign = percent > 0 ? '+' : ''
+  return `${sign}${percent}% vs prior`
+}
+
 export function OwnerDashboard({ go }) {
-  const [pool, setPool] = useState(null)
-  const [restaurant, setRestaurant] = useState(null)
-  const [combined, setCombined] = useState(null)
+  const [selectedDate, setSelectedDate] = useState(todayLocal())
+  const [summary, setSummary] = useState(null)
   const [tx, setTx] = useState([])
   const [bookings, setBookings] = useState([])
-  // C-6: the "Upcoming bookings" widget only ever shows the first 3 (see the
-  // .slice below) — but the alert line's count must reflect the TRUE total,
-  // not the display list it was accidentally reading `.length` off of, or the
-  // dashboard silently under-reports past 3 while staff Home (which never
-  // slices) shows the real number.
   const [bookingsTotal, setBookingsTotal] = useState(0)
   const [lowStock, setLowStock] = useState([])
   const [expiring, setExpiring] = useState([])
   const [reminders, setReminders] = useState([])
   const [backupStatus, setBackupStatus] = useState(null)
   const [backupStale, setBackupStale] = useState(false)
-  const [footfall, setFootfall] = useState(0)
-  // Prevention, not a fault: without a recovery code a forgotten admin
-  // password can only be undone by editing the database by hand.
   const [needsRecoveryCode, setNeedsRecoveryCode] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const today = todayLocal()
+
+  const isToday = selectedDate === todayLocal()
 
   const loadData = useCallback(() => {
     return Promise.all([
-      api.todaySummary({ source: 'pool' }),
-      api.todaySummary({ source: 'restaurant' }),
-      api.todaySummary(),
-      api.listTransactions({ dateFrom: today, dateTo: today }),
+      api.getDashboardSummary({ date: selectedDate }),
+      api.listTransactions({ dateFrom: selectedDate, dateTo: selectedDate }),
       api.upcomingBookings({ days: 14 }),
       api.poolLowStock(),
-      // Omit `days` so both handlers fall back to the expiry_warning_days
-      // setting, which the Members screen already honours. Hardcoding 5 made
-      // the two screens disagree about who is expiring.
       api.expiringSoon({}),
       api.getExpiringReminders({}),
       api.getBackupStatus(),
-      api.getTodayCheckins(),
       api.hasRecoveryCode()
-    ]).then(([p, r, c, t, b, l, e, rem, bk, ci, rc]) => {
-      setPool(p)
-      setRestaurant(r)
-      setCombined(c)
+    ]).then(([s, t, b, l, e, rem, bk, rc]) => {
+      setSummary(s)
       setTx((t.transactions || []).slice(0, 5))
       const upcoming = b.bookings || []
       setBookings(upcoming.slice(0, 3))
@@ -56,24 +47,20 @@ export function OwnerDashboard({ go }) {
       setExpiring(e.members || [])
       setReminders(rem.members || [])
       setBackupStatus(bk)
-      // 6-C: compute staleness once at load (avoids an impure Date.now in render).
       const lastBk = bk?.lastBackupAt
       setBackupStale(
         !lastBk || Date.now() - Date.parse(String(lastBk).replace(' ', 'T')) > 36 * 3600 * 1000
       )
-      setFootfall(ci.count || 0)
-      // Only prompt on a definite "no". A failed call must not nag.
       setNeedsRecoveryCode(rc?.exists === false)
       setLoading(false)
     })
-  }, [today])
+  }, [selectedDate])
 
   useEffect(() => {
+    setLoading(true)
     loadData()
   }, [loadData])
 
-  // Manual refresh — keeps current data on screen (no flash back to the
-  // loading placeholder) while fresh numbers are fetched.
   const refresh = async () => {
     if (refreshing) return
     setRefreshing(true)
@@ -86,45 +73,50 @@ export function OwnerDashboard({ go }) {
 
   const kpis = [
     {
-      label: 'Pool revenue',
-      value: fmt(pool?.total),
-      sub: (pool?.count || 0) + ' transactions',
-      tone: 'muted'
-    },
-    {
-      label: 'Restaurant',
-      value: fmt(restaurant?.total),
-      sub: (restaurant?.count || 0) + ' transactions',
-      tone: 'muted'
-    },
-    {
-      label: 'Combined today',
-      value: fmt(combined?.total),
-      sub: 'Cash ' + fmt(combined?.cash),
+      label: isToday ? 'Paid today' : 'Paid',
+      value: fmt(summary?.todayPaid),
+      sub: `Cash ${fmt(summary?.todayPaidCash)} · QR ${fmt(summary?.todayPaidQr)}`,
       tone: 'pos'
     },
     {
-      label: 'QR today',
-      value: fmt(combined?.qr),
-      sub: (combined?.count || 0) + ' total txns',
+      label: isToday ? 'Unpaid today' : 'Unpaid',
+      value: fmt(summary?.todayUnpaid),
+      sub: 'part-paid sales',
+      tone: summary?.todayUnpaid > 0 ? 'warn' : 'muted'
+    },
+    {
+      label: 'Dues',
+      value: fmt(summary?.dues),
+      sub: `Sales ${fmt(summary?.salesOutstanding)} · Bookings ${fmt(summary?.bookingBalanceDue)}`,
+      tone: summary?.dues > 0 ? 'warn' : 'muted'
+    },
+    {
+      label: isToday ? 'Discounts today' : 'Discounts',
+      value: fmt(summary?.discountsToday),
+      sub: 'line discounts',
       tone: 'muted'
     },
     {
-      label: 'Footfall today',
-      value: String(footfall),
-      sub: 'check-ins + day passes',
+      label: 'Week vs last week',
+      value: fmt(summary?.week?.total),
+      sub: formatChange(summary?.week?.changePercent),
+      tone: 'muted'
+    },
+    {
+      label: 'Month vs last month',
+      value: fmt(summary?.month?.total),
+      sub: formatChange(summary?.month?.changePercent),
+      tone: 'muted'
+    },
+    {
+      label: 'Stock value',
+      value: fmt(summary?.stock?.total),
+      sub: `Pool ${fmt(summary?.stock?.pool)} · Kitchen ${fmt(summary?.stock?.kitchen)}`,
       tone: 'muted'
     }
   ]
 
   const alerts = []
-  // C-7 Part C: this used to be a "Send next reminder (N left)" button that
-  // opened one WhatsApp chat at a time from the dashboard. That one-at-a-time
-  // interaction was flagged as strange (H-C7) — the fix in scope for this task
-  // is a plain navigate to Members, pre-filtered to the rows that need a
-  // renewal (Expiring soon + Expired), where the real per-row Send
-  // reminder/Renew actions already live. A bulk-send UI with a
-  // checkbox/message-preview flow is a larger feature and out of scope here.
   if (reminders.length)
     alerts.push({
       c: 'amber',
@@ -143,7 +135,24 @@ export function OwnerDashboard({ go }) {
       goTo: 'members',
       filter: 'Needs renewal'
     })
-  // 6-C: flag a stale backup (no success in >36h) so it's noticed early.
+  if (backupStatus?.lastExcelStatus === 'failed')
+    alerts.push({
+      c: 'red',
+      icon: 'sheet',
+      t: 'Daily Excel export failed',
+      d: 'Check backup folder permissions and settings',
+      goTo: 'settings'
+    })
+  else if (backupStatus?.excelStale)
+    alerts.push({
+      c: 'red',
+      icon: 'sheet',
+      t: 'Daily Excel export is stale',
+      d: backupStatus?.lastExcelAt
+        ? 'Last success: ' + backupStatus.lastExcelAt
+        : 'No successful export yet — check backup settings',
+      goTo: 'settings'
+    })
   const lastBk = backupStatus?.lastBackupAt
   if (backupStatus?.status === 'failed')
     alerts.push({
@@ -181,8 +190,6 @@ export function OwnerDashboard({ go }) {
       goTo: 'inventory'
     })
   }
-  // Amber, not red, and last among the warnings: nothing is broken, but the
-  // day this matters is the day nobody can get in to fix it.
   if (needsRecoveryCode)
     alerts.push({
       c: 'amber',
@@ -190,6 +197,14 @@ export function OwnerDashboard({ go }) {
       t: 'No recovery code set',
       d: 'Set one up so a forgotten admin password never locks you out',
       goTo: 'settings'
+    })
+  if (summary?.bookingDepositsOutstanding?.count > 0)
+    alerts.push({
+      c: 'amber',
+      icon: 'calendar-days',
+      t: summary.bookingDepositsOutstanding.count + ' bookings with deposits due',
+      d: fmt(summary.bookingDepositsOutstanding.sum) + ' outstanding',
+      goTo: 'bookings'
     })
   if (bookingsTotal)
     alerts.push({
@@ -212,10 +227,17 @@ export function OwnerDashboard({ go }) {
 
   return (
     <div className="content fade-in">
-      <SectionHead title="Dashboard" date={formatDateDisplay(today)}>
+      <SectionHead title="Dashboard" date={formatDateDisplay(selectedDate)}>
+        <input
+          type="date"
+          className="input"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          style={{ padding: '6px 10px', fontSize: 12 }}
+        />
         <button
           className="btn btn-ghost"
-          style={{ padding: '6px 12px', fontSize: 12 }}
+          style={{ padding: '6px 10px', fontSize: 12 }}
           disabled={refreshing}
           onClick={refresh}
         >
@@ -223,7 +245,12 @@ export function OwnerDashboard({ go }) {
         </button>
       </SectionHead>
       <div
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 18 }}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+          gap: 14,
+          marginBottom: 18
+        }}
       >
         {kpis.map((k) => (
           <div key={k.label} className="metric">
@@ -239,7 +266,11 @@ export function OwnerDashboard({ go }) {
             <div style={{ fontSize: 14, fontWeight: 500 }}>Recent transactions</div>
           </div>
           {tx.length === 0 ? (
-            <div className="sub">No transactions recorded yet today.</div>
+            <div className="sub">
+              {isToday
+                ? 'No transactions recorded yet today.'
+                : 'No transactions recorded for this date.'}
+            </div>
           ) : (
             <table className="tbl">
               <thead>
@@ -273,8 +304,6 @@ export function OwnerDashboard({ go }) {
             </table>
           )}
           <div className="tbl-foot">
-            {/* This total covers the rows shown (top 5), not the whole day —
-                label it as such so it is not misread as today's takings. */}
             <span>{tx.length} most recent</span>
             <span className="total">Total of shown: {fmt(total)}</span>
           </div>
@@ -298,8 +327,6 @@ export function OwnerDashboard({ go }) {
           <div style={{ fontSize: 14, fontWeight: 500, marginBottom: -1 }}>Alerts</div>
           {alerts.length ? (
             alerts.map((a) => (
-              // Alerts that name a problem elsewhere now navigate to it —
-              // "13 items low stock" used to be a dead end.
               <div
                 key={a.t}
                 className={'alert ' + a.c}

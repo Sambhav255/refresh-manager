@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Window, WaveMark, Icon, AppHeader, SectionHead, rowMenuGuard } from './components/ui'
+import { Window, WaveMark, Icon, AppHeader, SectionHead, rowMenuGuard, switchStaffGuard } from './components/ui'
 import { ScreenErrorBoundary } from './components/ScreenErrorBoundary'
 import { api } from './lib/api'
 import {
@@ -32,6 +32,7 @@ function SetupWizard({ onDone }) {
   const [confirm, setConfirm] = useState('')
   const [staffName, setStaffName] = useState('')
   const [staffPin, setStaffPin] = useState('')
+  const [backupPath, setBackupPath] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const setupInFlight = useRef(false)
@@ -43,8 +44,8 @@ function SetupWizard({ onDone }) {
     setError('')
     // Check required fields FIRST — on a blank form '' === '' passed the
     // password comparison vacuously and the user was told the PIN was wrong.
-    if (!ownerName.trim() || !password || !staffName.trim() || !staffPin) {
-      setError('All fields are required')
+    if (!ownerName.trim() || !password || !staffName.trim() || !staffPin || !backupPath.trim()) {
+      setError('All fields are required, including a backup folder')
       return
     }
     if (password !== confirm) {
@@ -65,7 +66,8 @@ function SetupWizard({ onDone }) {
       ownerName: ownerName.trim(),
       password,
       staffName: staffName.trim(),
-      staffPin
+      staffPin,
+      backupPath: backupPath.trim()
     })
     setupInFlight.current = false
     setLoading(false)
@@ -139,6 +141,27 @@ function SetupWizard({ onDone }) {
             onKeyDown={onEnter}
             maxLength={60}
           />
+        </div>
+        <div className="field">
+          <label>Backup folder (required)</label>
+          <div className="sub" style={{ marginBottom: 6, fontSize: 11.5 }}>
+            Choose a USB drive or folder where daily copies of your data will be saved.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input className="input" readOnly value={backupPath || "Not selected"} />
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={loading}
+              onClick={async () => {
+                const r = await api.pickBackupFolder()
+                if (r?.success && r.folder) setBackupPath(r.folder)
+                else if (!r?.cancelled) setError(r?.error || "Could not pick folder")
+              }}
+            >
+              Browse
+            </button>
+          </div>
         </div>
         <div className="field">
           <label>Staff PIN (4 digits)</label>
@@ -743,6 +766,12 @@ const STATIONS = {
 // Per-user and per-window: two people sharing a machine each keep their own
 // station across a logout, and closing the app clears it so a workstation that
 // gets moved does not silently keep yesterday's role. No schema change.
+function resolveStaffTab(stationKey, unifiedTill) {
+  if (!stationKey || !STATIONS[stationKey]) return 'home'
+  if (unifiedTill && stationKey === 'pool') return 'new'
+  return STATIONS[stationKey].landing
+}
+
 const stationKey = (userId) => `refresh.station.${userId ?? 'anon'}`
 function readStation(userId) {
   try {
@@ -813,9 +842,34 @@ function parseUnifiedTill(settings) {
   return settings?.unified_till === '1'
 }
 
-function StaffApp({ session, onLogout, unifiedTill }) {
+function StaffApp({ session, onLogout, onSessionChange, unifiedTill }) {
   const [station, setStation] = useState(() => readStation(session?.userId))
-  const [tab, setTab] = useState(() => STATIONS[readStation(session?.userId)]?.landing || 'home')
+  const [tab, setTab] = useState(() =>
+    resolveStaffTab(readStation(session?.userId), unifiedTill)
+  )
+  const [switchOpen, setSwitchOpen] = useState(false)
+  const [switchPin, setSwitchPin] = useState('')
+  const [switchError, setSwitchError] = useState('')
+  const [switchLoading, setSwitchLoading] = useState(false)
+  const switchInFlight = useRef(false)
+  const switchPinRef = useRef(null)
+
+  useEffect(() => {
+    switchStaffGuard.open = switchOpen
+    if (!switchOpen) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setSwitchOpen(false)
+        setSwitchPin('')
+        setSwitchError('')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      switchStaffGuard.open = false
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [switchOpen])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -838,7 +892,41 @@ function StaffApp({ session, onLogout, unifiedTill }) {
   const chooseStation = (next) => {
     setStation(next)
     writeStation(session?.userId, next)
-    setTab(STATIONS[next].landing)
+    setTab(resolveStaffTab(next, unifiedTill))
+  }
+
+  const openSwitchStaff = () => {
+    if (cartGuard.hasItems) {
+      setSwitchError('Finish or clear the current sale before switching staff')
+      setSwitchOpen(true)
+      return
+    }
+    setSwitchError('')
+    setSwitchPin('')
+    setSwitchOpen(true)
+  }
+
+  const submitSwitchStaff = async (pinValue = switchPin) => {
+    if (switchLoading || switchInFlight.current) return
+    if (cartGuard.hasItems) {
+      setSwitchError('Finish or clear the current sale before switching staff')
+      return
+    }
+    switchInFlight.current = true
+    setSwitchError('')
+    setSwitchLoading(true)
+    const result = await api.switchStaffPin({ pin: pinValue })
+    switchInFlight.current = false
+    setSwitchLoading(false)
+    if (result?.success === false) {
+      setSwitchError(result.error || 'Could not switch staff')
+      setSwitchPin('')
+      switchPinRef.current?.focus()
+      return
+    }
+    setSwitchOpen(false)
+    setSwitchPin('')
+    onSessionChange?.(result.user)
   }
 
   if (!station)
@@ -847,7 +935,14 @@ function StaffApp({ session, onLogout, unifiedTill }) {
   const tabs = STATIONS[station].tabs
   let screen
   if (tab === 'home')
-    screen = <StaffHome key="home" go={setTab} hiddenTiles={STATIONS[station].hiddenTiles} />
+    screen = (
+      <StaffHome
+        key="home"
+        go={setTab}
+        hiddenTiles={STATIONS[station].hiddenTiles}
+        quietSummary={unifiedTill}
+      />
+    )
   else if (tab === 'new')
     screen = unifiedTill ? (
       <StaffTill
@@ -897,7 +992,58 @@ function StaffApp({ session, onLogout, unifiedTill }) {
     // unscoped .btn/.seg rules. See app.css for the rule and why it's a
     // single scoped floor rather than dozens of per-button edits.
     <div className="app app-staff">
-      <AppHeader role="staff" session={session} onLogout={onLogout} />
+      <AppHeader
+        role="staff"
+        session={session}
+        onLogout={onLogout}
+        onSwitchStaff={openSwitchStaff}
+      />
+      {switchOpen && (
+        <Modal
+          title="Switch staff"
+          onClose={() => {
+            setSwitchOpen(false)
+            setSwitchPin('')
+            setSwitchError('')
+          }}
+        >
+          <div className="sub" style={{ marginBottom: 10 }}>
+            Enter the next staff member PIN. You stay signed in — no sale is lost.
+          </div>
+          <div className="field">
+            <label>4-digit PIN</label>
+            <input
+              ref={switchPinRef}
+              className="input"
+              type="password"
+              inputMode="numeric"
+              value={switchPin}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '').slice(0, 4)
+                setSwitchPin(digits)
+                if (digits.length === 4) submitSwitchStaff(digits)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitSwitchStaff()
+              }}
+              maxLength={4}
+              autoFocus
+            />
+          </div>
+          {switchError && (
+            <div className="alert red" style={{ marginBottom: 10 }}>
+              <div className="a-desc">{switchError}</div>
+            </div>
+          )}
+          <button
+            className="btn btn-primary btn-block"
+            disabled={switchLoading}
+            onClick={() => submitSwitchStaff()}
+          >
+            {switchLoading ? 'Switching…' : 'Switch'}
+          </button>
+        </Modal>
+      )}
       <div className="body-wrap">
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div
@@ -940,6 +1086,60 @@ function StaffApp({ session, onLogout, unifiedTill }) {
   )
 }
 
+
+function semverGt(a, b) {
+  if (!a) return false
+  if (!b) return true
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0
+    const nb = pb[i] || 0
+    if (na > nb) return true
+    if (na < nb) return false
+  }
+  return false
+}
+
+function WhatsNewDialog({ onDismiss }) {
+  const [changelog, setChangelog] = useState('')
+
+  useEffect(() => {
+    api.getChangelog().then((r) => setChangelog(r?.content || '# No release notes available.'))
+  }, [])
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,.35)',
+        display: 'grid',
+        placeItems: 'center',
+        zIndex: 50
+      }}
+      onClick={onDismiss}
+    >
+      <div
+        className="card scale-in"
+        style={{ width: 520, maxHeight: '80vh', padding: 20, overflow: 'auto' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 500 }}>What&apos;s new</div>
+          <button className="btn btn-ghost" style={{ padding: 4 }} onClick={onDismiss}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+        <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: 0 }}>{changelog}</pre>
+        <button className="btn btn-primary btn-block" style={{ marginTop: 16 }} onClick={onDismiss}>
+          Got it
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function OwnerApp({ session, onLogout, unifiedTill }) {
   void unifiedTill
   const [tab, setTab] = useState('dashboard')
@@ -949,6 +1149,7 @@ function OwnerApp({ session, onLogout, unifiedTill }) {
   // reminder buttons, pre-filtered to the rows that actually need one —
   // membersFilter carries that one-shot filter across the tab switch.
   const [membersFilter, setMembersFilter] = useState('')
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const goOwner = (t, filter) => {
     if (t === 'members') setMembersFilter(filter || '')
     setTab(t)
@@ -957,6 +1158,28 @@ function OwnerApp({ session, onLogout, unifiedTill }) {
     setMembersFilter('')
     setTab(k)
   }
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const [info, settings] = await Promise.all([api.getUpdateInfo(), api.getSettings()])
+      if (cancelled) return
+      const current = info?.version
+      const lastSeen = settings?.settings?.last_seen_version
+      if (semverGt(current, lastSeen)) setWhatsNewOpen(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const dismissWhatsNew = async () => {
+    const info = await api.getUpdateInfo()
+    if (info?.version) {
+      await api.setSetting({ key: 'last_seen_version', value: info.version })
+    }
+    setWhatsNewOpen(false)
+  }
+
   const nav = [
     { k: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
     { k: 'transactions', icon: 'receipt-text', label: 'Transactions' },
@@ -982,6 +1205,7 @@ function OwnerApp({ session, onLogout, unifiedTill }) {
   return (
     <div className="app">
       <AppHeader role="owner" session={session} onLogout={onLogout} />
+      {whatsNewOpen && <WhatsNewDialog onDismiss={dismissWhatsNew} />}
       <div className="body-wrap">
         <div className="sidebar">
           {nav.map((n) => (
@@ -1060,6 +1284,7 @@ export default function App() {
         // so it always runs before the row menu's own Escape handler — an
         // Escape meant only to close the menu must not also log out.
         if (rowMenuGuard.open) return
+        if (switchStaffGuard.open) return
         await api.logout()
         setSession(null)
         setView('login')
@@ -1112,7 +1337,13 @@ export default function App() {
       {view === 'setup' && <SetupWizard onDone={handleLogin} />}
       {view === 'login' && <Login onLogin={handleLogin} />}
       {view === 'staff' && (
-        <StaffApp key="staff" session={session} onLogout={handleLogout} unifiedTill={unifiedTill} />
+        <StaffApp
+          key="staff"
+          session={session}
+          onLogout={handleLogout}
+          onSessionChange={setSession}
+          unifiedTill={unifiedTill}
+        />
       )}
       {view === 'owner' && (
         <OwnerApp key="owner" session={session} onLogout={handleLogout} unifiedTill={unifiedTill} />

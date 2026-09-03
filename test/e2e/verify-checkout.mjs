@@ -10,7 +10,7 @@
 //   * a part payment leaves the right balance behind;
 //   * the two-step membership picker still files exactly one member;
 //   * the member photo step is gone and Day Pass / Day Package are renamed.
-import { launchApp, completeSetup, loginStaff, shot, seedShop, enableUnifiedTill } from './harness.mjs'
+import { launchApp, completeSetup, logout, loginStaff, shot, seedShop } from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'checkout' })
 const results = []
@@ -56,7 +56,7 @@ try {
   // Goggles 250 with 20 in stock.
   const ids = await seedShop(page)
 
-  await enableUnifiedTill(page)
+  await logout(page)
   await loginStaff(page)
 
   // ---------- Renaming: no more "what's the difference?" ----------

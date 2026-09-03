@@ -11,10 +11,13 @@ beforeEach(() => {
 })
 
 describe('unified_till owner setting', () => {
-  it('defaults off — unified_till is absent until an owner sets it', async () => {
+  // Fresh installs get unified_till=1 from seed.js. Existing databases that
+  // upgraded before this default was added keep their prior value (absent or
+  // owner-chosen) — seedData is a one-time no-op once `seeded` is set.
+  it('defaults on for new installs — unified_till is 1 from seed', async () => {
     loginOwner(ids)
     const res = await __invoke('settings:get-all', {})
-    expect(res.settings.unified_till).toBeUndefined()
+    expect(res.settings.unified_till).toBe('1')
   })
 
   it('owner can persist unified_till=1 via settings:set and read it back', async () => {

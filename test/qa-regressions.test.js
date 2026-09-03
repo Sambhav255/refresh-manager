@@ -231,8 +231,10 @@ describe('QA P1-5 — shared transaction-type breakdown contract', () => {
 // ---------------------------------------------------------------------------
 describe('QA P1-8 — auth:setup trims, caps, and is idempotent', () => {
   // These need an EMPTY users table, so they do not use seed().
+  let setupBackupDir
   beforeEach(() => {
     db = freshDb()
+    setupBackupDir = mkdtempSync(join(tmpdir(), 'refresh-setup-'))
   })
 
   it('stores trimmed names and the trimmed name logs in', async () => {
@@ -240,7 +242,8 @@ describe('QA P1-8 — auth:setup trims, caps, and is idempotent', () => {
       ownerName: '  Sambhav  ',
       password: 'refresh2024',
       staffName: '  Reception  ',
-      staffPin: '4821'
+      staffPin: '4821',
+      backupPath: setupBackupDir
     })
     expect(setup.success).toBe(true)
     expect(setup.user.name).toBe('Sambhav')
@@ -280,7 +283,8 @@ describe('QA P1-8 — auth:setup trims, caps, and is idempotent', () => {
       ownerName: 'Owner',
       password: 'refresh2024',
       staffName: 'Staff',
-      staffPin: '4821'
+      staffPin: '4821',
+      backupPath: setupBackupDir
     })
     const again = await __invoke('auth:setup', {
       ownerName: 'Owner2',
@@ -298,7 +302,8 @@ describe('QA P1-8 — auth:setup trims, caps, and is idempotent', () => {
       ownerName: 'Owner',
       password: 'refresh2024',
       staffName: 'Staff',
-      staffPin: '4821'
+      staffPin: '4821',
+      backupPath: setupBackupDir
     }
     const [a, b] = await Promise.all([
       __invoke('auth:setup', payload),
@@ -319,10 +324,10 @@ describe('QA P1-8 — auth:setup trims, caps, and is idempotent', () => {
 // staleness alert fired ~5h45m early).
 // ---------------------------------------------------------------------------
 describe('QA P2 — last_backup_at uses local time like the rest of the schema', () => {
-  it('a fresh backup timestamp is within a minute of local now', () => {
+  it('a fresh backup timestamp is within a minute of local now', async () => {
     loginOwner(ids)
     const dest = mkdtempSync(join(tmpdir(), 'refresh-bk-'))
-    performBackup({ destinationPath: dest, skipOwnerCheck: true })
+    await performBackup({ destinationPath: dest, skipOwnerCheck: true })
 
     const stamp = db.prepare(`SELECT value FROM settings WHERE key = 'last_backup_at'`).get().value
     const localNow = db.prepare(`SELECT datetime('now','localtime') AS n`).get().n

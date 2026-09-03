@@ -1,6 +1,6 @@
 {
   "name": "refresh-manager",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "An Electron application with React",
   "main": "./out/main/index.js",
   "author": "Refresh Recreation Center",
@@ -20,6 +20,9 @@
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win --publish never",
+    "build:win:publish": "npm run build && electron-builder --win --publish always",
+    "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
+    "test:e2e": "npm run rebuild:electron && for f in test/e2e/verify-*.mjs test/e2e/sweep-*.mjs; do node $f || exit 1; done",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux"
   },
@@ -33,6 +36,7 @@
     "@electron-toolkit/utils": "^4.0.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
+    "electron-updater": "^6.6.2",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.17.0",
     "node-cron": "^4.2.1",

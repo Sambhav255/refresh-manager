@@ -39,6 +39,7 @@ function mapRestaurantItem(row) {
     reorder_level: row.reorder_level,
     price: row.selling_price,
     selling_price: row.selling_price,
+    unit_cost: row.unit_cost || 0,
     isActive: !retired,
     retired,
     low

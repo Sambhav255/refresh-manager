@@ -1,6 +1,11 @@
 appId: com.refreshrecreation.manager
 productName: Refresh Manager
 copyright: Refresh Recreation Center Pvt. Ltd.
+publish:
+  provider: github
+  owner: Sambhav255
+  repo: refresh-manager-updates
+  releaseType: release
 directories:
   buildResources: build
   output: dist-app
@@ -22,6 +27,8 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
   artifactName: ${productName}-${version}-setup.${ext}
   shortcutName: Refresh Manager
   uninstallDisplayName: Refresh Manager

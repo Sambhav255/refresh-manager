@@ -5,7 +5,7 @@
 // owner can SEE what will be charged, including the part that surprises them:
 // with only an adult/child pair, a Saturday-for-everyone rate does not reach
 // adults, because a rate for an age group beats a rate for a day.
-import { launchApp, completeSetup, logout, loginOwner, shot, seedShop } from './harness.mjs'
+import { launchApp, completeSetup, logout, loginOwner, ownerTab, shot, seedShop } from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'pricing' })
 const results = []
@@ -13,10 +13,7 @@ const check = (name, ok, detail = '') => {
   results.push({ name, ok })
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`)
 }
-const tab = async (label) => {
-  await page.click(`.nav-item:has-text("${label}")`)
-  await page.waitForTimeout(700)
-}
+const tab = async (label) => ownerTab(page, label)
 
 const PRODUCT = 'Pool Day Pass'
 const group = (name) => page.locator('tbody.price-group').filter({ hasText: name })

@@ -132,6 +132,7 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
   const [partAmount, setPartAmount] = useState('')
   const [saved, setSaved] = useState(false)
   const [savedTxn, setSavedTxn] = useState(null)
+  const [printingKitchen, setPrintingKitchen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -156,12 +157,15 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
   const isMember = tab === 'member'
 
   useEffect(() => {
-    cartGuard.hasItems = cart.length > 0 && !saved
+    const has = cart.length > 0 && !saved
+    cartGuard.hasItems = has
+    api.setCartGuard({ hasItems: has })
   }, [cart, saved])
 
   useEffect(() => {
     return () => {
       cartGuard.hasItems = false
+      api.setCartGuard({ hasItems: false })
     }
   }, [])
 
@@ -410,12 +414,17 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
       setError(result.error || 'Failed to save transaction')
       return
     }
+    const kitchenItems = cart
+      .filter((line) => line.kind === 'menu_item')
+      .map((line) => ({ name: line.name, quantity: line.quantity }))
     setSavedTxn({
       transactionId: result.transactionId,
       amount: result.total,
       paid: result.paid,
       balance: result.balance,
-      pay
+      pay,
+      customerName: customerName.trim(),
+      kitchenItems
     })
     setSaved(true)
   }
@@ -439,6 +448,20 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
   const chargeDisabled = isMember
     ? !productId || !memberName.trim() || saving
     : cart.length === 0 || needsReason || !!quoteError || partAmountInvalid || saving
+
+  const printKitchenCopy = async () => {
+    if (!savedTxn?.kitchenItems?.length || printingKitchen) return
+    setPrintingKitchen(true)
+    const result = await api.printKitchenTicket({
+      transactionId: savedTxn.transactionId,
+      customerName: savedTxn.customerName,
+      items: savedTxn.kitchenItems
+    })
+    setPrintingKitchen(false)
+    if (result?.success === false) {
+      setError(result.error || 'Kitchen print failed')
+    }
+  }
 
   if (saved) {
     return (
@@ -475,6 +498,16 @@ export function StaffTill({ onDone, hideKitchen = false, initialTab = 'entry' })
                 </div>
               </div>
             </div>
+          )}
+          {savedTxn?.kitchenItems?.length > 0 && (
+            <button
+              className="btn btn-ghost btn-block"
+              style={{ marginTop: 14 }}
+              disabled={printingKitchen}
+              onClick={printKitchenCopy}
+            >
+              {printingKitchen ? 'Printing…' : 'Print kitchen copy'}
+            </button>
           )}
           <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
             <button className="btn btn-ghost btn-block" onClick={reset}>

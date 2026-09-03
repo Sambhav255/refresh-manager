@@ -10,7 +10,7 @@
 // entry point lives in App.jsx and is owned by another agent. Calling the same
 // preload channel that screen will call proves the whole chain — renderer,
 // preload, IPC handler, database — is wired and working underneath it.
-import { launchApp, completeSetup, loginOwner, shot, OWNER } from './harness.mjs'
+import { launchApp, completeSetup, loginOwner, ownerTab, shot, OWNER } from './harness.mjs'
 
 const { app, page, errors, cleanup } = await launchApp({ area: 'recovery' })
 const results = []
@@ -18,10 +18,7 @@ const check = (name, ok, detail = '') => {
   results.push({ name, ok, detail })
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`)
 }
-const tab = async (label) => {
-  await page.click(`.nav-item:has-text("${label}")`)
-  await page.waitForTimeout(700)
-}
+const tab = async (label) => ownerTab(page, label)
 const openStaffAdmins = async () => {
   await tab('Settings')
   await page.click('.settings-card:has-text("Staff PINs")')

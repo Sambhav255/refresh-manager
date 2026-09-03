@@ -10,7 +10,8 @@ import {
   shot,
   STAFF,
   seedShop,
-  loginOwner
+  loginOwner,
+  ownerTab
 } from './harness.mjs'
 import { existsSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
@@ -29,10 +30,7 @@ const check = (name, ok, detail = '') => {
   results.push({ name, ok, detail })
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`)
 }
-const tab = async (label) => {
-  await page.click(`.nav-item:has-text("${label}")`)
-  await page.waitForTimeout(700)
-}
+const tab = async (label) => ownerTab(page, label)
 
 try {
   await completeSetup(page)

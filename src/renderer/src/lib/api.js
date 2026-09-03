@@ -25,6 +25,8 @@ export const api = {
   setup: (data) => invoke('setup', data),
   login: (data) => invoke('login', data),
   logout: () => invoke('logout'),
+  switchStaffPin: (data) => invoke('switchStaffPin', data),
+  setCartGuard: (data) => invoke('setCartGuard', data),
 
   getSession: async () => {
     const r = await invoke('getSession')
@@ -35,6 +37,18 @@ export const api = {
   updatePrice: (data) => invoke('updatePrice', data),
   priceHistory: async (data) => unwrap(await invoke('priceHistory', data), { history: [] }),
   productPopularity: async () => unwrap(await invoke('productPopularity'), { counts: [] }),
+
+  getDashboardSummary: async (data) =>
+    unwrap(await invoke('getDashboardSummary', data), {
+      todayPaid: 0,
+      todayUnpaid: 0,
+      dues: 0,
+      discountsToday: 0,
+      week: { total: 0, priorTotal: 0, changePercent: 0 },
+      month: { total: 0, priorTotal: 0, changePercent: 0 },
+      stock: { pool: 0, kitchen: 0, total: 0 },
+      bookingDepositsOutstanding: { count: 0, sum: 0 }
+    }),
 
   createTransaction: (data) => invoke('createTransaction', data),
   listTransactions: async (data) =>
@@ -128,6 +142,7 @@ export const api = {
 
   sendEod: (data) => invoke('sendEod', data),
   printTicket: (data) => invoke('printTicket', data),
+  printKitchenTicket: (data) => invoke('printKitchenTicket', data),
   printMembershipCard: (data) => invoke('printMembershipCard', data),
 
   createBackup: (data) => invoke('createBackup', data),
@@ -135,6 +150,8 @@ export const api = {
   getBackupStatus: async () => unwrap(await invoke('getBackupStatus'), {}),
   restoreBackup: (data) => invoke('restoreBackup', data),
   pickBackupFolder: (data) => invoke('pickBackupFolder', data),
+  openBackupFolder: () => invoke('openBackupFolder'),
+  exportSupportLogs: () => invoke('exportSupportLogs'),
 
   getExpiringReminders: async (data) =>
     unwrap(await invoke('getExpiringReminders', data), { members: [] }),
@@ -176,5 +193,13 @@ export const api = {
   listAdmins: async () => unwrap(await invoke('listAdmins'), { users: [] }),
   addAdmin: (data) => invoke('addAdmin', data),
   deactivateAdmin: (data) => invoke('deactivateAdmin', data),
-  changeAdminPassword: (data) => invoke('changeAdminPassword', data)
+  changeAdminPassword: (data) => invoke('changeAdminPassword', data),
+  getUpdateInfo: () => invoke('getUpdateInfo'),
+  checkForUpdates: () => invoke('checkForUpdates'),
+  downloadUpdate: () => invoke('downloadUpdate'),
+  installDownloadedUpdate: () => invoke('installDownloadedUpdate'),
+  pickUpdateInstaller: () => invoke('pickUpdateInstaller'),
+  installUpdateFromFile: (data) => invoke('installUpdateFromFile', data),
+  getChangelog: async () => unwrap(await invoke('getChangelog'), { content: '' }),
+
 }

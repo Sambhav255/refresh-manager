@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'"
+    />
+    <title>Kitchen Copy</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: #fff;
+        color: #1a202c;
+        display: flex;
+        justify-content: center;
+        padding: 20px;
+      }
+      .ticket {
+        width: 105mm;
+        max-width: 105mm;
+        border: 2px solid #1a202c;
+        padding: 16px 18px;
+      }
+      .header {
+        text-align: center;
+        border-bottom: 2px dashed #cbd5e1;
+        padding-bottom: 12px;
+        margin-bottom: 12px;
+      }
+      .logo {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 1px;
+      }
+      .sub {
+        font-size: 11px;
+        color: #64748b;
+        margin-top: 4px;
+      }
+      .title-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: 600;
+        font-size: 13px;
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 8px;
+        margin-bottom: 10px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        padding: 5px 0;
+      }
+      .row span:first-child {
+        color: #64748b;
+      }
+      .items {
+        margin-top: 8px;
+      }
+      .item {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 6px 0;
+        border-bottom: 1px dotted #e2e8f0;
+      }
+      .footer {
+        text-align: center;
+        font-size: 11px;
+        color: #64748b;
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 2px dashed #cbd5e1;
+      }
+      body.w58 .ticket,
+      body.w80 .ticket {
+        border: none;
+        padding: 8px 6px;
+      }
+      body.w58 .ticket {
+        width: 54mm;
+        max-width: 54mm;
+      }
+      body.w80 .ticket {
+        width: 76mm;
+        max-width: 76mm;
+      }
+      @page {
+        margin: 0;
+      }
+      @media print {
+        body {
+          padding: 0;
+        }
+        .ticket {
+          border: none;
+          width: 105mm;
+        }
+        body.w58 .ticket {
+          width: 54mm;
+        }
+        body.w80 .ticket {
+          width: 76mm;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ticket">
+      <div class="header">
+        <div class="logo">≋ KITCHEN COPY</div>
+        <div class="sub" id="address">Nayabasti, Boudha, Kathmandu</div>
+      </div>
+      <div class="title-row">
+        <span>ORDER</span>
+        <span id="ticketId">#—</span>
+      </div>
+      <div class="row"><span>Date:</span><span id="date">—</span></div>
+      <div class="row"><span>Time:</span><span id="time">—</span></div>
+      <div class="row" id="customerRow" style="display: none">
+        <span>Name:</span><span id="customerName">—</span>
+      </div>
+      <div class="items" id="items"></div>
+      <div class="footer">No prices — kitchen use only</div>
+    </div>
+    <script>
+      const params = new URLSearchParams(window.location.search)
+      const w = params.get('w')
+      if (w === '58') document.body.classList.add('w58')
+      else if (w === '80') document.body.classList.add('w80')
+      const set = (id, val) => {
+        const el = document.getElementById(id)
+        if (el) el.textContent = val || '—'
+      }
+      set('ticketId', '#' + (params.get('id') || ''))
+      set('date', params.get('date'))
+      set('time', params.get('time'))
+      set('address', params.get('address'))
+      const customer = params.get('customerName')
+      if (customer) {
+        document.getElementById('customerRow').style.display = ''
+        set('customerName', customer)
+      }
+      const items = JSON.parse(params.get('items') || '[]')
+      const list = document.getElementById('items')
+      for (const row of items) {
+        const el = document.createElement('div')
+        el.className = 'item'
+        const qty = Number(row.quantity) || 1
+        el.innerHTML = `<span>${row.name || 'Item'}</span><span>× ${qty}</span>`
+        list.appendChild(el)
+      }
+    </script>
+  </body>
+</html>

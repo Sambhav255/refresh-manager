@@ -1,9 +1,18 @@
 # Ship readiness — test plan, open work, and improvements
 
-**Date:** 2026-08-19, updated 2026-08-21 · **Audience:** whoever implements the remaining fixes and runs the tests.
+**Date:** 2026-08-19, updated 2026-09-03 · **Audience:** whoever implements the remaining fixes and runs the tests.
 Companion to `docs/qa/QA_REPORT.md` (full bug detail) and `docs/qa/findings-staff.md`.
 
 ---
+
+## v1.1.0 wave — status (2026-09-03)
+
+| Area | Status |
+|---|---|
+| Unit tests | **361** passing (`npm test`) |
+| E2E suites | `verify-*.mjs` + `sweep-*.mjs` via `npm run test:e2e`, including **`verify-restore.mjs`** (backup → sale → restore round-trip) |
+| Manual venue | Printer, camera, WhatsApp EOD, midnight rollover, multi-staff day — **still pending** (section 3 matrix) |
+
 
 ## 0. Final hardening round — complete
 
@@ -21,7 +30,7 @@ One consistency bug was found while wiring this: the printed membership card com
 
 ## 1. Test inventory and how to run it
 
-**Status as of 2026-08-21: the QA backlog and the owner-feedback round are both implemented and verified. 305 unit tests + 182 E2E checks, 0 failures, 0 skips, 0 lint errors, no runtime console errors. The Reports & Settings sweep — the last untested area — is now covered.**
+**Status as of 2026-09-03 (v1.1.0 wave): 361 unit tests; E2E suites include restore verification (`verify-restore.mjs`). Manual venue checks (printer, camera, WhatsApp, midnight, multi-staff) remain pending — see section 3.**
 
 | Suite | Files | What it proves | Run with |
 |---|---|---|---|
@@ -32,6 +41,7 @@ One consistency bug was found while wiring this: the printed membership card com
 | E2E fix verification | `test/e2e/verify-fixes{,-2,-3,-4,-5}.mjs` | The fixes work in the real app (85 checks). `-3`/`-4`/`-5` specifically cover renderer↔main wiring — where both original P0s hid | `node test/e2e/verify-fixes-5.mjs` |
 | **E2E owner-feedback round** | `verify-checkout`, `verify-pricing`, `verify-station`, `verify-recovery` | The cart till (quantity, add-ons, tiers, discounts, part-payment), the pricing-rule screen and its shadowing warning, station selection and keyboard access, and recovery-code issue/use — 85 checks | `node test/e2e/verify-checkout.mjs` |
 | **E2E Reports & Settings sweep** | `test/e2e/sweep-reports-settings.mjs` | All 7 report types against a known dataset (total 4850), a real Excel file written + reopened + checked, staff/admin lifecycle, password change round-trip, menu editor, backup, audit log — 31 checks | `node test/e2e/sweep-reports-settings.mjs` |
+| **E2E backup restore** | `test/e2e/verify-restore.mjs` | Create backup, add a post-backup sale, restore, relaunch — post-backup sale is gone | `node test/e2e/verify-restore.mjs` |
 
 ### ⚠️ The ABI trap (read before running anything)
 

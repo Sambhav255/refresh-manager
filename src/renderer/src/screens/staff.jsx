@@ -19,7 +19,7 @@ export const STAFF_TILES = Object.freeze({
 })
 
 // `hiddenTiles` is a list of STAFF_TILES ids the caller's station does not need.
-export function StaffHome({ go, hiddenTiles = [] }) {
+export function StaffHome({ go, hiddenTiles = [], quietSummary = false }) {
   const [summary, setSummary] = useState(null)
   const [lowCount, setLowCount] = useState(0)
   const [bookingCount, setBookingCount] = useState(0)
@@ -34,11 +34,13 @@ export function StaffHome({ go, hiddenTiles = [] }) {
       .then((r) => setTxCount(r.transactions?.length || 0))
   }, [])
 
-  const metrics = [
-    { label: 'Revenue today', value: fmt(summary?.total) },
-    { label: 'Cash', value: fmt(summary?.cash) },
-    { label: 'QR', value: fmt(summary?.qr) }
-  ]
+  const metrics = quietSummary
+    ? [{ label: 'Your sales today', value: fmt(summary?.total) }]
+    : [
+        { label: 'Revenue today', value: fmt(summary?.total) },
+        { label: 'Cash', value: fmt(summary?.cash) },
+        { label: 'QR', value: fmt(summary?.qr) }
+      ]
 
   const allTiles = [
     {
@@ -120,12 +122,29 @@ export function StaffHome({ go, hiddenTiles = [] }) {
   return (
     <div className="content fade-in">
       <div
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 18 }}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: quietSummary ? '1fr' : 'repeat(3,1fr)',
+          gap: 14,
+          marginBottom: 18
+        }}
       >
         {metrics.map((m) => (
-          <div key={m.label} className="metric">
-            <div className="m-label">{m.label}</div>
-            <div className="m-value">{m.value}</div>
+          <div
+            key={m.label}
+            className="metric"
+            style={
+              quietSummary
+                ? { background: 'transparent', border: 'none', padding: '4px 0', textAlign: 'left' }
+                : undefined
+            }
+          >
+            <div className="m-label" style={quietSummary ? { fontSize: 12, color: '#94a3b8' } : undefined}>
+              {m.label}
+            </div>
+            <div className="m-value" style={quietSummary ? { fontSize: 15, fontWeight: 500 } : undefined}>
+              {m.value}
+            </div>
           </div>
         ))}
       </div>

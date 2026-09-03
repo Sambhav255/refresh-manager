@@ -3,8 +3,9 @@ import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { getDb, hasUsers } from '../db/index.js'
 import { getSession, setSession, clearSession } from '../session.js'
-import { requireOwner } from '../session.js'
+import { requireOwner, requireSession, requireStaffOrOwner } from '../session.js'
 import { writeAudit } from '../audit.js'
+import { cartHasItems, setCartGuard } from '../cart-guard.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -133,7 +134,7 @@ export function registerAuthHandlers() {
 
   ipcMain.handle(
     'auth:setup',
-    wrap(async ({ ownerName, password, staffName, staffPin }) => {
+    wrap(async ({ ownerName, password, staffName, staffPin, backupPath }) => {
       if (hasUsers()) throw new Error('Setup already completed')
       // Names are trimmed before validation AND before insert: login matches on
       // an exact name, so storing "  Owner  " would lock the owner out of a
@@ -148,6 +149,8 @@ export function registerAuthHandlers() {
       }
       if (password.length < 4) throw new Error('Password must be at least 4 characters')
       if (!/^\d{4}$/.test(staffPin)) throw new Error('Staff PIN must be 4 digits')
+      const folder = typeof backupPath === 'string' ? backupPath.trim() : ''
+      if (!folder) throw new Error('Backup folder is required before first use')
 
       const db = getDb()
       await assertPinUnique(db, staffPin)
@@ -172,6 +175,9 @@ export function registerAuthHandlers() {
       })
 
       const ownerId = tx()
+      db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('backup_path', ?)`).run(
+        folder
+      )
       const created = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(ownerId)
       setSession(created)
       return {
@@ -270,7 +276,72 @@ export function registerAuthHandlers() {
     'auth:logout',
     wrap(() => {
       clearSession()
+      setCartGuard(false)
       return { success: true }
+    })
+  )
+
+  ipcMain.handle(
+    'auth:set-cart-guard',
+    wrap(({ hasItems }) => {
+      requireStaffOrOwner()
+      setCartGuard(!!hasItems)
+      return { success: true }
+    })
+  )
+
+  ipcMain.handle(
+    'auth:switch-staff-pin',
+    wrap(async ({ pin }) => {
+      const session = requireSession()
+      if (session.role !== 'staff') {
+        throw new Error('Only staff can switch accounts this way')
+      }
+      if (cartHasItems()) {
+        throw new Error('Finish or clear the current sale before switching staff')
+      }
+      if (Date.now() < lockedUntil) {
+        throw new Error(`Too many attempts. Please try again in ${secondsLeft(lockedUntil)}.`)
+      }
+      if (!/^\d{4}$/.test(String(pin ?? ''))) {
+        throw new Error('Enter a 4-digit PIN')
+      }
+
+      const db = getDb()
+      const staff = db
+        .prepare(
+          `SELECT id, name, role, pin_hash FROM users WHERE role = 'staff' AND is_active = 1`
+        )
+        .all()
+      for (const user of staff) {
+        if (user.pin_hash && (await bcrypt.compare(pin, user.pin_hash))) {
+          failedPinAttempts = 0
+          lockedUntil = 0
+          const next = { userId: user.id, name: user.name, role: user.role }
+          setSession(next)
+          writeAudit(session.userId, 'staff:switch-pin', {
+            fromUserId: session.userId,
+            toUserId: next.userId,
+            toName: next.name
+          })
+          return { success: true, user: next }
+        }
+      }
+
+      failedPinAttempts += 1
+      if (failedPinAttempts >= MAX_PIN_ATTEMPTS) {
+        lockedUntil = Date.now() + PIN_COOLDOWN_MS
+        failedPinAttempts = 0
+        throw new Error(
+          `Incorrect PIN. Too many attempts — please try again in ${secondsLeft(lockedUntil)}.`
+        )
+      }
+      const left = MAX_PIN_ATTEMPTS - failedPinAttempts
+      throw new Error(
+        left <= 2
+          ? `Incorrect PIN. ${left} attempt${left === 1 ? '' : 's'} left.`
+          : 'Incorrect PIN'
+      )
     })
   )
 

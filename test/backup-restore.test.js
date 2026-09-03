@@ -39,7 +39,7 @@ describe('P0-3 — backup restore is a safe close/replace/relaunch', () => {
   it('restores the backup snapshot and drops changes made after the backup', async () => {
     addMarker('before-backup')
     const backupDir = mkdtempSync(join(tmpdir(), 'refresh-bak-'))
-    const { filePath } = performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
+    const { filePath } = await performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
 
     // A change made AFTER the backup should be gone after restoring.
     addMarker('after-backup')
@@ -102,7 +102,7 @@ describe('P0-3 — backup restore is a safe close/replace/relaunch', () => {
   it('a freshly created backup passes verification and restores (2-B happy path)', async () => {
     addMarker('marker')
     const backupDir = mkdtempSync(join(tmpdir(), 'refresh-bak-'))
-    const result = performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
+    const result = await performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
     expect(result.success).toBe(true)
     // The backup verified clean at creation; restoring it succeeds.
     const res = await __invoke('backup:restore', {
@@ -120,7 +120,7 @@ describe('P0-3 — backup restore is a safe close/replace/relaunch', () => {
 
     addMarker('before-backup')
     const backupDir = mkdtempSync(join(tmpdir(), 'refresh-enc-'))
-    const { filePath, encrypted } = performBackup({
+    const { filePath, encrypted } = await performBackup({
       destinationPath: backupDir,
       skipOwnerCheck: true
     })
@@ -149,7 +149,7 @@ describe('P0-3 — backup restore is a safe close/replace/relaunch', () => {
     setPassphrase(db, 'right-pass')
     addMarker('live')
     const backupDir = mkdtempSync(join(tmpdir(), 'refresh-enc-'))
-    const { filePath } = performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
+    const { filePath } = await performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
 
     const res = await __invoke('backup:restore', {
       backupFilePath: filePath,
@@ -163,7 +163,7 @@ describe('P0-3 — backup restore is a safe close/replace/relaunch', () => {
 
   it('rejects a wrong admin password', async () => {
     const backupDir = mkdtempSync(join(tmpdir(), 'refresh-bak-'))
-    const { filePath } = performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
+    const { filePath } = await performBackup({ destinationPath: backupDir, skipOwnerCheck: true })
     const res = await __invoke('backup:restore', { backupFilePath: filePath, password: 'wrong' })
     expect(res.success).toBe(false)
     expect(res.error).toMatch(/incorrect admin password/i)

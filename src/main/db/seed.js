@@ -247,6 +247,10 @@ const defaultSettings = [
   { key: 'backup_path', value: '' },
   { key: 'currency_symbol', value: 'Rs.' },
   { key: 'expiry_warning_days', value: '5' },
+  // Wave 2: new installs land on the one-screen till. Existing databases keep
+  // whatever they already have — seedData only runs once and migrations use
+  // INSERT OR IGNORE, so an owner who turned it off stays off.
+  { key: 'unified_till', value: '1' },
   { key: 'seeded', value: 'true' }
 ]
 

@@ -294,7 +294,9 @@ export function NewTransaction({ onDone }) {
   // Keep the module-level cartGuard in sync: unsaved once the basket has
   // lines, no longer unsaved once the sale has actually gone through.
   useEffect(() => {
-    cartGuard.hasItems = cart.length > 0 && !saved
+    const has = cart.length > 0 && !saved
+    cartGuard.hasItems = has
+    api.setCartGuard({ hasItems: has })
   }, [cart, saved])
 
   // Belt and braces: if this screen unmounts for any other reason (nav away,
@@ -302,6 +304,7 @@ export function NewTransaction({ onDone }) {
   useEffect(() => {
     return () => {
       cartGuard.hasItems = false
+      api.setCartGuard({ hasItems: false })
     }
   }, [])
 

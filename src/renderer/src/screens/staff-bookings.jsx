@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
-import { todayLocal } from '../lib/format'
+import { fmt, todayLocal } from '../lib/format'
 import { Icon, Badge, SectionHead } from '../components/ui'
 import { BookingCalendar } from './owner-bookings'
 
@@ -103,6 +103,7 @@ export function StaffBookings({ back }) {
           selectedDate={selectedDate}
           onSelectDate={setSelectedDate}
           dayActions={completeButton}
+          showMoney
         />
       ) : bookings.length === 0 ? (
         <div
@@ -133,6 +134,13 @@ export function StaffBookings({ back }) {
                   {b.facilitiesBooked && (
                     <div className="sub" style={{ marginTop: 2 }}>
                       {b.facilitiesBooked}
+                    </div>
+                  )}
+                  {(b.totalExpected > 0 || b.depositPaid > 0) && (
+                    <div className="sub" style={{ color: '#64748b', marginTop: 2 }}>
+                      Deposit {fmt(b.depositPaid || 0)}
+                      {b.totalExpected > 0 &&
+                        ` of ${fmt(b.totalExpected)} · balance ${fmt((b.totalExpected || 0) - (b.depositPaid || 0))}`}
                     </div>
                   )}
                 </div>

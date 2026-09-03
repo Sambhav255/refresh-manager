@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
 import { fmt } from '../lib/format'
-import { Icon, SectionHead } from '../components/ui'
+import { Icon, SectionHead, EmptyState, Money } from '../components/ui'
 
 // Pool stock is counted in whole units, so no decimal handling here. `delta` is
 // already signed by the backend — a sale arrives negative and must stay that
@@ -12,6 +12,15 @@ const signedQty = (delta) => (delta > 0 ? '+' : '') + delta
 // a sentence that placeholder has to disappear again.
 const variantOf = (item) => (item?.variant && item.variant !== '—' ? item.variant : '')
 const labelOf = (item) => (item ? item.item + (variantOf(item) ? ` (${variantOf(item)})` : '') : '')
+
+const matchesSearch = (item, query) => {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const hay = [item.item, item.category, item.variant].filter(Boolean).join(' ').toLowerCase()
+  return hay.includes(q)
+}
+
+const stockValueOf = (item) => (Number(item?.stock) || 0) * (Number(item?.price) || 0)
 
 // "It's kind of hard to look into the unit inventory of things and how much we
 // have left." Anything needing attention floats to the top — out of stock
@@ -65,6 +74,11 @@ export function OwnerInventory() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState("")
+  const [editName, setEditName] = useState("")
+  const [editCategory, setEditCategory] = useState("")
+  const [editVariant, setEditVariant] = useState("")
   const historyReq = useRef(0)
 
   const closePanels = () => {
@@ -114,6 +128,13 @@ export function OwnerInventory() {
     setMode('price')
     setPriceValue(String(item.price ?? 0))
   }
+  const openEdit = (item) => {
+    setError('')
+    setMode('edit')
+    setEditName(item.item || '')
+    setEditCategory(item.category || '')
+    setEditVariant(item.variant === '—' ? '' : item.variant || '')
+  }
   const openAdjust = (item) => {
     setError('')
     setMode('adjust')
@@ -152,7 +173,13 @@ export function OwnerInventory() {
   }, [])
 
   const retiredCount = inv.filter((i) => i.retired).length
-  const visible = inv.filter((i) => showRetired || !i.retired).sort(byUrgency)
+  const categories = [...new Set(inv.map((i) => i.category).filter(Boolean))].sort()
+  const visible = inv
+    .filter((i) => showRetired || !i.retired)
+    .filter((i) => !categoryFilter || i.category === categoryFilter)
+    .filter((i) => matchesSearch(i, search))
+    .sort(byUrgency)
+  const totalStockValue = visible.reduce((s, i) => s + stockValueOf(i), 0)
   const target = inv.find((i) => i.id === panelId)
 
   const handleAdd = async () => {
@@ -230,6 +257,25 @@ export function OwnerInventory() {
     load()
   }
 
+
+  const handleSaveEdit = async () => {
+    if (!target) return
+    const r = await api.updatePoolItem({
+      itemId: target.id,
+      fields: {
+        name: editName.trim(),
+        category: editCategory.trim(),
+        variant: editVariant.trim() || null
+      }
+    })
+    if (r?.success === false) {
+      setError(r.error || 'Could not update item')
+      return
+    }
+    setError('')
+    setMode('menu')
+    load()
+  }
   // Retire is a soft delete: is_active 0. The item leaves the till and every
   // list, but its sales and stock movements stay on the record — a real delete
   // would rewrite past reports. `busy` stops a double-click firing it twice.
@@ -313,11 +359,31 @@ export function OwnerInventory() {
           </div>
         </div>
       ) : (
+        <>
+          <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "center" }}>
+            <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
+              <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", display: "flex" }}>
+                <Icon name="search" size={15} color="#94a3b8" />
+              </span>
+              <input className="input" style={{ paddingLeft: 34 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or category…" />
+            </div>
+            {categories.length > 0 && (
+              <select className="select" style={{ width: 170 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                <option value="">All categories</option>
+                {categories.map((c) => (<option key={c} value={c}>{c}</option>))}
+              </select>
+            )}
+          </div>
+          {visible.length === 0 ? (
+            <EmptyState title="No items match your search" body="Try a different name or category, or clear the filters." />
+          ) : (
+        <>
         <table className="tbl">
           <thead>
             <tr>
               <th>Item</th>
-              <th style={{ width: 130 }}>Variant</th>
+              <th style={{ width: 110 }}>Category</th>
+              <th style={{ width: 110 }}>Variant</th>
               <th className="num" style={{ width: 110 }}>
                 In stock
               </th>
@@ -327,7 +393,10 @@ export function OwnerInventory() {
               <th className="num" style={{ width: 90 }}>
                 Price
               </th>
-              <th style={{ width: 110 }}>Status</th>
+              <th className="num" style={{ width: 100 }}>
+                Stock value
+              </th>
+              <th style={{ width: 100 }}>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -352,6 +421,7 @@ export function OwnerInventory() {
                   )}
                   {r.item}
                 </td>
+                <td style={{ color: '#64748b' }}>{r.category}</td>
                 <td style={{ color: '#64748b' }}>{r.variant}</td>
                 <td
                   className="num"
@@ -371,6 +441,9 @@ export function OwnerInventory() {
                     </span>
                   )}
                 </td>
+                <td className="num">
+                  <Money value={stockValueOf(r)} />
+                </td>
                 <td>
                   <StatusChip item={r} />
                 </td>
@@ -378,6 +451,18 @@ export function OwnerInventory() {
             ))}
           </tbody>
         </table>
+              <div className="tbl-foot">
+                <span>
+                  {visible.length} item{visible.length === 1 ? '' : 's'}
+                  {(search || categoryFilter) && ' matching filters'}
+                </span>
+                <span className="total">
+                  Total stock value: <Money value={totalStockValue} />
+                </span>
+              </div>
+        </>
+          )}
+        </>
       )}
       {showAdd && (
         <div className="card" style={{ marginTop: 14, padding: 16 }}>
@@ -466,6 +551,9 @@ export function OwnerInventory() {
               <button className={mode === 'price' ? 'on' : ''} onClick={() => openPrice(target)}>
                 Price
               </button>
+              <button className={mode === 'edit' ? 'on' : ''} onClick={() => openEdit(target)}>
+                Edit
+              </button>
               <button
                 className={mode === 'history' ? 'on' : ''}
                 onClick={() => openHistory(target)}
@@ -542,6 +630,27 @@ export function OwnerInventory() {
                 <button className="btn btn-ghost" onClick={() => setMode('menu')}>
                   Cancel
                 </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'edit' && (
+            <div>
+              <div className="field">
+                <label>Name</label>
+                <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus />
+              </div>
+              <div className="field">
+                <label>Category</label>
+                <input className="input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Variant</label>
+                <input className="input" value={editVariant} onChange={(e) => setEditVariant(e.target.value)} placeholder="Leave blank if none" />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" onClick={handleSaveEdit}>Save changes</button>
+                <button className="btn btn-ghost" onClick={() => setMode('menu')}>Cancel</button>
               </div>
             </div>
           )}

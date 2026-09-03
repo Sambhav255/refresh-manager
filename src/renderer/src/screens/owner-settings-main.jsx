@@ -12,6 +12,7 @@ import {
   UnifiedTillSettings
 } from './owner-settings-extras'
 import { AuditLog } from './owner-settings-audit'
+import { AboutSettings } from './owner-settings-about'
 
 const SUB_SCREENS = {
   'Pricing manager': 'pricing',
@@ -22,7 +23,8 @@ const SUB_SCREENS = {
   'Renewal reminders': 'reminders',
   'Business info': 'business',
   'One-screen till': 'unified-till',
-  'Audit log': 'audit'
+  'Audit log': 'audit',
+  'About & updates': 'about'
 }
 
 export function OwnerSettings() {
@@ -36,6 +38,7 @@ export function OwnerSettings() {
   if (sub === 'reminders') return <RenewalTemplateSettings back={() => setSub(null)} />
   if (sub === 'business') return <BusinessInfo back={() => setSub(null)} />
   if (sub === 'unified-till') return <UnifiedTillSettings back={() => setSub(null)} />
+  if (sub === 'about') return <AboutSettings back={() => setSub(null)} />
   if (sub === 'audit') return <AuditLog back={() => setSub(null)} />
 
   const cards = [
@@ -51,7 +54,12 @@ export function OwnerSettings() {
       title: 'One-screen till',
       desc: 'Single cart instead of the five-step wizard'
     },
-    { icon: 'shield', title: 'Audit log', desc: 'Voids, refunds, restores, changes' }
+    { icon: 'shield', title: 'Audit log', desc: 'Voids, refunds, restores, changes' },
+    {
+      icon: 'download',
+      title: 'About & updates',
+      desc: 'Version, check for updates, install'
+    }
   ]
 
   return (

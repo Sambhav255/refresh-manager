@@ -425,6 +425,7 @@ export function OwnerBookings({ session }) {
   const [repeat, setRepeat] = useState(emptyRepeat)
   const [error, setError] = useState('')
   const [confirmCancel, setConfirmCancel] = useState(null)
+  const [confirmSave, setConfirmSave] = useState(null)
 
   const load = () => {
     if (view === 'calendar') {
@@ -477,7 +478,36 @@ export function OwnerBookings({ session }) {
     repeating &&
     (repeat.weekdays.length === 0 || !repeat.until || series.overCap || series.backwards)
 
-  const handleSave = async () => {
+  const findSlotConflicts = async () => {
+    const slot = form.timeSlot?.trim()
+    if (!slot) return []
+    const dates = repeating ? series.dates : [form.bookingDate]
+    if (!dates.length) return []
+    const start = dates[0]
+    const end = dates[dates.length - 1]
+    const r = await api.listBookings({ dateFrom: start, dateTo: end })
+    const all = r.bookings || []
+    const seen = new Set()
+    const conflicts = []
+    for (const date of dates) {
+      for (const b of all) {
+        if (
+          b.bookingDate === date &&
+          b.timeSlot?.trim() === slot &&
+          (b.status === 'pending' || b.status === 'confirmed') &&
+          b.id !== editId &&
+          !seen.has(b.id)
+        ) {
+          seen.add(b.id)
+          conflicts.push(b)
+        }
+      }
+    }
+    return conflicts
+  }
+
+  const doSave = async () => {
+    setConfirmSave(null)
     setError('')
     const deposit = form.depositPaid === '' ? 0 : Number(form.depositPaid)
     const payload = {
@@ -485,7 +515,6 @@ export function OwnerBookings({ session }) {
       numPeople: form.numPeople === '' ? null : Number(form.numPeople),
       depositPaid: deposit,
       totalExpected: form.totalExpected === '' ? 0 : Number(form.totalExpected),
-      // No deposit means there is no payment method to record.
       depositMethod: deposit > 0 ? form.depositMethod || 'cash' : null
     }
     const r = editId
@@ -500,11 +529,20 @@ export function OwnerBookings({ session }) {
       return
     }
     setShowForm(false)
-    // Land on the month the booking was actually made in, so the owner sees it.
     if (!editId) setMonth(monthOf(form.bookingDate))
     if (!editId) setSelectedDate(form.bookingDate)
     setRepeat(emptyRepeat)
     load()
+  }
+
+  const handleSave = async () => {
+    setError('')
+    const conflicts = await findSlotConflicts()
+    if (conflicts.length > 0) {
+      setConfirmSave(conflicts)
+      return
+    }
+    doSave()
   }
 
   // Cancelling never reverses the deposit automatically — forfeiting is normal
@@ -847,6 +885,25 @@ export function OwnerBookings({ session }) {
             <button className="btn btn-ghost" onClick={() => setShowForm(false)}>
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+      {confirmSave && (
+        <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+          <div style={{ fontWeight: 500, marginBottom: 6 }}>Another booking already uses this time slot</div>
+          <div className="sub" style={{ marginBottom: 10 }}>
+            {confirmSave.map((b) => (
+              <div key={b.id}>
+                {b.bookingName} · {b.dateDisplay} · {b.timeSlot} ({b.status})
+              </div>
+            ))}
+          </div>
+          <div className="sub" style={{ marginBottom: 10, color: '#b45309' }}>
+            You can still save — this is only a heads-up in case it is a double-booking.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-primary" onClick={doSave}>Save anyway</button>
+            <button className="btn btn-ghost" onClick={() => setConfirmSave(null)}>Go back</button>
           </div>
         </div>
       )}
