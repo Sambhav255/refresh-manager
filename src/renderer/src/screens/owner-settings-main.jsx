@@ -42,7 +42,7 @@ export function OwnerSettings() {
   if (sub === 'audit') return <AuditLog back={() => setSub(null)} />
 
   const cards = [
-    ...settings.filter((s) => s.title !== 'Product manager'),
+    ...settings,
     { icon: 'utensils', title: 'Restaurant menu', desc: 'Menu items for staff POS' },
     {
       icon: 'message-circle',

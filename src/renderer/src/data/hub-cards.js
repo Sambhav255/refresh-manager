@@ -1,7 +1,6 @@
 // Static card metadata for settings and reports hub screens. Live data comes from IPC.
 export const settings = [
-  { icon: 'tag', title: 'Pricing manager', desc: 'Edit prices for all products' },
-  { icon: 'layout-grid', title: 'Product manager', desc: 'Add or deactivate products' },
+  { icon: 'tag', title: 'Pricing manager', desc: 'Add tickets and memberships, then set prices' },
   { icon: 'user-check', title: 'Staff PINs', desc: 'Manage staff access PINs' },
   { icon: 'message-circle', title: 'WhatsApp number', desc: 'Owner number for daily reports' },
   { icon: 'folder', title: 'Backup settings', desc: 'Folder path and schedule' },

@@ -2,6 +2,11 @@
 
 All notable releases of Refresh Manager.
 
+## 1.1.1 — 2026-09-03
+
+- Pricing manager: add entry tickets, combo tickets, and memberships from this screen (the missing Products section)
+- Stop selling / sell again on each product
+
 ## 1.1.0 — 2026-09-03
 
 ### Deployment & safety

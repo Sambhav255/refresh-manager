@@ -3,6 +3,16 @@ import { api } from '../lib/api'
 import { fmt, todayLocal, formatShortDate, categoryToUiType } from '../lib/format'
 import { Icon, SectionHead } from '../components/ui'
 import { validatePrice, validateRequired } from '../lib/validate'
+import { CATEGORY_LABELS, CATEGORY_HINTS } from '../../../shared/transaction-types'
+
+const PRODUCT_CATEGORIES = ['day_pass', 'day_package', 'membership']
+const DURATION_OPTIONS = [
+  { value: 15, label: '15' },
+  { value: 30, label: '30 Monthly' },
+  { value: 90, label: '90 3 Months' },
+  { value: 180, label: '180 6 Months' },
+  { value: 365, label: '365 1 Year' }
+]
 
 // The owner's own words for the engine's three tiers. `null` is a real case,
 // not "no rule": it is a sale that never said which age group it was for, and
@@ -194,7 +204,13 @@ export function PricingManager({ back }) {
   const [historyId, setHistoryId] = useState(null)
   const [history, setHistory] = useState([])
   const [editId, setEditId] = useState(null)
+  const [editPrice, setEditPrice] = useState('')
+  const [addingProduct, setAddingProduct] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newCategory, setNewCategory] = useState('day_pass')
   const [newPrice, setNewPrice] = useState('')
+  const [newDuration, setNewDuration] = useState(30)
+  const [adding, setAdding] = useState(false)
   const [editor, setEditor] = useState(null)
   const [formError, setFormError] = useState('')
   const [confirmRemove, setConfirmRemove] = useState(null)
@@ -230,6 +246,23 @@ export function PricingManager({ back }) {
     setWeek(null)
     setHistoryId(null)
     setFormError('')
+    setAddingProduct(false)
+    setEditId(null)
+  }
+
+  const resetAddForm = () => {
+    setAddingProduct(false)
+    setNewName('')
+    setNewCategory('day_pass')
+    setNewPrice('')
+    setNewDuration(30)
+    setAdding(false)
+  }
+
+  const openAddProduct = () => {
+    setError('')
+    closePanels()
+    setAddingProduct(true)
   }
 
   const rulesFor = (productId) => rules.filter((r) => r.productId === productId)
@@ -242,18 +275,52 @@ export function PricingManager({ back }) {
 
   const savePrice = async (id) => {
     setError('')
-    const invalid = validateRequired(newPrice, 'Price') || validatePrice(newPrice)
+    const invalid = validateRequired(editPrice, 'Price') || validatePrice(editPrice)
     if (invalid) {
       setError(invalid)
       return
     }
-    const r = await api.updatePrice({ productId: id, newPrice: Number(newPrice) })
+    const r = await api.updatePrice({ productId: id, newPrice: Number(editPrice) })
     if (r?.success === false) {
       setError(r.error || 'Could not update price')
       return
     }
     setEditId(null)
-    setNewPrice('')
+    setEditPrice('')
+    load()
+  }
+
+  const saveProduct = async () => {
+    if (adding) return
+    setError('')
+    const invalid = validateRequired(newName, 'Name') || validatePrice(newPrice)
+    if (invalid) {
+      setError(invalid)
+      return
+    }
+    setAdding(true)
+    const r = await api.addProduct({
+      name: newName.trim(),
+      category: newCategory,
+      price: Number(newPrice),
+      durationDays: newCategory === 'membership' ? Number(newDuration) : null
+    })
+    setAdding(false)
+    if (r?.success === false) {
+      setError(r.error || 'Could not add product')
+      return
+    }
+    resetAddForm()
+    load()
+  }
+
+  const toggleSelling = async (p) => {
+    setError('')
+    const r = await api.toggleProduct({ productId: p.id, isActive: p.is_active === 0 })
+    if (r?.success === false) {
+      setError(r.error || 'Could not update product')
+      return
+    }
     load()
   }
 
@@ -455,6 +522,9 @@ export function PricingManager({ back }) {
         <button className="btn btn-ghost" onClick={back}>
           <Icon name="chevron-left" size={15} /> Back
         </button>
+        <button className="btn btn-primary" onClick={openAddProduct}>
+          <Icon name="plus" size={15} /> Add product
+        </button>
       </SectionHead>
 
       {error && (
@@ -484,6 +554,74 @@ export function PricingManager({ back }) {
         </div>
       </div>
 
+      {addingProduct && (
+        <div className="card" style={{ marginTop: 0, marginBottom: 14, padding: 16, maxWidth: 620 }}>
+          <div style={{ fontWeight: 500, marginBottom: 12 }}>Add product</div>
+          <div className="field">
+            <label>Name</label>
+            <input
+              className="input"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>Type</label>
+            <select
+              className="select"
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value)}
+            >
+              {PRODUCT_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {CATEGORY_LABELS[c]}
+                </option>
+              ))}
+            </select>
+            <div className="sub" style={{ marginTop: 5 }}>
+              {CATEGORY_HINTS[newCategory]}
+            </div>
+          </div>
+          <div className="row" style={{ gap: 12 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Price</label>
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="1"
+                value={newPrice}
+                onChange={(e) => setNewPrice(e.target.value)}
+              />
+            </div>
+            {newCategory === 'membership' && (
+              <div className="field" style={{ flex: 1 }}>
+                <label>Duration</label>
+                <select
+                  className="select"
+                  value={newDuration}
+                  onChange={(e) => setNewDuration(e.target.value)}
+                >
+                  {DURATION_OPTIONS.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn btn-primary" disabled={adding} onClick={saveProduct}>
+              Save product
+            </button>
+            <button className="btn btn-ghost" onClick={resetAddForm}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       <table className="tbl">
         <thead>
           <tr>
@@ -493,7 +631,7 @@ export function PricingManager({ back }) {
               Price
             </th>
             <th style={{ width: 120 }}>Starting</th>
-            <th style={{ width: 175 }}></th>
+            <th style={{ width: 240 }}></th>
           </tr>
         </thead>
         {products.map((p) => {
@@ -520,8 +658,8 @@ export function PricingManager({ back }) {
                       className="input"
                       type="number"
                       style={{ width: 90 }}
-                      value={newPrice}
-                      onChange={(e) => setNewPrice(e.target.value)}
+                      value={editPrice}
+                      onChange={(e) => setEditPrice(e.target.value)}
                     />
                   ) : (
                     fmt(p.price)
@@ -545,7 +683,7 @@ export function PricingManager({ back }) {
                         style={{ padding: '4px 8px', fontSize: 11, marginLeft: 6 }}
                         onClick={() => {
                           setEditId(null)
-                          setNewPrice('')
+                          setEditPrice('')
                         }}
                       >
                         Cancel
@@ -560,7 +698,7 @@ export function PricingManager({ back }) {
                           setError('')
                           closePanels()
                           setEditId(p.id)
-                          setNewPrice(String(p.price))
+                          setEditPrice(String(p.price))
                         }}
                       >
                         Edit
@@ -571,6 +709,13 @@ export function PricingManager({ back }) {
                         onClick={() => showHistory(p.id)}
                       >
                         History
+                      </button>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 8px', fontSize: 11, marginLeft: 6 }}
+                        onClick={() => toggleSelling(p)}
+                      >
+                        {p.is_active === 0 ? 'Sell again' : 'Stop selling'}
                       </button>
                     </>
                   )}
@@ -671,8 +816,14 @@ export function PricingManager({ back }) {
       </table>
 
       {products.length === 0 && (
-        <div className="sub" style={{ marginTop: 12 }}>
-          No products yet — add them under Products before setting prices.
+        <div className="card" style={{ padding: 22, textAlign: 'center', marginTop: 12 }}>
+          <div style={{ fontWeight: 500, marginBottom: 6 }}>No products yet</div>
+          <div className="sub" style={{ marginBottom: 12 }}>
+            Add an entry ticket, combo ticket, or membership with the Add product button.
+          </div>
+          <button className="btn btn-primary" onClick={openAddProduct}>
+            <Icon name="plus" size={15} /> Add product
+          </button>
         </div>
       )}
 

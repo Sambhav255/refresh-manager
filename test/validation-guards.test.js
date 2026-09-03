@@ -213,6 +213,27 @@ describe('product price guards', () => {
     await fails('products:add', { name: '  ', category: 'day_pass' }, /name/i)
     await fails('products:add', { name: 'Night Pass', category: 'day_pass', price: -5 })
   })
+
+  it('owner can add a day_pass product', async () => {
+    const res = await __invoke('products:add', {
+      name: 'Sauna Day',
+      category: 'day_pass',
+      price: 400
+    })
+    expect(res.success).toBe(true)
+    const row = db.prepare(`SELECT * FROM products WHERE id = ?`).get(res.productId)
+    expect(row.name).toBe('Sauna Day')
+    expect(row.category).toBe('day_pass')
+    expect(row.price).toBe(400)
+  })
+
+  it('membership without durationDays is rejected', async () => {
+    await fails(
+      'products:add',
+      { name: 'Gym', category: 'membership', price: 2500 },
+      /duration/i
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -298,6 +319,7 @@ describe('guarded handlers keep their role gates', () => {
       ['pool-inventory:adjust', { itemId: ids.poolItemId, newQuantity: 5, reason: 'r' }],
       ['pool-inventory:update', { itemId: ids.poolItemId, fields: { sellingPrice: 1 } }],
       ['products:update-price', { productId: ids.dayPassId, newPrice: 100 }],
+      ['products:add', { name: 'X', category: 'day_pass', price: 100 }],
       ['bookings:update', { bookingId: 1, fields: { bookingName: 'X' } }]
     ]
     for (const [channel, payload] of ownerOnly) {
@@ -305,6 +327,17 @@ describe('guarded handlers keep their role gates', () => {
       expect(res.success, `${channel} allowed staff`).toBe(false)
       expect(res.error).toMatch(/owner/i)
     }
+  })
+
+  it('staff cannot products:add', async () => {
+    loginStaff(ids)
+    const res = await __invoke('products:add', {
+      name: 'Sauna Day',
+      category: 'day_pass',
+      price: 400
+    })
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/owner/i)
   })
 
   it('validation happens AFTER the auth check, never leaking to logged-out callers', async () => {

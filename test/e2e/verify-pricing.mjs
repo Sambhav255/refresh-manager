@@ -112,6 +112,20 @@ try {
   )
   await shot(page, 'pricing', '01-empty-price-list')
 
+  // ---------- Owner can add a product from this screen ----------
+  await page.click('button:has-text("Add product")')
+  await page.waitForSelector('button:has-text("Save product")', { timeout: 5000 })
+  await page.fill('.field:has(label:text-is("Name")) input', 'Sauna Day')
+  const typeValue = await page.locator('.field:has(label:text-is("Type")) select').inputValue()
+  check('new product type defaults to entry ticket', typeValue === 'day_pass', typeValue)
+  await page.fill('.field:has(label:text-is("Price")) input', '400')
+  await page.click('button:has-text("Save product")')
+  await page.waitForTimeout(900)
+  check(
+    'the new product appears in the price list',
+    (await group('Sauna Day').count()) === 1
+  )
+
   // ---------- The owner's actual rates: adults 700, children 500 ----------
   await addRate(PRODUCT, { who: 'Adults', days: 'Every day', price: 700 })
   await addRate(PRODUCT, { who: 'Children (6 and under)', days: 'Every day', price: 500 })

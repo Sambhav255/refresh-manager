@@ -67,15 +67,28 @@ export function registerProductHandlers() {
     'products:add',
     wrap(({ name, category, subCategory, durationDays, price }) => {
       requireOwner()
+      const cat = requireText(category, 'Category')
+      if (!['membership', 'day_package', 'day_pass'].includes(cat)) {
+        throw new Error('Choose an entry ticket, combo ticket, or membership')
+      }
+      let days = durationDays ?? null
+      if (cat === 'membership') {
+        days = Number(durationDays)
+        if (!Number.isInteger(days) || days < 1) {
+          throw new Error('Membership duration is required')
+        }
+      } else {
+        days = null
+      }
       const result = getDb()
         .prepare(
           `INSERT INTO products (name, category, sub_category, duration_days, price) VALUES (?, ?, ?, ?, ?)`
         )
         .run(
           requireText(name, 'Product name'),
-          requireText(category, 'Category'),
+          cat,
           subCategory || null,
-          durationDays ?? null,
+          days,
           requireAmount(price, 'Price', 0)
         )
       return { success: true, productId: result.lastInsertRowid }

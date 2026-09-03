@@ -34,6 +34,8 @@ export const api = {
   },
 
   listProducts: async (data) => unwrap(await invoke('listProducts', data), { products: [] }),
+  addProduct: (data) => invoke('addProduct', data),
+  toggleProduct: (data) => invoke('toggleProduct', data),
   updatePrice: (data) => invoke('updatePrice', data),
   priceHistory: async (data) => unwrap(await invoke('priceHistory', data), { history: [] }),
   productPopularity: async () => unwrap(await invoke('productPopularity'), { counts: [] }),
