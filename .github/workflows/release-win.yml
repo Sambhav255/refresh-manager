@@ -25,13 +25,27 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build and publish Windows installer
-        run: npm run build:win:publish
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Windows installer
+        run: npm run build:win
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: refresh-manager-win-release
           path: dist-app/*.exe
+
+      - name: Create GitHub Release
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          INSTALLER="dist-app/Refresh Manager-${VERSION}-setup.exe"
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${INSTALLER}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "Refresh Manager ${VERSION}" \
+              --notes-file CHANGELOG.md \
+              "${INSTALLER}#Refresh Manager ${VERSION} Setup"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
